@@ -1,23 +1,20 @@
 # 网文 AI 智能生成器
 
-基于 DeepSeek API 的小说创作工具，提供章节生成、续写、润色、书籍管理和数据库查看能力。
+基于 DeepSeek API 的小说创作工具，提供章节生成、续写、润色、书籍管理和 React 工作台能力。
 
 ## 当前结构
 
 项目已经统一为单一前端入口结构：
-当前主入口已切换到 React 工作台，旧静态前端仅作为兼容入口保留。
+当前唯一前端入口为 `frontend-react/`，旧静态前端 `frontend/` 已退场删除。
 
 ```text
 alipro-main/
-├── frontend/
+├── frontend-react/
+│   ├── src/
+│   ├── public/
 │   ├── index.html
-│   ├── database-view.html
-│   ├── changelog.html
-│   ├── start-guide.html
-│   ├── favicon.svg
-│   ├── database-view-modern.css
-│   ├── css/
-│   └── js/
+│   ├── vite.config.js
+│   └── package.json
 ├── backend/
 │   ├── server.js
 │   ├── start.bat
@@ -34,11 +31,9 @@ alipro-main/
 
 说明：
 
-- 正式首页入口：`frontend/index.html`
-- 数据库查看器：`frontend/database-view.html`
-- 更新日志：`frontend/changelog.html`
-- 启动引导页：`frontend/start-guide.html`
-- 不再使用 `frontend/html/` 目录
+- 唯一前端源码目录：`frontend-react/`
+- 开发入口：`frontend-react` 的 Vite 开发服务
+- 生产入口：后端托管 `frontend-react/dist`
 
 ## 本地运行
 
@@ -53,7 +48,7 @@ backend\start.bat
 默认会启动后端并打开：
 
 ```text
-http://localhost:3000/
+http://127.0.0.1:5173/
 ```
 
 ### 方式二：手动启动
@@ -64,16 +59,25 @@ npm install
 npm start
 ```
 
+再单独启动前端：
+
+```powershell
+cd frontend-react
+npm install
+npm run dev
+```
+
 然后在浏览器打开：
 
 ```text
-http://localhost:3000/
+http://127.0.0.1:5173/
 ```
 
 ## 常用页面
 
-- 首页：`http://localhost:3000/`
-- 数据库查看器：`http://localhost:3000/projects/alipro/frontend/database-view.html`
+- 开发首页：`http://127.0.0.1:5173/`
+- 生产首页：`http://localhost:3000/`
+- 启动引导：`http://localhost:3000/start-guide`
 - 更新日志：`http://localhost:3000/changelog`
 - 健康检查：`http://localhost:3000/health`
 
@@ -101,12 +105,10 @@ node scripts/bump-version.js major "重大变更"
 
 - `backend/package.json`
 - `version.json`
-- `frontend/*.html` 中的资源版本号
-- `frontend/index.html` 顶部版本注释
-- `frontend/changelog.html` 中的最新版本条目
+- `docs/changelog.json` 的当前版本条目
 
 ## 排障建议
 
-- 如果页面样式异常，先确认访问的是 `frontend/index.html`，而不是历史副本路径
+- 如果页面打不开，先确认 `frontend-react` 是否已执行 `npm run dev` 或是否已有最新构建产物
 - 如果接口请求失败，先检查 `http://localhost:3000/health`
-- 如果部署后页面不一致，优先检查 Nginx 回退入口和前端上传路径是否仍在使用旧目录结构
+- 如果部署后页面不一致，优先检查是否已重新构建 `frontend-react/dist`

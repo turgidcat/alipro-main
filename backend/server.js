@@ -21,7 +21,6 @@ const isDevelopment = (process.env.NODE_ENV || 'development') !== 'production';
 const reactDistDir = path.join(__dirname, '..', 'frontend-react', 'dist');
 const reactIndexPath = path.join(reactDistDir, 'index.html');
 const hasReactBuild = fs.existsSync(reactIndexPath);
-const legacyFrontendDir = path.join(__dirname, '..', 'frontend');
 
 function setNoCacheHeaders(res) {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -174,9 +173,9 @@ app.get('/health', (req, res) => {
   });
 });
 
-// 历史数据库查看器入口统一跳转到当前正式前端页面
+// 历史数据库查看器入口已退场，统一回到当前正式前端入口
 app.get('/database-view', (req, res) => {
-  res.redirect('/projects/alipro/frontend/database-view.html');
+  res.redirect('/');
 });
 
 // React 路由回退
@@ -198,22 +197,6 @@ app.use(express.static(path.join(__dirname, 'public'), {
 
     if (filePath.endsWith('.html')) {
       setNoCacheHeaders(res);
-    }
-  }
-}));
-
-// 旧前端兼容入口
-app.use('/projects/alipro/frontend', express.static(legacyFrontendDir, {
-  setHeaders: (res, filePath) => {
-    if (isDevelopment && (filePath.endsWith('.html') || filePath.endsWith('.css') || filePath.endsWith('.js'))) {
-      setNoCacheHeaders(res);
-      return;
-    }
-
-    if (filePath.endsWith('.html')) {
-      setNoCacheHeaders(res);
-    } else if (filePath.endsWith('.css') || filePath.endsWith('.js')) {
-      res.setHeader('Cache-Control', 'public, max-age=300');
     }
   }
 }));
@@ -324,14 +307,6 @@ app.listen(PORT, () => {
     {
       raw: `新前端入口 http://localhost:${PORT}/`,
       styled: `${colorize('新前端入口', ANSI.bold, ANSI.white)} ${colorize(`http://localhost:${PORT}/`, ANSI.green)}`
-    },
-    {
-      raw: '旧版兼容入口',
-      styled: colorize('旧版兼容入口', ANSI.bold, ANSI.white)
-    },
-    {
-      raw: `  http://localhost:${PORT}/projects/alipro/frontend/index.html`,
-      styled: `  ${colorize(`http://localhost:${PORT}/projects/alipro/frontend/index.html`, ANSI.yellow)}`
     },
     { raw: '' },
     {

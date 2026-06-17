@@ -1,6 +1,6 @@
 # frontend-react
 
-这是 `alipro-main` 的 React 创作工作台，当前已经作为主前端入口使用。
+这是 `alipro-main` 的 React 创作工作台，当前已经作为唯一前端入口使用。
 
 ## 现在负责什么
 
@@ -45,11 +45,7 @@ npm run build
 http://localhost:3000/
 ```
 
-旧版静态页仍保留在：
-
-```text
-http://localhost:3000/projects/alipro/frontend/index.html
-```
+生产环境不再保留旧静态前端兼容页，统一只保留当前入口。
 
 ## 样式管理页自检
 
@@ -64,5 +60,5 @@ npm run verify:style-manager
 ## 当前边界
 
 - React 已经接管主工作台
-- 旧静态前端保留为兼容入口
-- 后续如果要继续收口，优先下线旧入口页面
+- `frontend-react` 是唯一主前端
+- 旧静态前端 `frontend/` 已退场删除

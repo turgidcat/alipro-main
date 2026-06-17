@@ -262,23 +262,22 @@ backend/
 
 ## 前端静态文件
 
-后端同时托管前端静态文件：
+后端当前只负责托管 React 构建产物：
 
 | 路径 | 对应目录 |
 |------|----------|
-| `/projects/alipro/frontend` | `../frontend/` |
+| `/` | `../frontend-react/dist/` |
 
 当前正式页面入口统一为：
 
 - `http://localhost:3000/`
-- `/projects/alipro/frontend/database-view.html`
 - `http://localhost:3000/changelog`
 - `http://localhost:3000/start-guide`
 
 说明：
 
 - `backend/public/` 不再承载业务主页面
-- `/database-view` 仅作为历史入口兼容跳转
+- `/database-view` 已退场，当前统一跳回 `/`
 
 HTML 文件禁用缓存（开发友好），CSS/JS 缓存 5 分钟。
 
