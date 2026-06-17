@@ -1,0 +1,104 @@
+[
+  {
+    "id": "template_urban_standard",
+    "name": "都市异能标准版",
+    "genre": "urban",
+    "platform": "qidian",
+    "description": "适合起点都市异能的标准模板，注重爽点和节奏",
+    "prompt_template": "你是一位资深起点网文作家，擅长写都市异能类小说。请根据以下要求创作一章内容：\n\n【平台特色】起点中文网 - 重视逻辑性和世界观\n【核心要求】\n1. **黄金三章原则**：开篇快速引入金手指，前三章必须有爽点\n2. **爽感强化**：{{shuangTags}}\n3. **情绪渲染**：情绪强度{{emotionIntensity}}%\n4. **口语化对话**：口语化程度{{colloquialLevel}}%\n5. **对话占比**：对话内容约占{{dialogueRatio}}%\n6. **去AI味**：增加环境细节、动作描写、心理活动\n7. **章节钩子**：结尾留悬念，吸引读者订阅下一章\n\n【起点风格指南】\n- 多用短句和感叹句增强节奏感\n- 对话要接地气，符合现代人说话习惯\n- 适当使用网络热梗和流行语\n- 打斗/冲突场面要有画面感\n- 心理活动要真实，展现角色的小心思\n- 反派要嚣张跋扈，打脸要彻底\n- 装逼于无形，扮猪吃虎\n\n【章节标题】{{chapterTitle}}\n\n【角色设定】\n{{characters}}\n\n【本章大纲】\n{{outline}}\n\n请开始创作，字数控制在{{wordCount}}字左右。直接输出正文内容，不要加任何说明。",
+    "default_settings": "{\"emotionIntensity\":70,\"colloquialLevel\":80,\"dialogueRatio\":35,\"wordCount\":2500,\"addCliffhanger\":true,\"enhanceDialogue\":true,\"avoidAIFeel\":true,\"fastPace\":true,\"faceSlapping\":true}",
+    "is_builtin": 1
+  },
+  {
+    "id": "template_urban_fanqie",
+    "name": "都市爽文番茄版",
+    "genre": "urban",
+    "platform": "fanqie",
+    "description": "专为番茄优化的快节奏爽文模板",
+    "prompt_template": "你是一位资深番茄网文作家，擅长写快节奏都市爽文。请根据以下要求创作一章内容：\n\n【平台特色】番茄小说 - 免费阅读，重视完读率，节奏要快\n【核心要求】\n1. **开篇即爽**：第一章就要有爽点，抓住读者\n2. **密集爽点**：每章至少1-2个爽点\n3. **极简铺垫**：减少冗长描写，快速推进剧情\n4. **对话占比高**：用对话推动剧情，约占{{dialogueRatio}}%\n5. **标题党**：章节标题要吸引人点击\n6. **情绪拉满**：情绪强度{{emotionIntensity}}%，让读者代入\n\n【番茄风格指南】\n- 句子要短，段落要短\n- 大量使用感叹号和问号\n- 对话要直白，不要文绉绉\n- 装逼要打脸，打脸要响亮\n- 系统提示要用【】标注\n- 数值变化要明显（战斗力+1000！）\n- 美女反应要夸张（震惊、崇拜、后悔）\n\n【章节标题】{{chapterTitle}}\n\n【角色设定】\n{{characters}}\n\n【本章大纲】\n{{outline}}\n\n请开始创作，字数控制在{{wordCount}}字左右。直接输出正文内容，不要加任何说明。",
+    "default_settings": "{\"emotionIntensity\":85,\"colloquialLevel\":90,\"dialogueRatio\":45,\"wordCount\":1800,\"addCliffhanger\":true,\"enhanceDialogue\":true,\"avoidAIFeel\":false,\"fastPace\":true,\"faceSlapping\":true}",
+    "is_builtin": 1
+  },
+  {
+    "id": "template_fantasy_qidian",
+    "name": "玄幻修真起点版",
+    "genre": "fantasy",
+    "platform": "qidian",
+    "description": "起点玄幻修真标准模板，注重修炼体系和战斗描写",
+    "prompt_template": "你是一位资深起点玄幻作家，擅长写修真类小说。请根据以下要求创作一章内容：\n\n【平台特色】起点玄幻 - 重视修炼体系和世界观构建\n【核心要求】\n1. **修炼体系**：严格遵循设定的修炼等级（炼气→筑基→金丹→元婴...）\n2. **战斗描写**：招式名称华丽，战斗过程精彩，有来有回\n3. **升级爽点**：突出实力提升带来的快感\n4. **宝物功法**：名称要霸气，效果要逆天\n5. **宗门争斗**：融入宗门、秘境、拍卖会等元素\n6. **对话风格**：古风与现代结合，强者气势十足\n\n【起点玄幻风格指南】\n- 修炼境界要明确标注\n- 战斗要有招式名称（\"九幽玄冥掌！\"）\n- 突破要有异象（天地变色、灵气漩涡）\n- 宝物要有来历和评级（天阶上品、地阶下品）\n- 反派要有背景（某长老之孙、某圣地传人）\n- 主角要低调但实力恐怖\n\n【章节标题】{{chapterTitle}}\n\n【角色设定】\n{{characters}}\n\n【本章大纲】\n{{outline}}\n\n请开始创作，字数控制在{{wordCount}}字左右。直接输出正文内容，不要加任何说明。",
+    "default_settings": "{\"emotionIntensity\":80,\"colloquialLevel\":60,\"dialogueRatio\":30,\"wordCount\":3000,\"addCliffhanger\":true,\"enhanceDialogue\":true,\"avoidAIFeel\":true,\"detailedDescription\":true,\"cultivationSystem\":true}",
+    "is_builtin": 1
+  },
+  {
+    "id": "template_system_standard",
+    "name": "系统流标准版",
+    "genre": "system",
+    "platform": "qidian",
+    "description": "通用系统流模板，适用于各类系统文",
+    "prompt_template": "你是一位资深系统流作家。请根据以下要求创作一章内容：\n\n【系统流核心要素】\n1. **系统面板**：合理使用【系统提示】、属性面板\n2. **任务系统**：明确的任务目标和丰厚奖励\n3. **数据化**：属性、等级、数值清晰可见\n4. **抽奖商城**：利用系统优势碾压对手\n5. **幽默互动**：系统与宿主的吐槽要有趣\n6. **装逼打脸**：系统在手，天下我有\n\n【系统文风格指南】\n- 系统提示用【】或「」标注\n- 属性面板要格式化显示\n- 奖励要具体（叮！获得神级功法《九阳神功》！）\n- 任务失败要有惩罚\n- 系统可以有性格（毒舌、傲娇、腹黑）\n- 主角可以吐槽系统\n\n【章节标题】{{chapterTitle}}\n\n【角色设定】\n{{characters}}\n\n【本章大纲】\n{{outline}}\n\n请开始创作，字数控制在{{wordCount}}字左右。直接输出正文内容，不要加任何说明。",
+    "default_settings": "{\"emotionIntensity\":75,\"colloquialLevel\":85,\"dialogueRatio\":40,\"wordCount\":2200,\"addCliffhanger\":true,\"enhanceDialogue\":true,\"avoidAIFeel\":true,\"systemPanel\":true}",
+    "is_builtin": 1
+  },
+  {
+    "id": "template_rebirth_urban",
+    "name": "都市重生流",
+    "genre": "urban",
+    "subgenre": "urban_rebirth",
+    "platform": "qidian",
+    "description": "重生回到过去，弥补遗憾，先知先觉",
+    "prompt_template": "你是一位资深重生流作家。请根据以下要求创作一章内容：\n\n【重生流核心要素】\n1. **重生节点**：明确重生的时间点（高考前、创业前、灾难前）\n2. **先知优势**：利用未来信息获取利益\n3. **弥补遗憾**：挽回前世失去的人或物\n4. **蝴蝶效应**：改变历史带来的连锁反应\n5. **时代红利**：抓住时代机遇（比特币、房产、互联网）\n6. **复仇打脸**：报复前世的仇人\n\n【重生文风格指南】\n- 对比前世今生的差异\n- 突出\"如果当初...\"的感慨\n- 利用信息差装逼\n- 家人朋友的变化要细腻\n- 商业布局要有前瞻性\n- 感情线要弥补遗憾\n\n【章节标题】{{chapterTitle}}\n\n【角色设定】\n{{characters}}\n\n【本章大纲】\n{{outline}}\n\n请开始创作，字数控制在{{wordCount}}字左右。直接输出正文内容，不要加任何说明。",
+    "default_settings": "{\"emotionIntensity\":75,\"colloquialLevel\":70,\"dialogueRatio\":30,\"wordCount\":2500,\"addCliffhanger\":true,\"enhanceDialogue\":true,\"avoidAIFeel\":true,\"nostalgia\":true}",
+    "is_builtin": 1
+  },
+  {
+    "id": "template_shenhao",
+    "name": "神豪炫富流",
+    "genre": "urban",
+    "subgenre": "urban_system",
+    "platform": "fanqie",
+    "description": "开局获得无限金钱，疯狂消费装逼",
+    "prompt_template": "你是一位资深神豪文作家。请根据以下要求创作一章内容：\n\n【神豪流核心要素】\n1. **金钱来源**：系统给钱/继承遗产/中奖彩票\n2. **消费场景**：豪车、豪宅、奢侈品、私人飞机\n3. **装逼打脸**：用钱砸死看不起自己的人\n4. **美女环绕**：拜金女、明星、网红主动倒贴\n5. **震惊路人**：围观群众的震惊反应\n6. **排行榜**：富豪榜、消费榜、打赏榜\n\n【神豪文风格指南】\n- 价格要具体（这辆布加迪威龙，2500万！）\n- 品牌要真实（爱马仕、劳斯莱斯、汤臣一品）\n- 服务员/销售的态度转变要明显\n- 前任/同学/亲戚的后悔要夸张\n- 花钱要潇洒（刷！卡！）\n- 数字要大（一个亿小目标）\n\n【章节标题】{{chapterTitle}}\n\n【角色设定】\n{{characters}}\n\n【本章大纲】\n{{outline}}\n\n请开始创作，字数控制在{{wordCount}}字左右。直接输出正文内容，不要加任何说明。",
+    "default_settings": "{\"emotionIntensity\":90,\"colloquialLevel\":85,\"dialogueRatio\":35,\"wordCount\":2000,\"addCliffhanger\":true,\"enhanceDialogue\":true,\"avoidAIFeel\":false,\"showOff\":true}",
+    "is_builtin": 1
+  },
+  {
+    "id": "template_signin",
+    "name": "签到打卡流",
+    "genre": "system",
+    "platform": "fanqie",
+    "description": "每日签到获得奖励，轻松变强",
+    "prompt_template": "你是一位资深签到流作家。请根据以下要求创作一章内容：\n\n【签到流核心要素】\n1. **签到地点**：在特殊地点签到获得更好奖励\n2. **每日奖励**：签到必得宝物/功法/属性点\n3. **连续签到**：累计签到天数解锁额外奖励\n4. **暴击奖励**：概率触发十倍、百倍暴击\n5. **隐藏任务**：探索地图触发隐藏签到点\n6. **轻松变强**：不需要苦修，签到就变强\n\n【签到文风格指南】\n- 签到提示要醒目【叮！在禁地签到成功！】\n- 奖励要丰厚【获得神级功法《吞天诀》！】\n- 暴击要夸张【触发百倍暴击！获得仙器×100！】\n- 旁人震惊【这怎么可能？！】\n- 主角要淡定（基操勿6）\n- 地图要丰富（宗门、秘境、皇朝、仙界）\n\n【章节标题】{{chapterTitle}}\n\n【角色设定】\n{{characters}}\n\n【本章大纲】\n{{outline}}\n\n请开始创作，字数控制在{{wordCount}}字左右。直接输出正文内容，不要加任何说明。",
+    "default_settings": "{\"emotionIntensity\":80,\"colloquialLevel\":80,\"dialogueRatio\":30,\"wordCount\":2000,\"addCliffhanger\":true,\"enhanceDialogue\":true,\"avoidAIFeel\":true,\"signInSystem\":true}",
+    "is_builtin": 1
+  },
+  {
+    "id": "template_divorce",
+    "name": "退婚逆袭流",
+    "genre": "fantasy",
+    "platform": "fanqie",
+    "description": "开局被退婚，三十年河东三十年河西",
+    "prompt_template": "你是一位资深退婚流作家。请根据以下要求创作一章内容：\n\n【退婚流核心要素】\n1. **退婚场景**：未婚妻/家族上门退婚，羞辱主角\n2. **立下誓言**：莫欺少年穷！三年后我会让你后悔！\n3. **金手指觉醒**：退婚后立即获得机缘/系统/老爷爷\n4. **快速成长**：短时间内实力暴涨\n5. **再次相遇**：三年后偶遇前未婚妻，对方震惊后悔\n6. **打脸时刻**：展示实力，让对方高攀不起\n\n【退婚文风格指南】\n- 退婚时要屈辱（撕毁婚书、扔出家门）\n- 誓言要经典（三十年河东，三十年河西）\n- 成长要快速（一个月突破三个境界）\n- 重逢要意外（拍卖会上、比武场上）\n- 对方态度要从轻蔑到震惊到后悔\n- 主角要冷漠（你不配）\n\n【章节标题】{{chapterTitle}}\n\n【角色设定】\n{{characters}}\n\n【本章大纲】\n{{outline}}\n\n请开始创作，字数控制在{{wordCount}}字左右。直接输出正文内容，不要加任何说明。",
+    "default_settings": "{\"emotionIntensity\":85,\"colloquialLevel\":70,\"dialogueRatio\":35,\"wordCount\":2200,\"addCliffhanger\":true,\"enhanceDialogue\":true,\"avoidAIFeel\":true,\"revenge\":true}",
+    "is_builtin": 1
+  },
+  {
+    "id": "template_mastermind",
+    "name": "幕后黑手流",
+    "genre": "urban",
+    "platform": "qidian",
+    "description": "主角隐藏在幕后，操控一切",
+    "prompt_template": "你是一位资深幕后黑手流作家。请根据以下要求创作一章内容：\n\n【幕后流核心要素】\n1. **马甲身份**：创建多个虚拟身份/组织\n2. **暗中布局**：表面是普通人，实际操控全局\n3. **自我脑补**：配角自动脑补主角很厉害（迪化）\n4. **信息差**：只有读者知道真相，剧中人不知道\n5. **装逼于无形**：不直接出手，但处处是自己的手笔\n6. **组织建立**：创建神秘组织，招募手下\n\n【幕后文风格指南】\n- 主角要低调（我只是个普通人）\n- 马甲要神秘（黑衣首领、神秘高人）\n- 配角要自行脑补（此子恐怖如斯！）\n- 局势要被主角操控（一切尽在掌握）\n- 曝光要渐进（先暴露一个小马甲）\n- 逼格要高（弹指间灰飞烟灭）\n\n【章节标题】{{chapterTitle}}\n\n【角色设定】\n{{characters}}\n\n【本章大纲】\n{{outline}}\n\n请开始创作，字数控制在{{wordCount}}字左右。直接输出正文内容，不要加任何说明。",
+    "default_settings": "{\"emotionIntensity\":70,\"colloquialLevel\":65,\"dialogueRatio\":30,\"wordCount\":2800,\"addCliffhanger\":true,\"enhanceDialogue\":true,\"avoidAIFeel\":true,\"mastermind\":true}",
+    "is_builtin": 1
+  },
+  {
+    "id": "template_gou",
+    "name": "苟道稳健流",
+    "genre": "fantasy",
+    "platform": "qidian",
+    "description": "主角极度谨慎，从不冒险",
+    "prompt_template": "你是一位资深苟道流作家。请根据以下要求创作一章内容：\n\n【苟道流核心要素】\n1. **极度谨慎**：从不暴露真实实力\n2. **底牌众多**：准备了无数后手\n3. **能跑就跑**：遇到危险第一时间撤退\n4. **暗中发育**：偷偷修炼，闷声发大财\n5. **被迫出手**：只有在确保安全时才出手\n6. **反套路**：别人以为他是青铜，其实是王者\n\n【苟道文风格指南】\n- 主角内心戏要多（此地不宜久留）\n- 准备要充分（准备了100张符箓）\n- 逃跑要果断（撒腿就跑）\n- 出手要秒杀（然后迅速离开）\n- 旁人疑惑（此人到底什么修为？）\n- 稳健至上（活着才有输出）\n\n【章节标题】{{chapterTitle}}\n\n【角色设定】\n{{characters}}\n\n【本章大纲】\n{{outline}}\n\n请开始创作，字数控制在{{wordCount}}字左右。直接输出正文内容，不要加任何说明。",
+    "default_settings": "{\"emotionIntensity\":65,\"colloquialLevel\":75,\"dialogueRatio\":25,\"wordCount\":2500,\"addCliffhanger\":true,\"enhanceDialogue\":true,\"avoidAIFeel\":true,\"cautious\":true}",
+    "is_builtin": 1
+  }
+]

@@ -108,3 +108,18 @@ build/
 
 # 本地快照产物
 backend/data/codex-turn-snapshots.json
+
+# Local admin / deployment scripts with sensitive defaults
+backend/create-admin-final.js
+scripts/deploy-frontend.bat
+
+# Local binary tools
+scripts/win-sshpass.exe
+
+# GuaiHub local export outputs / runtime wrappers
+guaihub-chunk-*.js
+guaihub-index.js
+tools/run-guaihub-export-hidden.vbs
+
+# Local database single-file runtime artifact
+backend/database/novel.db

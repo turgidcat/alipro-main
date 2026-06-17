@@ -1,0 +1,560 @@
+{
+  "releases": [
+    {
+      "version": "1.4.0",
+      "date": "2026-06-17",
+      "title": "v1.4.0 更新记录",
+      "summary": "补齐版本化更新日志，并把日志与版本判断收口成自动机制。",
+      "groups": [
+        {
+          "category": "feature",
+          "title": "新功能",
+          "items": [
+            {
+              "date": "2026-06-15",
+              "title": "版本号自动判定机制",
+              "summary": "系统现在可以根据更新日志分类自动判断 patch 或 minor。",
+              "details": [
+                "新增 auto-bump-version 脚本，自动判断是否该升版本",
+                "出现“新功能”时自动判定 minor，仅有“修复/完善/文档”时判定 patch",
+                "major 版本永远不自动升级，仍然保留给用户手动决定"
+              ],
+              "status": "done",
+              "source": "daily"
+            },
+            {
+              "date": "2026-06-15",
+              "title": "更新日志改为版本化展示",
+              "summary": "更新日志页现在以版本号为主条目，按分类分组展示具体更新。",
+              "details": [
+                "新增 release 数据结构，支持版本 -> 分类 -> 明细 的层级展示",
+                "React 日志页改为读取统一接口，不再写死条目",
+                "补齐 1.2.5 之后的版本段，页面可以按时间顺序追溯最近施工"
+              ],
+              "status": "done",
+              "source": "daily"
+            }
+          ]
+        },
+        {
+          "category": "improve",
+          "title": "完善",
+          "items": [
+            {
+              "date": "2026-06-15",
+              "title": "更新日志统一数据源",
+              "summary": "日志数据、页面展示和自动化来源已经收成同一套结构。",
+              "details": [
+                "docs/changelog.json 成为唯一主数据源",
+                "后端接口统一返回当前版本和 release 列表",
+                "页面层级压缩为版本、分类、明细三层，阅读负担更低"
+              ],
+              "status": "done",
+              "source": "daily"
+            },
+            {
+              "date": "2026-06-15",
+              "title": "每日自动化改到凌晨执行",
+              "summary": "每日更新日志自动化改为每天 00:01 触发，并在补日志后自动判断是否升小版本。",
+              "details": [
+                "自动化先检查并补当天日志草稿",
+                "再根据已完成更新判断是否执行 patch 或 minor 升级",
+                "无新增完成项时会明确跳过，不做无效升级"
+              ],
+              "status": "done",
+              "source": "daily"
+            }
+          ]
+        },
+        {
+          "category": "docs",
+          "title": "文档",
+          "items": [
+            {
+              "date": "2026-06-17",
+              "title": "章节反馈一致性排查草稿",
+              "summary": "已记录今天围绕章节反馈回写一致性排查的初步结果，待补充后续实际修复或验收内容。",
+              "details": [
+                "新增 currentProgress 一致性排查报告，当前先核对链路与字段语义。",
+                "同步保留今日 GuaiHub 统计采样文件，供成本与调用数据继续校对。"
+              ],
+              "status": "draft",
+              "source": "daily"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.3.1",
+      "date": "2026-06-14",
+      "title": "v1.3.1 更新记录",
+      "summary": "主链验收、批量生成和台账口径完成一次真实收口。",
+      "groups": [
+        {
+          "category": "improve",
+          "title": "完善",
+          "items": [
+            {
+              "date": "2026-06-14",
+              "title": "P0 与 P1 状态完成校准",
+              "summary": "主链闭环、批量验收和说明口径完成一次统一校准。",
+              "details": [
+                "generation-logic 看板与 latest-task-status 台账同步",
+                "确认 React 工作台已接管主创作链路",
+                "重新收口批量生成与演示样板的实际完成范围"
+              ],
+              "status": "done",
+              "source": "daily"
+            },
+            {
+              "date": "2026-06-14",
+              "title": "批量生成复验 1-5 章",
+              "summary": "按新主链重新验收批量生成，确认兼容输入与结构化输入都能跑通。",
+              "details": [
+                "第 1-4 章通过 outline_text 兼容路径生成",
+                "第 5 章通过 stored_structured_outline 新路径生成",
+                "本轮字数浮动控制在 10% 内，页面说明与真实结果同步"
+              ],
+              "status": "done",
+              "source": "daily"
+            }
+          ]
+        },
+        {
+          "category": "fix",
+          "title": "修复",
+          "items": [
+            {
+              "date": "2026-06-14",
+              "title": "反馈与校改回写刷新",
+              "summary": "重新生成和校改保存后，章节反馈会同步刷新，不再出现前端展示滞后。",
+              "details": [
+                "workbench 重新生成后正文、反馈、章节计划同步刷新",
+                "校改弹窗直接保存后反馈再次写回并刷新",
+                "chapter_feedback.updated_at 刷新逻辑重新核验"
+              ],
+              "status": "done",
+              "source": "daily"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.3.0",
+      "date": "2026-06-13",
+      "title": "v1.3.0 更新记录",
+      "summary": "资料库与创作台完成一次较大规模重构，书籍、大纲、角色和章节维护开始按页面分层。",
+      "groups": [
+        {
+          "category": "feature",
+          "title": "新功能",
+          "items": [
+            {
+              "date": "2026-06-13",
+              "title": "资料库拆分为多页面维护",
+              "summary": "books 页面开始承担书籍总览入口，并拆出大纲、角色、章节等分页面。",
+              "details": [
+                "形成 /books、/books/outlines、/books/characters、/books/chapters 分层入口",
+                "书籍卡提供跳转入口，不再把所有信息挤在一个页面",
+                "大纲链、角色链和章节数据开始按职责分开维护"
+              ],
+              "status": "done",
+              "source": "daily"
+            },
+            {
+              "date": "2026-06-13",
+              "title": "封面与角色图上传链路",
+              "summary": "书籍封面、分卷封面和角色头像都支持上传保存。",
+              "details": [
+                "books.cover_image、volume_plans.cover_image、novel_characters.avatar_image 接入持久化",
+                "workbench 和 books 页面优先显示真实上传图片",
+                "角色头像补上可拖动裁剪，避免尺寸不一致直接变形"
+              ],
+              "status": "done",
+              "source": "daily"
+            },
+            {
+              "date": "2026-06-13",
+              "title": "AI 生成角色档案",
+              "summary": "角色档案页开始支持按角色定位批量生成角色卡。",
+              "details": [
+                "支持主角、主要配角、普通配角、大反派、普通反派等角色定位",
+                "角色卡增加定位角标与底色区分，提高辨识度",
+                "生成角色时会参考已有大纲信息，减少题材错位和风格跑偏"
+              ],
+              "status": "done",
+              "source": "daily"
+            }
+          ]
+        },
+        {
+          "category": "improve",
+          "title": "完善",
+          "items": [
+            {
+              "date": "2026-06-13",
+              "title": "创作台卡片重排与设计收束",
+              "summary": "workbench 的书籍卡、大纲卡、角色卡和章节控制区完成一次视觉重排。",
+              "details": [
+                "去掉冗余摘要，只保留主体角色明细和分卷信息",
+                "按概念图调整书籍展示页和创作台入口卡片",
+                "修正标题换行、按钮遮挡、对齐歪斜等多轮视觉问题"
+              ],
+              "status": "done",
+              "source": "daily"
+            },
+            {
+              "date": "2026-06-13",
+              "title": "角色与大纲维护方式统一",
+              "summary": "角色档案页的交互开始向大纲维护页靠拢，减少两套心智模型。",
+              "details": [
+                "角色摘要逐步退场，改为围绕角色卡片与角色档案维护",
+                "大纲页强调全书大纲、分卷大纲、剧情线大纲的层级关系",
+                "资料库页和创作台页之间补上来回切换入口"
+              ],
+              "status": "done",
+              "source": "daily"
+            }
+          ]
+        },
+        {
+          "category": "fix",
+          "title": "修复",
+          "items": [
+            {
+              "date": "2026-06-13",
+              "title": "重新生成与清空策略修正",
+              "summary": "角色和分卷重新生成时的交互逻辑重新梳理，避免旧数据残留或被误清空。",
+              "details": [
+                "角色重新生成不再强制清空，新增单独清空已有角色按钮",
+                "分卷大纲重新生成逻辑修复，已生成后再次拆分不再无效",
+                "若接口短时异常，页面重载后能恢复正确调用"
+              ],
+              "status": "done",
+              "source": "daily"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.9",
+      "date": "2026-06-11",
+      "title": "v1.2.9 更新记录",
+      "summary": "React 迁移从方案阶段进入主体接管阶段，工作台与主链收口开始落地。",
+      "groups": [
+        {
+          "category": "feature",
+          "title": "新功能",
+          "items": [
+            {
+              "date": "2026-06-11",
+              "title": "React 工作台主体接管成型",
+              "summary": "全书规划、单章设置、正文生成三块主工作区开始由 React 工作台承接。",
+              "details": [
+                "WorkbenchPage 与前端 React 入口完成一轮主体搭建",
+                "前后端启动、vite 开发与构建链路开始围绕 React 主入口工作",
+                "为后续 chapter_plans、反馈闭环和资料库联动提供了新承载层"
+              ],
+              "status": "done",
+              "source": "history"
+            }
+          ]
+        },
+        {
+          "category": "improve",
+          "title": "完善",
+          "items": [
+            {
+              "date": "2026-06-11",
+              "title": "主链实施路线重新收口",
+              "summary": "implementation-roadmap 补充最新任务清单，明确 React 接管、章节规划主表和反馈闭环的施工顺序。",
+              "details": [
+                "把章节规划主表、资料库接管和反馈闭环放入同一施工视图",
+                "明确旧 outline 兼容层短期保留，新主链逐步优先",
+                "为后续 P0、P1、P2 的状态校准提供了路线依据"
+              ],
+              "status": "done",
+              "source": "history"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.8",
+      "date": "2026-06-09",
+      "title": "v1.2.8 更新记录",
+      "summary": "围绕 React 迁移边界和 AI 创作全流程，形成了较完整的中期改造方案。",
+      "groups": [
+        {
+          "category": "improve",
+          "title": "完善",
+          "items": [
+            {
+              "date": "2026-06-09",
+              "title": "React 迁移边界方案",
+              "summary": "明确禁止碎片化迁移，要求按完整业务区域接管前端。",
+              "details": [
+                "提出按业务岛渐进迁移，而不是按按钮和弹窗碎片迁移",
+                "明确新旧前端必须物理隔离，避免 DOM 控制权打架",
+                "将首页创作主链、资料库、引导页列为可分区接管对象"
+              ],
+              "status": "done",
+              "source": "history"
+            },
+            {
+              "date": "2026-06-09",
+              "title": "全流程 AI 创作实施计划",
+              "summary": "把 chapter_plans、book_plans、volume_plans、storylines、chapter_feedback 串成分期改造路线。",
+              "details": [
+                "明确先收口章节规划，再做全书与分卷正式化",
+                "把剧情线闭环和反馈闭环拆成后续阶段推进",
+                "要求每一步都能单独验证，避免一次性大爆破"
+              ],
+              "status": "done",
+              "source": "history"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.7",
+      "date": "2026-06-07",
+      "title": "v1.2.7 更新记录",
+      "summary": "章节规划主对象和大纲/角色底层分层方案在这一阶段被正式明确。",
+      "groups": [
+        {
+          "category": "feature",
+          "title": "新功能",
+          "items": [
+            {
+              "date": "2026-06-07",
+              "title": "chapter_plans 进入主对象阶段",
+              "summary": "章节规划开始从碎片字段过渡为独立对象，作为正文生成前的正式准备层。",
+              "details": [
+                "补充 chapter_plans 的主读写定位",
+                "明确首页第三步优先读取 chapter_plans",
+                "旧的 novel_outlines type='chapter' 与 chapters.outline 降级为兼容来源"
+              ],
+              "status": "done",
+              "source": "history"
+            }
+          ]
+        },
+        {
+          "category": "improve",
+          "title": "完善",
+          "items": [
+            {
+              "date": "2026-06-07",
+              "title": "大纲与角色底层结构规划",
+              "summary": "明确全书大纲、分卷大纲、剧情线、章节规划和角色资料的分层关系。",
+              "details": [
+                "提出 book_plans、volume_plans、storylines、chapter_plans 的推荐分层",
+                "明确角色和大纲不混存，但在章节规划层会合",
+                "给出正文生成的数据读取顺序和兼容桥接原则"
+              ],
+              "status": "done",
+              "source": "history"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.6.1",
+      "date": "2026-06-06",
+      "title": "v1.2.6.1 更新记录",
+      "summary": "旧大纲编辑链路补上桥接层，先把 database-view 与大纲编辑器的断线接起来。",
+      "groups": [
+        {
+          "category": "fix",
+          "title": "修复",
+          "items": [
+            {
+              "date": "2026-06-06",
+              "title": "大纲编辑器桥接补洞",
+              "summary": "为 database-view.html 缺失的多个函数补上桥接实现，恢复旧资料库入口的基础可用性。",
+              "details": [
+                "新增 outline-editor-bridge.js，桥接全书大纲、分卷规划等旧入口调用",
+                "解决未定义函数导致的编辑器不可用问题",
+                "为后续从旧资料库平滑过渡到新维护链路提供兜底"
+              ],
+              "status": "done",
+              "source": "history"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.6",
+      "date": "2026-06-12",
+      "title": "v1.2.6 更新记录",
+      "summary": "补齐启动引导与辅助统计页，让外围信息展示开始有统一入口。",
+      "groups": [
+        {
+          "category": "feature",
+          "title": "新功能",
+          "items": [
+            {
+              "date": "2026-06-12",
+              "title": "启动引导页接入成本与轮次统计",
+              "summary": "start-guide 页面开始整合 Codex 轮次快照与 GuaiHub 调用数据。",
+              "details": [
+                "新增轮次快照台账、按模型汇总、最近调用明细等卡片",
+                "支持按 24 小时统计区间观察平均成本与每小时请求密度",
+                "补充缓存命中、单轮成本、峰值时段等指标，便于和 Plus 使用体验对比"
+              ],
+              "status": "done",
+              "source": "daily"
+            },
+            {
+              "date": "2026-06-12",
+              "title": "GuaiHub 数据拉取闭环",
+              "summary": "围绕 GuaiHub 的个人用量数据建立了导出、读取和页面展示闭环。",
+              "details": [
+                "确认价格字段按人民币解读，不再沿用页面上的美元误导",
+                "打通最近请求、模型汇总、余额与高峰时段展示",
+                "为后续自动化刷新和成本跟踪提供了本地数据基础"
+              ],
+              "status": "done",
+              "source": "daily"
+            }
+          ]
+        },
+        {
+          "category": "improve",
+          "title": "完善",
+          "items": [
+            {
+              "date": "2026-06-12",
+              "title": "generation-logic 页面瘦身",
+              "summary": "生成链路页开始只保留主链和看板重点，减少已经解决项的噪音。",
+              "details": [
+                "上方错位提醒和已解决问题逐步从主视图退场",
+                "P0、P1、P2 的展示重点转向实际施工状态而不是旧分析过程",
+                "帮助 generation-logic 从杂项提示页回归到真正的项目看板"
+              ],
+              "status": "done",
+              "source": "daily"
+            },
+            {
+              "date": "2026-06-12",
+              "title": "定时统计链路初步建立",
+              "summary": "Codex 轮次快照和 GuaiHub 采样开始具备定时更新基础。",
+              "details": [
+                "轮次心跳从半小时逐步改到更高频的短间隔",
+                "页面说明和卡片展示开始围绕自动刷新设计",
+                "为后续每日自动日志与版本判断机制打下基础"
+              ],
+              "status": "done",
+              "source": "daily"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.5",
+      "date": "2026-05-25",
+      "title": "v1.2.5 更新记录",
+      "summary": "部署与路径问题完成一轮集中修补，旧静态入口的可用性得到恢复。",
+      "groups": [
+        {
+          "category": "fix",
+          "title": "修复",
+          "items": [
+            {
+              "date": "2026-05-25",
+              "title": "修复部署脚本中文路径问题",
+              "summary": "部署和资源路径中的中文目录问题完成修复，静态发布流程恢复稳定。",
+              "details": [
+                "修正部署脚本中的路径处理逻辑",
+                "减少因中文目录导致的资源上传失败和入口失效",
+                "为后续 React 与旧静态页并行保留了可用基础"
+              ],
+              "status": "done",
+              "source": "history"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.4",
+      "date": "2026-05-25",
+      "title": "v1.2.4 更新记录",
+      "summary": "前端路径兼容问题单独修补一次，为后续部署修复做过渡。",
+      "groups": [
+        {
+          "category": "fix",
+          "title": "修复",
+          "items": [
+            {
+              "date": "2026-05-25",
+              "title": "前端路径兼容修复",
+              "summary": "修正静态前端路径指向，避免页面入口与资源引用失配。",
+              "details": [
+                "清理旧路径写法带来的页面打开异常",
+                "为后续部署脚本修复提供了过渡版本",
+                "与同日的后续修补版本区分为独立节点保留"
+              ],
+              "status": "done",
+              "source": "history"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.3",
+      "date": "2026-05-25",
+      "title": "v1.2.3 更新记录",
+      "summary": "数据库增强、管理页合并和前端路径修补在这一阶段集中完成。",
+      "groups": [
+        {
+          "category": "feature",
+          "title": "新功能",
+          "items": [
+            {
+              "date": "2026-05-25",
+              "title": "数据库增强与三大管理页合并",
+              "summary": "书籍、大纲、角色相关管理能力在旧前端阶段完成一次集中扩充。",
+              "details": [
+                "支持批量选择删除书籍",
+                "新增统计面板，总览总字数、章节数和标签数",
+                "大纲、角色、书籍三页在旧版管理区完成合并"
+              ],
+              "status": "done",
+              "source": "history"
+            }
+          ]
+        },
+        {
+          "category": "fix",
+          "title": "修复",
+          "items": [
+            {
+              "date": "2026-05-25",
+              "title": "关键前端交互问题修复",
+              "summary": "旧前端一批高频交互问题在这一版集中修掉。",
+              "details": [
+                "修复按钮无响应、预览卡住、API 拦截异常",
+                "修复 toast 不消失、页面空白、CSS 冲突等问题",
+                "为后续继续迁移到 React 前，先把旧界面稳定住"
+              ],
+              "status": "done",
+              "source": "history"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "updatedAt": "2026-06-16T16:03:24.743Z"
+}
