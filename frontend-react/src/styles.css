@@ -1,0 +1,144 @@
+:root {
+  color-scheme: light;
+  --bg: #f5efe6;
+  --bg-radial: radial-gradient(circle at top left, rgba(255, 214, 170, 0.55), transparent 28%);
+  --bg-gradient: linear-gradient(180deg, #f8f2ea 0%, #f3ebdf 100%);
+  --panel: rgba(255, 252, 247, 0.92);
+  --panel-strong: #fffaf2;
+  --panel-card-bg: linear-gradient(180deg, #fffaf2, rgba(255, 250, 244, 0.88));
+  --panel-note-bg: linear-gradient(180deg, rgba(255, 248, 240, 0.96), rgba(255, 244, 229, 0.9));
+  --nav-surface: rgba(255, 250, 244, 0.92);
+  --panel-backdrop-blur: 12px;
+  --line: rgba(113, 74, 33, 0.16);
+  --line-strong: rgba(113, 74, 33, 0.26);
+  --text: #2f2419;
+  --muted: #7a6754;
+  --brand: #bf6a2a;
+  --brand-rgb: 191, 106, 42;
+  --brand-deep: #8a4e1f;
+  --brand-soft: rgba(191, 106, 42, 0.14);
+  --brand-soft-strong: rgba(191, 106, 42, 0.22);
+  --shadow: 0 20px 50px rgba(80, 50, 20, 0.12);
+  --badge-bg: rgba(191, 106, 42, 0.12);
+  --badge-border: rgba(191, 106, 42, 0.2);
+  --badge-text: #8a4e1f;
+  --status-warning-bg: rgba(255, 247, 230, 0.9);
+  --status-warning-border: rgba(214, 141, 33, 0.28);
+  --status-success-bg: rgba(240, 250, 241, 0.9);
+  --status-success-border: rgba(77, 143, 88, 0.22);
+  --status-error-bg: rgba(255, 238, 238, 0.9);
+  --status-error-border: rgba(185, 52, 52, 0.22);
+  --page-shell-pad-top: 40px;
+  --page-shell-pad-bottom: 56px;
+  --section-gap: 16px;
+  --card-gap: 14px;
+  --control-gap: 10px;
+  --panel-padding: 22px;
+  --panel-padding-lg: 26px;
+  --button-height: 42px;
+  --button-padding-x: 16px;
+
+  /* Button base tokens */
+  --btn-solid-bg: var(--brand);
+  --btn-solid-text: #fffaf4;
+  --btn-solid-border: transparent;
+  --btn-solid-shadow: none;
+  --btn-ghost-bg: transparent;
+  --btn-ghost-text: var(--text);
+  --btn-ghost-border: var(--line-strong);
+  --btn-ghost-shadow: none;
+
+  /* Semantic button tokens */
+  --btn-nav-bg: rgba(255, 248, 238, 0.8);
+  --btn-nav-border: rgba(194, 120, 48, 0.22);
+  --btn-nav-text: #8a4e1f;
+  --btn-nav-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+  --btn-nav-hover-bg: rgba(255, 242, 226, 0.96);
+  --btn-nav-hover-border: rgba(194, 120, 48, 0.38);
+  --btn-nav-primary-bg: linear-gradient(180deg, #d88b43, #c9722e);
+  --btn-nav-primary-text: #fffaf4;
+  --btn-nav-primary-shadow: 0 10px 22px rgba(194, 120, 48, 0.18);
+  --btn-nav-primary-hover-bg: linear-gradient(180deg, #de9550, #cb7634);
+
+  --btn-action-bg: rgba(255, 255, 255, 0.74);
+  --btn-action-border: rgba(148, 163, 184, 0.24);
+  --btn-action-text: var(--text);
+  --btn-action-shadow: none;
+  --btn-action-solid-bg: linear-gradient(180deg, #6c7f9f, #4f607a);
+  --btn-action-solid-text: #f8fbff;
+  --btn-action-solid-border: rgba(88, 102, 126, 0.34);
+  --btn-action-solid-shadow: 0 10px 22px rgba(68, 82, 108, 0.18);
+
+  --btn-danger-bg: rgba(255, 238, 238, 0.72);
+  --btn-danger-border: rgba(185, 52, 52, 0.24);
+  --btn-danger-text: #9a3030;
+  --btn-danger-solid-bg: linear-gradient(180deg, #c54949, #a93333);
+  --btn-danger-solid-text: #fff8f8;
+
+  /* Visual sample variant tokens */
+  --sample-nav-warm-card-bg: linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(252, 245, 235, 0.9));
+  --sample-nav-neutral-card-bg: linear-gradient(180deg, rgba(252, 252, 250, 0.98), rgba(241, 238, 233, 0.92));
+  --sample-nav-outline-card-bg: linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(255, 250, 244, 0.92));
+  --sample-nav-warm-ghost-bg: rgba(255, 248, 238, 0.86);
+  --sample-nav-warm-ghost-border: rgba(194, 120, 48, 0.18);
+  --sample-nav-warm-ghost-text: #8a4e1f;
+  --sample-nav-warm-solid-bg: linear-gradient(180deg, #d88b43, #c9722e);
+  --sample-nav-warm-solid-text: #fffaf4;
+  --sample-nav-neutral-ghost-bg: rgba(255, 255, 255, 0.9);
+  --sample-nav-neutral-ghost-border: rgba(148, 163, 184, 0.22);
+  --sample-nav-neutral-ghost-text: #3f3a33;
+  --sample-nav-neutral-solid-bg: linear-gradient(180deg, #59554f, #403c36);
+  --sample-nav-neutral-solid-text: #fffaf4;
+  --sample-nav-outline-ghost-bg: transparent;
+  --sample-nav-outline-ghost-border: rgba(194, 120, 48, 0.28);
+  --sample-nav-outline-ghost-text: #8a4e1f;
+  --sample-nav-outline-solid-bg: rgba(194, 120, 48, 0.12);
+  --sample-nav-outline-solid-text: #8a4e1f;
+  --sample-nav-outline-solid-border: rgba(194, 120, 48, 0.28);
+
+  /* Radius tokens */
+  --radius-panel-xl: 28px;
+  --radius-panel-lg: 22px;
+  --radius-panel-md: 18px;
+  --radius-panel-sm: 14px;
+  --radius-panel-xs: 12px;
+  --radius-button: 999px;
+  --radius-control: 14px;
+
+  /* Title tokens */
+  --font-size-hero: clamp(30px, 4vw, 46px);
+  --font-size-display: clamp(34px, 3.4vw, 46px);
+  --font-size-card-title: 34px;
+  --font-size-section-title: 28px;
+  --font-size-panel-title: 16px;
+  --font-size-metric: clamp(30px, 3.2vw, 42px);
+
+  font-family: "PingFang SC", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--text);
+  background: var(--bg-radial), var(--bg-gradient);
+  background-color: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-width: 320px;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}

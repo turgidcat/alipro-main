@@ -1,0 +1,110 @@
+# 依赖
+node_modules/
+backend/node_modules/
+frontend-react/node_modules/
+
+# 数据库文件
+backend/database/*.db
+backend/database/*.db-journal
+*.db
+*.sqlite
+*.sqlite3
+
+# 环境变量（包含敏感信息）
+.env
+*.env
+.env.*
+!.env.example
+!*.env.example
+!backend/.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+tools/guaihub-export-config.json
+
+# 部署配置（包含服务器密码等敏感信息）
+config/deploy.config.json
+config/deploy.config.local.json
+tools/guaihub-export-config.local.json
+
+# 导出数据与审查包高风险原始资料
+guaihub-export-test/
+_project_review_for_chatgpt/
+
+# 日志
+backend/logs/
+*.log
+frontend-react/*dev*.log
+frontend-react/*live*.log
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 临时部署文件
+deploy-*.zip
+*.tmp
+*.b64
+
+# 临时脚本和测试文件
+scripts/*.sh.bak
+scripts/*.py.bak
+test-*.js
+*-temp.html
+
+# Python 缓存
+__pycache__/
+
+# 根目录临时调试脚本（多人开发遗留）
+/check-*.py
+/deploy-*.py
+/fix-*.py
+/test-*.py
+/create-admin-*.py
+/apply-*.py
+/comprehensive-check.py
+/diagnose-login.py
+/direct-db-check.py
+/execute-*.py
+/fix_*.py
+/redesign-*.py
+/restart-*.py
+/run-*.py
+/search-*.py
+/update_*.py
+/upload-*.py
+/verify-*.py
+/add-admin.js
+/auth-unified.js
+/check-*.js
+
+# 临时部署脚本
+/deploy-*.bat
+/deploy-*.ps1
+/verify-*.bat
+
+# 截图和临时图片
+/*.png
+
+# 临时压缩包
+/deploy-*.zip
+
+# 备份文件
+*.backup*
+backups/
+
+# 构建产物与缓存
+dist/
+frontend-react/dist/
+build/
+.vite/
+.cache/
+
+# 本地快照产物
+backend/data/codex-turn-snapshots.json
