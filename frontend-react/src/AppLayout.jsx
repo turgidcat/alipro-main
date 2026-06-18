@@ -1,6 +1,11 @@
 import './app-shell.css';
+import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 
-export default function AppLayout({ navigate, currentPath, children }) {
+export default function AppLayout() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const currentPath = location.pathname;
+
   function isActive(path) {
     return currentPath === path ? ' is-active' : '';
   }
@@ -27,7 +32,7 @@ export default function AppLayout({ navigate, currentPath, children }) {
           </div>
         </div>
       </nav>
-      {children}
+      <Outlet />
     </>
   );
 }
