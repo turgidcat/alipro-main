@@ -61,6 +61,9 @@ test-*.js
 # Python 缓存
 __pycache__/
 
+# 可视化伴侣 mockup（brainstorming skill 临时产物）
+.superpowers/
+
 # 根目录临时调试脚本（多人开发遗留）
 /check-*.py
 /deploy-*.py
