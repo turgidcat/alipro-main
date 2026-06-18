@@ -5,7 +5,6 @@ import { emptyChapterPlan, initialGenerationState, emptyStorylineDraft } from '.
 import { normalizeChapterBundle } from '../lib/chapterBundle.js';
 
 export function useWorkbench() {
-  const [activeStep, setActiveStep] = useState('book');
   const [planningModal, setPlanningModal] = useState(null);
   const [chapterModal, setChapterModal] = useState(null);
   const [savingState, setSavingState] = useState({ loading: false, error: '' });
@@ -73,7 +72,6 @@ export function useWorkbench() {
 
   return {
     ...workbenchData,
-    activeStep, setActiveStep,
     planningModal, setPlanningModal,
     chapterModal, setChapterModal,
     savingState, setSavingState,

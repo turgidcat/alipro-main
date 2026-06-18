@@ -1,6 +1,5 @@
 import { Fragment } from 'react';
 import {
-  createDemoWorkspace,
   fetchChapterSetupBundle,
   generateChapterContent,
   generateChapterFeedback,
@@ -12,41 +11,16 @@ import {
 import './app-shell.css';
 import {
   emptyChapterStructure,
-  emptyStorylineDraft,
-  ROLE_EXECUTION_DIMENSIONS,
-  ROLE_EXECUTION_DIRECTIONS,
-  ROLE_EXECUTION_SCOPES,
-  ROLE_EXECUTION_CONFIDENCE,
-  ROLE_DIMENSION_LABELS,
-  ROLE_DIRECTION_LABELS,
-  ROLE_SCOPE_LABELS,
-  ROLE_CONFIDENCE_LABELS,
-  PLATFORM_LABELS,
-  GENRE_LABELS,
-  SUBGENRE_LABELS,
-  TEMPLATE_LABELS
+  emptyStorylineDraft
 } from './lib/constants.js';
 import {
-  buildSvgDataUrl,
-  createBookCoverDataUrl,
-  createVolumePosterDataUrl,
-  createCharacterBadgeDataUrl,
-  buildCharacterSubtitle
-} from './lib/assets.js';
-import {
   normalizeLines,
-  normalizeRoleName,
   normalizeRoleList,
-  summarizeText,
   buildConstraintBriefText,
   composeStructuredOutline,
-  composeSceneOutlineText,
-  buildChapterStructureFromPlan,
-  normalizeRoleExecution,
   describeRoleExecutionMeta,
   buildGenerationRiskReview,
   getPlanWordCount,
-  normalizeChapterStructureForSave,
   prepareOutlineModalPlan,
   withStructuredChapterPlan,
   hasText
@@ -54,18 +28,10 @@ import {
 import {
   normalizeParagraphs,
   splitRevisionParagraphs,
-  normalizeRevisionText,
-  normalizeSentences,
-  similarityScore,
-  buildRevisionDiff,
-  buildRevisionSentenceDiff,
-  buildRevisionEvaluation,
   buildLocalChapterFeedback
 } from './lib/revisionDiff.js';
 import { normalizeChapterBundle, mergeFeedbackIntoPlan } from './lib/chapterBundle.js';
-import PanelCard from './components/workbench/PanelCard.jsx';
 import Modal from './components/workbench/Modal.jsx';
-import BlockedConstraints from './components/workbench/BlockedConstraints.jsx';
 import './workbench-layout.css';
 import GlobalBar from './components/workbench/GlobalBar.jsx';
 import ChapterConfigPanel from './components/workbench/ChapterConfigPanel.jsx';
