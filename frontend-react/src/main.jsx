@@ -8,6 +8,7 @@ import StartGuidePage from './pages/StartGuidePage.jsx';
 import AppLayout from './AppLayout.jsx';
 import StyleManagerPage from './pages/StyleManagerPage.jsx';
 import { applyStyleTheme, getStoredStyleTheme } from './styleTheme.js';
+import './index.css';
 import './styles.css';
 
 applyStyleTheme(getStoredStyleTheme());
