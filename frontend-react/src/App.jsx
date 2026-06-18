@@ -1,5 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
-import { useWorkbenchData } from './useWorkbenchData.js';
+import { Fragment } from 'react';
 import {
   createDemoWorkspace,
   fetchChapterSetupBundle,
@@ -13,8 +12,6 @@ import {
 import './app-shell.css';
 import {
   emptyChapterStructure,
-  emptyChapterPlan,
-  initialGenerationState,
   emptyStorylineDraft,
   ROLE_EXECUTION_DIMENSIONS,
   ROLE_EXECUTION_DIRECTIONS,
@@ -70,39 +67,9 @@ import WorkflowTabs from './components/workbench/WorkflowTabs.jsx';
 import PanelCard from './components/workbench/PanelCard.jsx';
 import Modal from './components/workbench/Modal.jsx';
 import BlockedConstraints from './components/workbench/BlockedConstraints.jsx';
+import { useWorkbench } from './hooks/useWorkbench.js';
 
 export default function App() {
-  const [activeStep, setActiveStep] = useState('book');
-  const [planningModal, setPlanningModal] = useState(null);
-  const [chapterModal, setChapterModal] = useState(null);
-  const [savingState, setSavingState] = useState({ loading: false, error: '' });
-  const [planningNotice, setPlanningNotice] = useState('');
-  const [chapterNumber, setChapterNumber] = useState(1);
-  const [chapterContext, setChapterContext] = useState({});
-  const [chapterView, setChapterView] = useState({});
-  const [storylineOptions, setStorylineOptions] = useState([]);
-  const [draftChapterPlan, setDraftChapterPlan] = useState(emptyChapterPlan);
-  const [constraintOverrides, setConstraintOverrides] = useState({});
-  const [generationRiskConfirmed, setGenerationRiskConfirmed] = useState(false);
-  const [draftStoryline, setDraftStoryline] = useState(emptyStorylineDraft);
-  const [generationState, setGenerationState] = useState(initialGenerationState);
-  const [loadingChapter, setLoadingChapter] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [resultModalOpen, setResultModalOpen] = useState(false);
-  const [revisionOriginal, setRevisionOriginal] = useState('');
-  const [revisionDraft, setRevisionDraft] = useState('');
-  const [revisionRequirement, setRevisionRequirement] = useState('增强画面感和爽点，保持原剧情不变。');
-  const [revisionSuggestions, setRevisionSuggestions] = useState(null);
-  const [revisionSaving, setRevisionSaving] = useState(false);
-  const [revisionPolishing, setRevisionPolishing] = useState(false);
-  const [revisionError, setRevisionError] = useState('');
-  const [revisionNotice, setRevisionNotice] = useState('');
-  const [revisionFocusIndex, setRevisionFocusIndex] = useState(0);
-  const [revisionAppliedChangeKeys, setRevisionAppliedChangeKeys] = useState([]);
-  const revisionParagraphRefs = useRef(new Map());
-  const revisionChangeRefs = useRef(new Map());
-  const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
-
   const {
     books,
     selectedBookId,
@@ -112,39 +79,38 @@ export default function App() {
     loadingPlanning,
     error,
     reloadPlanning,
-    reloadBooks
-  } = useWorkbenchData();
-
-  useEffect(() => {
-    if (!selectedBookId) return;
-
-    let cancelled = false;
-    async function loadChapter() {
-      setLoadingChapter(true);
-      try {
-        const bundle = await fetchChapterSetupBundle(selectedBookId, chapterNumber);
-        if (cancelled) return;
-        const normalized = normalizeChapterBundle(bundle, chapterNumber);
-        setChapterContext(normalized.context);
-        setChapterView(normalized.view);
-        setStorylineOptions(normalized.storylineOptions);
-        setDraftChapterPlan(normalized.draft);
-        setGenerationState(normalized.generation);
-      } finally {
-        if (!cancelled) setLoadingChapter(false);
-      }
-    }
-
-    loadChapter();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedBookId, chapterNumber]);
-
-  useEffect(() => {
-    setConstraintOverrides({});
-    setGenerationRiskConfirmed(false);
-  }, [selectedBookId, chapterNumber]);
+    reloadBooks,
+    activeStep, setActiveStep,
+    planningModal, setPlanningModal,
+    chapterModal, setChapterModal,
+    savingState, setSavingState,
+    planningNotice, setPlanningNotice,
+    chapterNumber, setChapterNumber,
+    chapterContext, setChapterContext,
+    chapterView, setChapterView,
+    storylineOptions, setStorylineOptions,
+    draftChapterPlan, setDraftChapterPlan,
+    constraintOverrides, setConstraintOverrides,
+    generationRiskConfirmed, setGenerationRiskConfirmed,
+    draftStoryline, setDraftStoryline,
+    generationState, setGenerationState,
+    loadingChapter, setLoadingChapter,
+    isGenerating, setIsGenerating,
+    resultModalOpen, setResultModalOpen,
+    revisionOriginal, setRevisionOriginal,
+    revisionDraft, setRevisionDraft,
+    revisionRequirement, setRevisionRequirement,
+    revisionSuggestions, setRevisionSuggestions,
+    revisionSaving, setRevisionSaving,
+    revisionPolishing, setRevisionPolishing,
+    revisionError, setRevisionError,
+    revisionNotice, setRevisionNotice,
+    revisionFocusIndex, setRevisionFocusIndex,
+    revisionAppliedChangeKeys, setRevisionAppliedChangeKeys,
+    revisionParagraphRefs,
+    revisionChangeRefs,
+    promptPreviewOpen, setPromptPreviewOpen
+  } = useWorkbench();
 
   function setConstraintOverride(key, mode) {
     setConstraintOverrides((prev) => ({
