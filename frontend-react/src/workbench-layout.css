@@ -1,0 +1,212 @@
+/* P1 创作台新布局:顶部全局条 + 左右双栏 + 抽屉 */
+
+/* === 顶部全局条 === */
+.workbench-global-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--line, #e5e7eb);
+  background: var(--panel-strong, #fff);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.workbench-global-bar-book {
+  font-weight: 600;
+  color: var(--brand, #bf6a2a);
+  cursor: pointer;
+}
+.workbench-global-bar-sep {
+  color: var(--muted, #9ca3af);
+}
+.workbench-global-bar-chapter {
+  font-weight: 500;
+}
+.workbench-global-bar-storyline {
+  background: var(--badge-bg, #f3f4f6);
+  border: 1px solid var(--badge-border, #e5e7eb);
+  color: var(--badge-text, #4b5563);
+  padding: 2px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.workbench-global-bar-nav {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.workbench-global-bar-nav-btn {
+  border: 1px solid var(--line, #e5e7eb);
+  background: var(--panel, #f9fafb);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  color: inherit;
+}
+.workbench-global-bar-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.workbench-global-bar-chapter-pos {
+  font-size: 12px;
+  color: var(--muted, #9ca3af);
+}
+
+/* === 章节列表下拉 === */
+.chapter-list-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  width: 320px;
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--panel-strong, #fff);
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+  padding: 6px;
+}
+.chapter-list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.chapter-list-item:hover {
+  background: var(--brand-soft, #fdf3ec);
+}
+.chapter-list-item.is-current {
+  background: var(--brand-soft, #fdf3ec);
+  font-weight: 600;
+}
+.chapter-list-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.chapter-list-dot.has-content { background: var(--brand, #bf6a2a); }
+.chapter-list-dot.plan-only { background: transparent; border: 1.5px solid var(--brand, #bf6a2a); }
+.chapter-list-dot.empty { background: var(--line, #e5e7eb); }
+
+/* === 双栏布局 === */
+.workbench-dual-pane {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 0;
+  min-height: calc(100vh - 120px);
+}
+.workbench-dual-pane-left {
+  border-right: 1px solid var(--line, #e5e7eb);
+  padding: 14px 16px;
+  overflow-y: auto;
+}
+.workbench-dual-pane-right {
+  padding: 14px 16px;
+  overflow-y: auto;
+}
+
+/* === 低频 chips === */
+.context-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line, #e5e7eb);
+}
+.context-chip {
+  font-size: 11px;
+  background: var(--brand-soft, #fdf3ec);
+  color: var(--brand-deep, #8a4a1a);
+  padding: 4px 10px;
+  border-radius: 14px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s;
+  user-select: none;
+}
+.context-chip:hover {
+  background: var(--brand, #bf6a2a);
+  color: #fff;
+}
+.context-chip.is-active {
+  background: var(--brand, #bf6a2a);
+  color: #fff;
+}
+
+/* === 右侧滑入抽屉 === */
+.context-drawer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.15);
+  z-index: 90;
+}
+.context-drawer-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 60%;
+  max-width: 720px;
+  background: var(--panel-strong, #fff);
+  border-left: 2px solid var(--brand, #bf6a2a);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  overflow-y: auto;
+  animation: drawer-slide-in 0.2s ease-out;
+}
+@keyframes drawer-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.context-drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line, #e5e7eb);
+}
+.context-drawer-head-title {
+  font-weight: 600;
+  color: var(--brand, #bf6a2a);
+  font-size: 14px;
+}
+.context-drawer-close {
+  font-size: 12px;
+  color: var(--muted, #9ca3af);
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+.context-drawer-body {
+  padding: 14px 18px;
+}
+.context-drawer-empty {
+  color: var(--muted, #9ca3af);
+  font-size: 13px;
+}
+
+/* === 响应式:小屏单栏 === */
+@media (max-width: 900px) {
+  .workbench-dual-pane {
+    grid-template-columns: 1fr;
+  }
+  .workbench-dual-pane-left {
+    border-right: none;
+    border-bottom: 1px solid var(--line, #e5e7eb);
+  }
+  .context-drawer-panel {
+    width: 100%;
+    max-width: none;
+  }
+}
