@@ -12,6 +12,25 @@
 
 **P0 核心约束:不改视觉、不改功能。** 每个任务结束后 `npm run dev` 必须能跑,所有功能行为与改造前完全一致。
 
+## 执行校准(2026-06-18)
+
+这份计划已经发生过一次真实施工,但文档还停留在“准备开工”口吻,这里补上实际结果:
+
+- 已完成的主提交:
+  - `693fce7` `refactor(fe): extract constants to lib/constants.js`
+  - `251e898` `refactor(fe): extract svg asset generators to lib/assets.js`
+  - `57ace9a` `refactor(fe): extract chapter plan and revision diff pure functions to lib/`
+  - `6043d40` `refactor(fe): extract chapter bundle normalizers to lib/chapterBundle.js`
+  - `0b2c4eb` `refactor(fe): extract presentational components to components/workbench/`
+  - `3f12df9` `refactor(fe): replace hand-written router with react-router-dom`
+  - `f6d2804` `refactor(fe): extract workbench state and effects to useWorkbench hook`
+  - `a4aa70b` `chore(fe): introduce tailwind css (installed, not yet used)`
+  - `427879e` `chore(fe): remove dead WorkbenchPage.jsx stub`
+- 当前结论:
+  - P0 的“工具链接管”和“文件拆分主轴”已完成
+  - 但 `App.jsx` 目前仍约 `1347` 行,没有达到本计划最初写下的更激进瘦身目标
+  - 因此后续应把 P0 视为“主体完成,尾项并入 P2 继续收口”,而不是重新返工一遍
+
 ---
 
 ## 文件结构(P0 结束时)

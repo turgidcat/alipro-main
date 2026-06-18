@@ -6,8 +6,8 @@ export default function GlobalBar({
   chapterNumber,
   chapterName,
   mainStorylineLabel,
-  totalChapters,
-  chapterNames,
+  totalChapterCount,
+  chapterListItems,
   onPrevChapter,
   onNextChapter,
   onSelectChapter
@@ -43,7 +43,7 @@ export default function GlobalBar({
           ◂ 上一章
         </button>
         <span className="workbench-global-bar-chapter-pos">
-          {chapterNumber} / {totalChapters || '?'}
+          {chapterNumber} / {totalChapterCount || '?'}
         </span>
         <button
           type="button"
@@ -54,8 +54,7 @@ export default function GlobalBar({
         </button>
         <ChapterList
           currentChapter={chapterNumber}
-          totalChapters={totalChapters}
-          chapterNames={chapterNames}
+          items={chapterListItems}
           onSelect={onSelectChapter}
         />
       </div>

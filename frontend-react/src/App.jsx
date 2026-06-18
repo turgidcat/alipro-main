@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { useEffect, useState } from 'react';
 import {
   fetchChapterSetupBundle,
   generateChapterContent,
@@ -10,6 +10,7 @@ import {
 } from './workbenchApi.js';
 import './app-shell.css';
 import {
+  emptyChapterPlan,
   emptyChapterStructure,
   emptyStorylineDraft
 } from './lib/constants.js';
@@ -36,12 +37,33 @@ import './workbench-layout.css';
 import GlobalBar from './components/workbench/GlobalBar.jsx';
 import ChapterConfigPanel from './components/workbench/ChapterConfigPanel.jsx';
 import ContentWorkspace from './components/workbench/ContentWorkspace.jsx';
+import RevisionEditor from './components/workbench/RevisionEditor.jsx';
 import ContextDrawer from './components/workbench/ContextDrawer.jsx';
 import BookSettingDrawer from './components/workbench/drawers/BookSettingDrawer.jsx';
 import StorylineDrawer from './components/workbench/drawers/StorylineDrawer.jsx';
 import CharacterDrawer from './components/workbench/drawers/CharacterDrawer.jsx';
 import VolumeDrawer from './components/workbench/drawers/VolumeDrawer.jsx';
 import { useWorkbench } from './hooks/useWorkbench.js';
+
+const DRAWER_MEMORY_PREFIX = 'alipro-workbench-drawer';
+
+function serializeChapterPlanDraft(plan) {
+  return JSON.stringify(plan || emptyChapterPlan);
+}
+
+function isTypingTarget(target) {
+  if (!target || typeof target !== 'object') return false;
+  const tagName = String(target.tagName || '').toLowerCase();
+  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+    return true;
+  }
+  return Boolean(target.isContentEditable);
+}
+
+function getDrawerMemoryKey(bookId, chapterNumber) {
+  if (!bookId) return '';
+  return `${DRAWER_MEMORY_PREFIX}:${bookId}:${Number(chapterNumber || 1)}`;
+}
 
 export default function App() {
   const {
@@ -83,8 +105,10 @@ export default function App() {
     revisionParagraphRefs,
     revisionChangeRefs,
     promptPreviewOpen, setPromptPreviewOpen,
-    activeDrawer, setActiveDrawer
+    activeDrawer, setActiveDrawer,
+    savedChapterPlanSnapshot, setSavedChapterPlanSnapshot
   } = useWorkbench();
+  const [drawerMemoryLoadedKey, setDrawerMemoryLoadedKey] = useState('');
 
   function setConstraintOverride(key, mode) {
     setConstraintOverrides((prev) => ({
@@ -107,6 +131,7 @@ export default function App() {
       setChapterView(normalized.view);
       setStorylineOptions(normalized.storylineOptions);
       setDraftChapterPlan(normalized.draft);
+      setSavedChapterPlanSnapshot(serializeChapterPlanDraft(normalized.draft));
       setGenerationState(normalized.generation);
       setChapterModal(null);
     } catch (saveError) {
@@ -127,6 +152,7 @@ export default function App() {
       setChapterView(normalized.view);
       setStorylineOptions(normalized.storylineOptions);
       setDraftChapterPlan(normalized.draft);
+      setSavedChapterPlanSnapshot(serializeChapterPlanDraft(normalized.draft));
       setGenerationState(normalized.generation);
       setChapterModal(null);
     } catch (saveError) {
@@ -144,6 +170,7 @@ export default function App() {
     setChapterView(normalized.view);
     setStorylineOptions(normalized.storylineOptions);
     setDraftChapterPlan(overrideDraft || normalized.draft);
+    setSavedChapterPlanSnapshot(serializeChapterPlanDraft(overrideDraft || normalized.draft));
     setGenerationState(normalized.generation);
     return normalized;
   }
@@ -193,6 +220,7 @@ export default function App() {
     const feedbackPlan = mergeFeedbackIntoPlan(normalizedPlan, chapterFeedback);
     await saveChapterPlan(selectedBookId, chapterNumber, feedbackPlan);
     setDraftChapterPlan(feedbackPlan);
+    setSavedChapterPlanSnapshot(serializeChapterPlanDraft(feedbackPlan));
     setGenerationState({
       hasContent: true,
       content,
@@ -216,11 +244,11 @@ export default function App() {
   }
 
   function goToPreviousChapter() {
-    setChapterNumber((current) => Math.max(1, Number(current || 1) - 1));
+    requestChapterChange(Math.max(1, Number(chapterNumber || 1) - 1));
   }
 
   function goToNextChapter() {
-    setChapterNumber((current) => Math.max(1, Number(current || 1) + 1));
+    requestChapterChange(Math.max(1, Number(chapterNumber || 1) + 1));
   }
 
   function openRevisionEditor() {
@@ -662,6 +690,123 @@ export default function App() {
     setActiveDrawer(null);
   }
 
+  const currentDraftSnapshot = serializeChapterPlanDraft(draftChapterPlan);
+  const hasUnsavedChapterChanges = currentDraftSnapshot !== savedChapterPlanSnapshot;
+  const drawerMemoryKey = getDrawerMemoryKey(selectedBookId, chapterNumber);
+
+  function confirmDiscardUnsavedChanges(actionLabel) {
+    if (!hasUnsavedChapterChanges) return true;
+    return window.confirm(`当前章节还有未保存修改，继续${actionLabel}会丢失这些改动。要继续吗？`);
+  }
+
+  function requestChapterChange(nextChapterNumber) {
+    const safeChapterNumber = Math.max(1, Number(nextChapterNumber || 1));
+    if (safeChapterNumber === Number(chapterNumber || 1)) return;
+    if (!confirmDiscardUnsavedChanges(`切换到第 ${safeChapterNumber} 章`)) return;
+    setChapterNumber(safeChapterNumber);
+  }
+
+  function handleGenerateWithGuards() {
+    if (!confirmDiscardUnsavedChanges('生成正文')) return;
+    handleGenerateChapter();
+  }
+
+  useEffect(() => {
+    if (!drawerMemoryKey) {
+      setDrawerMemoryLoadedKey('');
+      setActiveDrawer(null);
+      return;
+    }
+
+    let nextDrawer = null;
+    try {
+      const raw = window.localStorage.getItem(drawerMemoryKey);
+      nextDrawer = raw || null;
+    } catch (_) {
+      nextDrawer = null;
+    }
+    setActiveDrawer(nextDrawer);
+    setDrawerMemoryLoadedKey(drawerMemoryKey);
+  }, [drawerMemoryKey, setActiveDrawer]);
+
+  useEffect(() => {
+    if (!drawerMemoryKey || drawerMemoryLoadedKey !== drawerMemoryKey) return;
+    try {
+      if (activeDrawer) {
+        window.localStorage.setItem(drawerMemoryKey, activeDrawer);
+      } else {
+        window.localStorage.removeItem(drawerMemoryKey);
+      }
+    } catch (_) {}
+  }, [activeDrawer, drawerMemoryKey, drawerMemoryLoadedKey]);
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      const typing = isTypingTarget(event.target);
+      const hasBlockingModal = Boolean(chapterModal || resultModalOpen || promptPreviewOpen || planningModal);
+
+      if (event.key === 'Escape') {
+        if (promptPreviewOpen) {
+          event.preventDefault();
+          setPromptPreviewOpen(false);
+          return;
+        }
+        if (resultModalOpen) {
+          event.preventDefault();
+          setResultModalOpen(false);
+          return;
+        }
+        if (chapterModal) {
+          event.preventDefault();
+          setChapterModal(null);
+          return;
+        }
+        if (planningModal) {
+          event.preventDefault();
+          setPlanningModal(null);
+          return;
+        }
+        if (activeDrawer) {
+          event.preventDefault();
+          handleCloseDrawer();
+        }
+        return;
+      }
+
+      if (typing || hasBlockingModal) return;
+
+      if (event.ctrlKey && event.key === 'Enter') {
+        event.preventDefault();
+        handleGenerateWithGuards();
+        return;
+      }
+
+      if (event.key === '[') {
+        event.preventDefault();
+        goToPreviousChapter();
+        return;
+      }
+
+      if (event.key === ']') {
+        event.preventDefault();
+        goToNextChapter();
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    activeDrawer,
+    chapterModal,
+    planningModal,
+    promptPreviewOpen,
+    resultModalOpen,
+    chapterNumber,
+    hasUnsavedChapterChanges,
+    generationState,
+    draftChapterPlan
+  ]);
+
   const selectedMainStoryline = storylineOptions.find((item) => item.id === draftChapterPlan.main_storyline_id);
   const selectedTargetStorylines = storylineOptions.filter((item) =>
     Array.isArray(draftChapterPlan.target_storylines) && draftChapterPlan.target_storylines.includes(item.id)
@@ -799,11 +944,11 @@ export default function App() {
         chapterNumber={chapterNumber}
         chapterName={draftChapterPlan.chapter_name}
         mainStorylineLabel={chapterView.mainStoryline}
-        totalChapters={planningState?.currentBook?.totalChapters || 0}
-        chapterNames={planningState?.currentBook?.chapterNames}
+        totalChapterCount={chapterContext.totalChapterCount}
+        chapterListItems={chapterContext.chapterListItems}
         onPrevChapter={goToPreviousChapter}
         onNextChapter={goToNextChapter}
-        onSelectChapter={(n) => setChapterNumber(n)}
+        onSelectChapter={requestChapterChange}
       />
 
       {error ? <div className="global-banner is-error">{error}</div> : null}
@@ -824,7 +969,7 @@ export default function App() {
               savingState={savingState}
               loadingChapter={loadingChapter}
               selectedBookId={selectedBookId}
-              onChapterNumberChange={setChapterNumber}
+              onChapterNumberChange={requestChapterChange}
               onSaveChapterPlan={handleSaveChapterPlan}
               onOpenOutlineModal={() => setChapterModal('outline')}
               onOpenCharacterModal={() => setChapterModal('character')}
@@ -852,12 +997,12 @@ export default function App() {
               generationRiskConfirmed={generationRiskConfirmed}
               isGenerating={isGenerating}
               loadingChapter={loadingChapter}
-              onGenerateChapter={handleGenerateChapter}
+              onGenerateChapter={handleGenerateWithGuards}
               onOpenRevisionEditor={openRevisionEditor}
               onSetPromptPreview={() => setPromptPreviewOpen(true)}
               onPrevChapter={goToPreviousChapter}
               onNextChapter={goToNextChapter}
-              onChapterNumberChange={setChapterNumber}
+              onChapterNumberChange={requestChapterChange}
               onSetConstraintOverride={setConstraintOverride}
               onGenerationRiskConfirm={setGenerationRiskConfirmed}
               onUpdateGenerationSetting={updateGenerationSetting}
@@ -1160,173 +1305,31 @@ export default function App() {
       ) : null}
 
       {resultModalOpen ? (
-        <Modal
-          title={'第 ' + chapterNumber + ' 章正文校改'}
-          description="直接修改当前章节正文，保存后会写回章节记录。"
+        <RevisionEditor
+          chapterNumber={chapterNumber}
+          revisionError={revisionError}
+          revisionNotice={revisionNotice}
+          revisionRequirement={revisionRequirement}
+          setRevisionRequirement={setRevisionRequirement}
+          revisionOriginal={revisionOriginal}
+          revisionDraft={revisionDraft}
+          generationState={generationState}
+          revisionPolishing={revisionPolishing}
+          revisionSaving={revisionSaving}
+          revisionChangeItems={revisionChangeItems}
+          revisionCurrentChange={revisionCurrentChange}
+          revisionCurrentFocusIndex={revisionCurrentFocusIndex}
+          revisionOriginalParagraphs={revisionOriginalParagraphs}
+          revisionSuggestionMarks={revisionSuggestionMarks}
+          revisionAppliedChangeKeys={revisionAppliedChangeKeys}
           onClose={() => setResultModalOpen(false)}
-          actions={
-            <>
-              {revisionError ? <div className="modal-error">{revisionError}</div> : null}
-              {revisionNotice ? <div className="modal-success">{revisionNotice}</div> : null}
-              <button type="button" className="ghost-btn" onClick={() => setResultModalOpen(false)}>取消</button>
-              <button type="button" className="ghost-btn" onClick={handlePolishRevision} disabled={revisionPolishing || revisionSaving}>
-                {revisionPolishing ? '正在分析...' : '生成局部建议'}
-              </button>
-              <button type="button" className="solid-btn" onClick={handleSaveRevision} disabled={revisionSaving}>
-                {revisionSaving ? '正在保存...' : '保存校改'}
-              </button>
-            </>
-          }
-        >
-          <div className="revision-editor">
-            <label className="editor-field">
-              <span>校改目标</span>
-              <textarea
-                className="modal-textarea modal-textarea-compact"
-                value={revisionRequirement}
-                onChange={(event) => setRevisionRequirement(event.target.value)}
-                placeholder="例如：增强画面感、删除重复解释、加强结尾钩子。"
-              />
-            </label>
-            <div className="revision-editor-meta">
-              <span>原文 {revisionOriginal.length} 字</span>
-              <span>校改稿 {revisionDraft.length} 字</span>
-              <span>{generationState.metaText}</span>
-            </div>
-            {revisionChangeItems.length > 0 ? (
-              <div className="revision-change-nav">
-              <div className="revision-change-nav-info">
-                  <strong>修改导航</strong>
-                  <span>{revisionCurrentChange ? revisionCurrentChange.label : '已找到修改点'}</span>
-                  <em>{revisionCurrentFocusIndex + 1} / {revisionChangeItems.length}</em>
-                </div>
-                <div className="revision-change-nav-actions">
-                  <button type="button" className="ghost-btn" onClick={() => focusRevisionChange(-1)}>
-                    上一处修改
-                  </button>
-                  <button type="button" className="ghost-btn" onClick={() => focusRevisionChange(1)}>
-                    下一处修改
-                  </button>
-                </div>
-              </div>
-            ) : null}
-            <section className="revision-original-panel">
-              <div className="revision-original-head">
-                <span>原文标注</span>
-                <em>{revisionOriginal.length} 字</em>
-              </div>
-              <div className="revision-original-list">
-                {revisionOriginalParagraphs.length > 0 ? revisionOriginalParagraphs.map((paragraph, index) => {
-                  const paragraphNumber = index + 1;
-                  const replaceSuggestion = revisionSuggestionMarks.replaceByParagraph.get(paragraphNumber);
-                  const deleteSuggestion = revisionSuggestionMarks.deleteByParagraph.get(paragraphNumber);
-                  const insertSuggestions = revisionSuggestionMarks.insertAfterParagraph.get(paragraphNumber) || [];
-                  const hasReplace = !!replaceSuggestion;
-                  const hasDelete = !!deleteSuggestion;
-                  const hasInsert = insertSuggestions.length > 0;
-                  const changeKey = hasDelete
-                    ? 'delete-' + paragraphNumber
-                    : hasReplace
-                      ? 'replace-' + paragraphNumber
-                      : null;
-                  const insertChangeKeys = insertSuggestions.map((_, insertIndex) => 'insert-' + paragraphNumber + '-' + insertIndex);
-                  const isCurrentChange = changeKey && revisionCurrentChange?.key === changeKey;
-                  const originalText = paragraph || '（空段）';
-                  return (
-                    <Fragment key={index + '-' + paragraph.slice(0, 16)}>
-                      <article
-                        className={'revision-original-paragraph' + (hasReplace ? ' is-replace' : '') + (hasDelete ? ' is-delete' : '') + (isCurrentChange ? ' is-revision-focus' : '')}
-                        ref={(element) => {
-                          registerRevisionChangeRef(changeKey, element);
-                          registerRevisionParagraphRef(paragraphNumber, element);
-                        }}
-                      >
-                        <div className="revision-original-paragraph-head">
-                          <span className="revision-paragraph-tag">第 {paragraphNumber} 段</span>
-                          <div className="revision-paragraph-badges">
-                            {hasReplace ? <strong className="revision-paragraph-badge is-replace">修改</strong> : null}
-                            {hasDelete ? <strong className="revision-paragraph-badge is-delete">删除</strong> : null}
-                            {!hasReplace && !hasDelete && hasInsert ? <strong className="revision-paragraph-badge is-insert">新增</strong> : null}
-                          </div>
-                          <div className="revision-paragraph-actions">
-                            {replaceSuggestion ? (
-                              <button
-                                type="button"
-                                className="ghost-btn"
-                                disabled={revisionAppliedChangeKeys.includes(changeKey)}
-                                onClick={() => applyRevisionSuggestion(replaceSuggestion, changeKey)}
-                              >
-                                {revisionAppliedChangeKeys.includes(changeKey) ? '已应用修改' : '应用修改'}
-                              </button>
-                            ) : null}
-                            {deleteSuggestion ? (
-                              <button
-                                type="button"
-                                className="ghost-btn"
-                                disabled={revisionAppliedChangeKeys.includes(changeKey)}
-                                onClick={() => applyRevisionSuggestion(deleteSuggestion, changeKey)}
-                              >
-                                {revisionAppliedChangeKeys.includes(changeKey) ? '已应用删除' : '应用删除'}
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                        {hasDelete ? (
-                          <div className="revision-original-change is-delete">
-                            <p className="revision-original-change-original"><s>{originalText}</s></p>
-                            <p className="revision-original-change-new">（删除后保留空段）</p>
-                          </div>
-                        ) : hasReplace ? (
-                          <div className="revision-original-change is-replace">
-                            <p className="revision-original-change-original"><s>{originalText}</s></p>
-                            <p className="revision-original-change-new">{replaceSuggestion.suggested_text}</p>
-                          </div>
-                        ) : (
-                          <p className="revision-paragraph-text">{originalText}</p>
-                        )}
-                      </article>
-                      {hasInsert ? insertSuggestions.map((suggestion, insertIndex) => (
-                        (() => {
-                          const insertChangeKey = insertChangeKeys[insertIndex];
-                          const isCurrentInsertChange = revisionCurrentChange?.key === insertChangeKey;
-                          return (
-                        <article
-                          className={'revision-original-paragraph is-insert' + (isCurrentInsertChange ? ' is-revision-focus' : '')}
-                          key={paragraphNumber + '-insert-' + insertIndex}
-                          ref={(element) => registerRevisionChangeRef(insertChangeKey, element)}
-                        >
-                          <div className="revision-original-paragraph-head">
-                            <span className="revision-paragraph-tag">第 {paragraphNumber} 段后新增</span>
-                            <div className="revision-paragraph-badges">
-                               <strong className="revision-paragraph-badge is-insert">新增</strong>
-                            </div>
-                            <div className="revision-paragraph-actions">
-                              <button
-                                type="button"
-                                className="ghost-btn"
-                                disabled={revisionAppliedChangeKeys.includes(insertChangeKey)}
-                                onClick={() => applyRevisionSuggestion(suggestion, insertChangeKey)}
-                              >
-                                {revisionAppliedChangeKeys.includes(insertChangeKey) ? '已应用新增' : '应用新增'}
-                              </button>
-                            </div>
-                          </div>
-                          <div className="revision-original-change is-insert">
-                            <p className="revision-original-change-new">{suggestion.suggested_text}</p>
-                          </div>
-                        </article>
-                          );
-                        })()
-                      )) : null}
-                    </Fragment>
-                  );
-                }) : (
-                  <p className="revision-original-empty">当前还没有正文结果。</p>
-                )}
-              </div>
-            </section>
-          </div>
-        </Modal>
+          onPolish={handlePolishRevision}
+          onSave={handleSaveRevision}
+          onFocusRevisionChange={focusRevisionChange}
+          onApplyRevisionSuggestion={applyRevisionSuggestion}
+          registerRevisionChangeRef={registerRevisionChangeRef}
+          registerRevisionParagraphRef={registerRevisionParagraphRef}
+        />
       ) : null}
 
       {promptPreviewOpen ? (

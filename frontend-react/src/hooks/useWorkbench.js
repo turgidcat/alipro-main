@@ -4,6 +4,10 @@ import { fetchChapterSetupBundle } from '../workbenchApi.js';
 import { emptyChapterPlan, initialGenerationState, emptyStorylineDraft } from '../lib/constants.js';
 import { normalizeChapterBundle } from '../lib/chapterBundle.js';
 
+function serializeChapterPlanSnapshot(plan) {
+  return JSON.stringify(plan || emptyChapterPlan);
+}
+
 export function useWorkbench() {
   const [planningModal, setPlanningModal] = useState(null);
   const [chapterModal, setChapterModal] = useState(null);
@@ -35,12 +39,18 @@ export function useWorkbench() {
   const revisionChangeRefs = useRef(new Map());
   const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
   const [activeDrawer, setActiveDrawer] = useState(null);
+  const [savedChapterPlanSnapshot, setSavedChapterPlanSnapshot] = useState(
+    serializeChapterPlanSnapshot(emptyChapterPlan)
+  );
 
   const workbenchData = useWorkbenchData();
   const { selectedBookId } = workbenchData;
 
   useEffect(() => {
-    if (!selectedBookId) return;
+    if (!selectedBookId) {
+      setSavedChapterPlanSnapshot(serializeChapterPlanSnapshot(emptyChapterPlan));
+      return;
+    }
 
     let cancelled = false;
     async function loadChapter() {
@@ -53,6 +63,7 @@ export function useWorkbench() {
         setChapterView(normalized.view);
         setStorylineOptions(normalized.storylineOptions);
         setDraftChapterPlan(normalized.draft);
+        setSavedChapterPlanSnapshot(serializeChapterPlanSnapshot(normalized.draft));
         setGenerationState(normalized.generation);
       } finally {
         if (!cancelled) setLoadingChapter(false);
@@ -101,6 +112,7 @@ export function useWorkbench() {
     revisionParagraphRefs,
     revisionChangeRefs,
     promptPreviewOpen, setPromptPreviewOpen,
-    activeDrawer, setActiveDrawer
+    activeDrawer, setActiveDrawer,
+    savedChapterPlanSnapshot, setSavedChapterPlanSnapshot
   };
 }

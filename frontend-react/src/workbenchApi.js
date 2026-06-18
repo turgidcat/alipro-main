@@ -532,22 +532,115 @@ function buildChapterContext(chapters = []) {
   };
 }
 
+function hasAnyPlanContent(plan = {}) {
+  if (!plan || typeof plan !== 'object') return false;
+  const structuredContent = parseJsonObject(plan.structured_content || plan.structuredContent);
+  const chapterStructure = parseJsonObject(
+    plan.chapter_structure
+    || structuredContent.chapter_structure
+    || structuredContent.chapterStructure
+  );
+
+  const textFields = [
+    plan.chapter_name,
+    plan.summary,
+    plan.chapter_mission,
+    plan.emotion_target,
+    plan.outline_text,
+    plan.character_notes,
+    plan.previous_hook,
+    plan.ending_hook,
+    chapterStructure.chapter_goal,
+    chapterStructure.key_scenes,
+    chapterStructure.conflict_escalation,
+    chapterStructure.character_change,
+    chapterStructure.reader_payoff,
+    chapterStructure.ending_hook
+  ];
+
+  if (textFields.some((value) => String(value || '').trim())) {
+    return true;
+  }
+
+  const listFields = [
+    parseJsonArray(plan.scene_outline),
+    parseJsonArray(plan.appearing_roles),
+    parseJsonArray(plan.target_storylines),
+    normalizeRoleExecutionList(plan.role_execution || structuredContent.role_execution)
+  ];
+
+  return listFields.some((items) => Array.isArray(items) && items.length > 0);
+}
+
+function buildChapterListItems(chapters = [], chapterPlans = []) {
+  const chapterMap = new Map();
+  const planMap = new Map();
+
+  (Array.isArray(chapters) ? chapters : []).forEach((chapter) => {
+    const chapterNumber = Number(chapter?.chapter_number || 0);
+    if (chapterNumber > 0) {
+      chapterMap.set(chapterNumber, chapter);
+    }
+  });
+
+  (Array.isArray(chapterPlans) ? chapterPlans : []).forEach((plan) => {
+    const chapterNumber = Number(plan?.chapter_number || 0);
+    if (chapterNumber > 0) {
+      planMap.set(chapterNumber, normalizeChapterPlanRecord(plan));
+    }
+  });
+
+  const allNumbers = [...chapterMap.keys(), ...planMap.keys()];
+  const maxChapterNumber = allNumbers.length > 0 ? Math.max(...allNumbers) : 0;
+  const count = Math.max(1, maxChapterNumber);
+
+  const items = Array.from({ length: count }, (_, index) => {
+    const chapterNumber = index + 1;
+    const chapter = chapterMap.get(chapterNumber);
+    const plan = planMap.get(chapterNumber);
+    const hasContent = Boolean(String(chapter?.content || '').trim());
+    const planOnly = !hasContent && hasAnyPlanContent(plan);
+    const chapterName = String(
+      chapter?.chapter_name
+      || chapter?.title
+      || plan?.chapter_name
+      || ''
+    ).trim();
+
+    return {
+      chapterNumber,
+      chapterName,
+      status: hasContent ? 'has-content' : planOnly ? 'plan-only' : 'empty'
+    };
+  });
+
+  return {
+    totalChapterCount: count,
+    items
+  };
+}
+
 export async function fetchChapterSetupBundle(bookId, chapterNumber) {
   const previousChapterNumber = Math.max(1, Number(chapterNumber || 1) - 1);
-  const [chapters, rawPlan, rawPreviousPlan, allStorylines, volumePlans, volumeSettings] = await Promise.all([
+  const [chapters, rawPlan, rawPreviousPlan, rawChapterPlans, allStorylines, volumePlans, volumeSettings] = await Promise.all([
     request(`/books/${bookId}/chapters`).catch(() => []),
     request(`/books/${bookId}/chapter-plans/${chapterNumber}`).catch(() => null),
     Number(chapterNumber) > 1
       ? request(`/books/${bookId}/chapter-plans/${previousChapterNumber}`).catch(() => null)
       : Promise.resolve(null),
+    request(`/books/${bookId}/chapter-plans`).catch(() => []),
     request(`/storyline-workbench/${bookId}/storylines`).catch(() => []),
     request(`/books/${bookId}/volume-plans`).catch(() => []),
     request(`/storyline-workbench/${bookId}/volume-settings`).catch(() => [])
   ]);
   const plan = normalizeChapterPlanRecord(rawPlan);
   const previousPlan = normalizeChapterPlanRecord(rawPreviousPlan);
+  const chapterPlans = Array.isArray(rawChapterPlans)
+    ? rawChapterPlans.map(normalizeChapterPlanRecord).filter(Boolean)
+    : [];
 
   const chapterContext = buildChapterContext(chapters);
+  const chapterList = buildChapterListItems(chapters, chapterPlans);
   const currentChapter = Array.isArray(chapters)
     ? chapters.find((item) => Number(item.chapter_number || 0) === Number(chapterNumber))
     : null;
@@ -609,6 +702,8 @@ export async function fetchChapterSetupBundle(bookId, chapterNumber) {
 
   chapterContext.previousFeedbackLabel = normalizedPreviousFeedbackLabel;
   chapterContext.previousFeedbackFocus = normalizedPreviousFeedbackFocus;
+  chapterContext.totalChapterCount = chapterList.totalChapterCount;
+  chapterContext.chapterListItems = chapterList.items;
   chapterContext.generationConstraints = buildVisibleGenerationConstraints({
     plan,
     previousCarry: previousContinuityCarry,

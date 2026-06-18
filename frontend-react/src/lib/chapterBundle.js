@@ -16,6 +16,8 @@ export function normalizeChapterBundle(bundle, chapterNumber) {
   return {
     context: {
       latestChapterLabel: context.latestChapterLabel || '还没有章节记录，建议从第 1 章开始。',
+      totalChapterCount: Number(context.totalChapterCount || 0),
+      chapterListItems: Array.isArray(context.chapterListItems) ? context.chapterListItems : [],
       previousFeedbackLabel: context.previousFeedbackLabel || '',
       previousFeedbackFocus: context.previousFeedbackFocus || '',
       generationConstraints: context.generationConstraints || {
