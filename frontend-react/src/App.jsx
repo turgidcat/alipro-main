@@ -1,5 +1,4 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { workflowSteps } from './mockData.js';
 import { useWorkbenchData } from './useWorkbenchData.js';
 import {
   createDemoWorkspace,
@@ -67,110 +66,10 @@ import {
   buildLocalChapterFeedback
 } from './lib/revisionDiff.js';
 import { normalizeChapterBundle, mergeFeedbackIntoPlan } from './lib/chapterBundle.js';
-
-function renderBlockedConstraints(generationConstraints, constraintOverrides, setConstraintOverride) {
-  const blocked = Array.isArray(generationConstraints?.blocked) ? generationConstraints.blocked : [];
-  if (blocked.length === 0) return null;
-
-  return (
-    <div className="chapter-constraint-inline">
-      <div className="chapter-constraint-head">
-        <span>禁止项</span>
-        <p>例如突然冒出没铺垫的新亲属、直接改写主线走向的新真相，或临时接管剧情的新势力/新规则。</p>
-      </div>
-      <div className="chapter-constraint-group">
-        {blocked.map((group, groupIndex) => (
-          <div key={`${group.label}-${groupIndex}`} className="chapter-constraint-row">
-            <div className="chapter-constraint-copy">
-              <span>{group.label}</span>
-              <p>{group.rule}</p>
-            </div>
-            <div className="chapter-constraint-actions">
-              {[
-                { value: 'ban', label: '禁止' },
-                { value: 'allow', label: '放开' }
-              ].map((option) => {
-                const key = `blocked-${group.label}-${groupIndex}`;
-                const active = (constraintOverrides[key] || 'ban') === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={`constraint-toggle-btn${active ? ' is-active' : ''}`}
-                    onClick={() => setConstraintOverride(key, option.value)}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-function WorkflowTabs({ activeStep, onChange }) {
-  return (
-    <div className="workflow-tabs" role="tablist" aria-label="创作主链">
-      {workflowSteps.map((step) => (
-        <button
-          key={step.id}
-          type="button"
-          className={`workflow-tab${step.id === activeStep ? ' is-active' : ''}`}
-          onClick={() => onChange(step.id)}
-          role="tab"
-          aria-selected={step.id === activeStep}
-        >
-          <span className="workflow-tab-index">{step.index}</span>
-          <span className="workflow-tab-title">{step.title}</span>
-          <span className="workflow-tab-note">{step.note}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function PanelCard({ eyebrow, title, description, children, actions, headerActions, className = '' }) {
-  return (
-    <section className={`panel-card${className ? ` ${className}` : ''}`}>
-      {eyebrow || title || description || headerActions ? (
-        <div className="panel-card-head">
-          <div className="panel-card-head-main">
-            {eyebrow ? <span className="panel-card-eyebrow">{eyebrow}</span> : null}
-            {title ? <h3>{title}</h3> : null}
-            {description ? <p>{description}</p> : null}
-          </div>
-          {headerActions ? <div className="panel-card-head-actions">{headerActions}</div> : null}
-        </div>
-      ) : null}
-      <div className="panel-card-body">{children}</div>
-      {actions ? <div className="panel-card-actions">{actions}</div> : null}
-    </section>
-  );
-}
-
-function Modal({ title, description, children, onClose, actions }) {
-  const modalClassName = title.includes('正文校改') ? 'modal-panel modal-panel-revision' : 'modal-panel';
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className={modalClassName} onClick={(event) => event.stopPropagation()}>
-        <div className="modal-head">
-          <div>
-            <h2>{title}</h2>
-            <p>{description}</p>
-          </div>
-          <button type="button" className="ghost-btn modal-close-btn" onClick={onClose}>
-            关闭
-          </button>
-        </div>
-        <div className="modal-body">{children}</div>
-        <div className="modal-actions">{actions}</div>
-      </div>
-    </div>
-  );
-}
+import WorkflowTabs from './components/workbench/WorkflowTabs.jsx';
+import PanelCard from './components/workbench/PanelCard.jsx';
+import Modal from './components/workbench/Modal.jsx';
+import BlockedConstraints from './components/workbench/BlockedConstraints.jsx';
 
 export default function App() {
   const [activeStep, setActiveStep] = useState('book');
@@ -1351,11 +1250,11 @@ export default function App() {
                   />
                 </label>
               </div>
-              {renderBlockedConstraints(
-                chapterContext.generationConstraints,
-                constraintOverrides,
-                setConstraintOverride
-              )}
+              <BlockedConstraints
+                generationConstraints={chapterContext.generationConstraints}
+                constraintOverrides={constraintOverrides}
+                setConstraintOverride={setConstraintOverride}
+              />
               {generationRiskReview.items.length > 0 ? (
                 <div className="generation-risk-review">
                   <div className="generation-risk-review-head">
