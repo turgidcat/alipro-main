@@ -35,6 +35,7 @@ export function useWorkbench() {
   const revisionParagraphRefs = useRef(new Map());
   const revisionChangeRefs = useRef(new Map());
   const [promptPreviewOpen, setPromptPreviewOpen] = useState(false);
+  const [activeDrawer, setActiveDrawer] = useState(null);
 
   const workbenchData = useWorkbenchData();
   const { selectedBookId } = workbenchData;
@@ -101,6 +102,7 @@ export function useWorkbench() {
     revisionAppliedChangeKeys, setRevisionAppliedChangeKeys,
     revisionParagraphRefs,
     revisionChangeRefs,
-    promptPreviewOpen, setPromptPreviewOpen
+    promptPreviewOpen, setPromptPreviewOpen,
+    activeDrawer, setActiveDrawer
   };
 }

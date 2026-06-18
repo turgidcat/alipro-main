@@ -63,10 +63,18 @@ import {
   buildLocalChapterFeedback
 } from './lib/revisionDiff.js';
 import { normalizeChapterBundle, mergeFeedbackIntoPlan } from './lib/chapterBundle.js';
-import WorkflowTabs from './components/workbench/WorkflowTabs.jsx';
 import PanelCard from './components/workbench/PanelCard.jsx';
 import Modal from './components/workbench/Modal.jsx';
 import BlockedConstraints from './components/workbench/BlockedConstraints.jsx';
+import './workbench-layout.css';
+import GlobalBar from './components/workbench/GlobalBar.jsx';
+import ChapterConfigPanel from './components/workbench/ChapterConfigPanel.jsx';
+import ContentWorkspace from './components/workbench/ContentWorkspace.jsx';
+import ContextDrawer from './components/workbench/ContextDrawer.jsx';
+import BookSettingDrawer from './components/workbench/drawers/BookSettingDrawer.jsx';
+import StorylineDrawer from './components/workbench/drawers/StorylineDrawer.jsx';
+import CharacterDrawer from './components/workbench/drawers/CharacterDrawer.jsx';
+import VolumeDrawer from './components/workbench/drawers/VolumeDrawer.jsx';
 import { useWorkbench } from './hooks/useWorkbench.js';
 
 export default function App() {
@@ -80,7 +88,6 @@ export default function App() {
     error,
     reloadPlanning,
     reloadBooks,
-    activeStep, setActiveStep,
     planningModal, setPlanningModal,
     chapterModal, setChapterModal,
     savingState, setSavingState,
@@ -109,7 +116,8 @@ export default function App() {
     revisionAppliedChangeKeys, setRevisionAppliedChangeKeys,
     revisionParagraphRefs,
     revisionChangeRefs,
-    promptPreviewOpen, setPromptPreviewOpen
+    promptPreviewOpen, setPromptPreviewOpen,
+    activeDrawer, setActiveDrawer
   } = useWorkbench();
 
   function setConstraintOverride(key, mode) {
@@ -517,7 +525,6 @@ export default function App() {
         statusTitle: '缺少章节必填信息',
         statusText: `请先补齐：${missingRequiredItems.map((item) => item.label).join('、')}。`
       });
-      setActiveStep('chapter');
       return;
     }
 
@@ -682,6 +689,13 @@ export default function App() {
     setSavingState({ loading: false, error: '' });
   }
 
+  function handleContextChipClick(chip) {
+    setActiveDrawer((prev) => (prev === chip ? null : chip));
+  }
+  function handleCloseDrawer() {
+    setActiveDrawer(null);
+  }
+
   const selectedMainStoryline = storylineOptions.find((item) => item.id === draftChapterPlan.main_storyline_id);
   const selectedTargetStorylines = storylineOptions.filter((item) =>
     Array.isArray(draftChapterPlan.target_storylines) && draftChapterPlan.target_storylines.includes(item.id)
@@ -814,485 +828,116 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <header className="hero-section">
-        <div>
-          <span className="hero-eyebrow">React Workbench Prototype</span>
-          <h1>创作台新架构</h1>
-          <p>这一版先把全书规划、单章设置、正文生成收拢成一个清晰的业务区，继续复用现有后端接口。</p>
-        </div>
-        <div className="hero-note-card">
-          <strong>当前阶段</strong>
-          <p>先保证 React 工作台能稳定读写，再继续补复杂交互。</p>
-        </div>
-      </header>
-
-      <WorkflowTabs activeStep={activeStep} onChange={setActiveStep} />
+      <GlobalBar
+        bookTitle={planningState?.currentBook?.title || ''}
+        chapterNumber={chapterNumber}
+        chapterName={draftChapterPlan.chapter_name}
+        mainStorylineLabel={chapterView.mainStoryline}
+        totalChapters={planningState?.currentBook?.totalChapters || 0}
+        chapterNames={planningState?.currentBook?.chapterNames}
+        onPrevChapter={goToPreviousChapter}
+        onNextChapter={goToNextChapter}
+        onSelectChapter={(n) => setChapterNumber(n)}
+      />
 
       {error ? <div className="global-banner is-error">{error}</div> : null}
       {loadingBooks ? <div className="global-banner">正在读取书籍列表...</div> : null}
       <section className="workbench-stage">
-        {activeStep === 'book' ? (
-          <div className="panel-grid panel-grid-book">
-            <PanelCard
-              className="book-planning-card book-planning-card-entry"
-              eyebrow=""
-              title=""
-              description=""
-            >
-              <div className="book-planning-entry-badge">书籍操作</div>
-              <div className="book-planning-entry-row">
-                <button
-                  type="button"
-                  className="solid-btn action-btn"
-                  onClick={() => { window.location.href = '/books?action=create'; }}
-                >
-                  新建书籍
-                </button>
-                <button
-                  type="button"
-                  className="ghost-btn nav-btn"
-                  onClick={() => {
-                    const target = selectedBookId ? `/books?bookId=${encodeURIComponent(selectedBookId)}` : '/books';
-                    window.location.href = target;
-                  }}
-                  disabled={!selectedBookId}
-                >
-                  编辑书籍
-                </button>
-                <label className="select-wrap book-planning-entry-select">
-                  <select
-                    className="book-select"
-                    value={selectedBookId}
-                    onChange={(event) => setSelectedBookId(event.target.value)}
-                    disabled={loadingBooks || books.length === 0}
-                  >
-                    {books.length === 0 ? <option value="">暂无书籍</option> : null}
-                    {books.map((book) => (
-                      <option key={book.id} value={book.id}>{book.title}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            </PanelCard>
-
-            <PanelCard
-              className="book-planning-card book-planning-card-book"
-              eyebrow="书籍"
-              title={planningState.currentBook.title || '未命名书籍'}
-              description=""
-            >
-              <div className="book-planning-hero">
-                <div className="book-planning-cover-frame">
-                  <img
-                    className="book-planning-cover-image"
-                    src={planningState.currentBook.coverImage || createBookCoverDataUrl(planningState.currentBook.title)}
-                    alt={`${planningState.currentBook.title}封面示意图`}
-                  />
-                </div>
-                <div className="book-planning-book-copy">
-                  <p>{planningState.currentBook.author ? `作者：${planningState.currentBook.author}` : '作者：未填写'}</p>
-                  <div className="book-planning-book-summary-card">
-                    <span className="book-planning-book-summary-label">书籍简介</span>
-                    <p>{planningState.currentBook.description || '这本书的基础设定和定位会从这里开始进入后续创作链路。'}</p>
-                  </div>
-                </div>
-                <div className="book-planning-meta-grid">
-                  <div className="book-planning-meta-item">
-                    <span>平台</span>
-                    <strong>{PLATFORM_LABELS[planningState.currentBook.platform] || planningState.currentBook.platform || '未设置'}</strong>
-                  </div>
-                  <div className="book-planning-meta-item">
-                    <span>题材</span>
-                    <strong>{GENRE_LABELS[planningState.currentBook.genre] || planningState.currentBook.genre || '未设置'}</strong>
-                  </div>
-                  <div className="book-planning-meta-item">
-                    <span>子分类</span>
-                    <strong>{SUBGENRE_LABELS[planningState.currentBook.subgenre] || planningState.currentBook.subgenre || '未设置'}</strong>
-                  </div>
-                  <div className="book-planning-meta-item">
-                    <span>写法模板</span>
-                    <strong>{TEMPLATE_LABELS[planningState.currentBook.template] || planningState.currentBook.template || '未设置'}</strong>
-                  </div>
-                </div>
-              </div>
-            </PanelCard>
-
-            <PanelCard
-              className="book-planning-card book-planning-card-character"
-              eyebrow="角色"
-              title="主要角色"
-              description=""
-            >
-              <div className="book-planning-character-list">
-                {(planningState.bookPlanning.characters || []).slice(0, 6).map((character) => (
-                  <article key={character.id || character.name} className="book-planning-character-card character-card-standard">
-                    <img
-                      className="book-planning-character-avatar"
-                      src={character.avatar_image || createCharacterBadgeDataUrl(character.name)}
-                      alt={`${character.name}头像示意图`}
-                    />
-                    <div className="book-planning-character-copy">
-                      <strong>{character.name}</strong>
-                      <p>{buildCharacterSubtitle(character)}</p>
-                    </div>
-                  </article>
-                ))}
-                {(planningState.bookPlanning.characters || []).length === 0 ? (
-                  <div className="book-planning-empty-note">
-                    <p className="summary-state">暂无主体角色明细</p>
-                  </div>
-                ) : (
-                  null
-                )}
-              </div>
-            </PanelCard>
-
-            <PanelCard
-              className="book-planning-card book-planning-card-outline"
-              eyebrow="大纲"
-              title="分卷概览"
-              description=""
-            >
-              <div className="book-planning-outline-layout">
-                <div className="book-planning-volume-grid">
-                  {(planningState.bookPlanning.volumePlans || []).slice(0, 6).map((plan) => (
-                    <article key={plan.id || plan.volumeNumber} className="book-planning-volume-card">
-                      <img
-                        className="book-planning-volume-image"
-                        src={plan.cover_image || createVolumePosterDataUrl(`第${plan.volumeNumber}卷`)}
-                        alt={`第${plan.volumeNumber}卷示意图`}
-                      />
-                      <div className="book-planning-volume-copy">
-                        <strong>{`第 ${plan.volumeNumber} 卷`}</strong>
-                        <p>{plan.volume_name || '未命名分卷'}</p>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-                {(planningState.bookPlanning.volumePlans || []).length === 0 ? (
-                  <div className="book-planning-empty-note">
-                    <p className="summary-state">暂无分卷信息</p>
-                  </div>
-                ) : (
-                  null
-                )}
-              </div>
-            </PanelCard>
+        <div className="workbench-dual-pane">
+          <div className="workbench-dual-pane-left">
+            <ChapterConfigPanel
+              chapterNumber={chapterNumber}
+              draftChapterPlan={draftChapterPlan}
+              chapterContext={chapterContext}
+              chapterView={chapterView}
+              storylineOptions={storylineOptions}
+              selectedMainStorylineLabel={selectedMainStorylineLabel}
+              selectedTargetStorylineLabel={selectedTargetStorylineLabel}
+              selectedTargetStorylines={selectedTargetStorylines}
+              storylineRhythmHints={storylineRhythmHints}
+              savingState={savingState}
+              loadingChapter={loadingChapter}
+              selectedBookId={selectedBookId}
+              onChapterNumberChange={setChapterNumber}
+              onSaveChapterPlan={handleSaveChapterPlan}
+              onOpenOutlineModal={() => setChapterModal('outline')}
+              onOpenCharacterModal={() => setChapterModal('character')}
+              onOpenStorylineCreator={openStorylineCreator}
+              onOpenStorylineEditor={openStorylineEditor}
+              onClearStorylineSelection={clearStorylineSelection}
+              onSelectMainStoryline={selectMainStoryline}
+              onToggleTargetStoryline={toggleTargetStoryline}
+              onAdjustStorylineRange={adjustStorylineRange}
+              onContextChipClick={handleContextChipClick}
+              activeDrawer={activeDrawer}
+            />
           </div>
-        ) : null}
-
-        {activeStep === 'chapter' ? (
-          <div className="panel-grid panel-grid-chapter">
-            <PanelCard
-              eyebrow="章节入口"
-              title={'第 ' + chapterNumber + ' 章 · ' + (draftChapterPlan.chapter_name || '未命名章节')}
-              description="这一层只处理本章要写什么。"
-            >
-              <div className="chapter-control-row">
-                <label className="editor-field chapter-number-field">
-                  <span>当前章号</span>
-                  <input
-                    className="chapter-number-input"
-                    type="number"
-                    min="1"
-                    value={chapterNumber}
-                    onChange={(event) => setChapterNumber(Math.max(1, Number(event.target.value) || 1))}
-                  />
-                </label>
-                <div className="chapter-context-note">{loadingChapter ? '正在读取本章计划...' : chapterContext.latestChapterLabel}</div>
-              </div>
-              <ul className="meta-list">
-                <li>当前卷：{chapterView.volumeLabel || '第 1 卷'}</li>
-                <li>主剧情线：{selectedMainStorylineLabel}</li>
-                <li>章节任务：{draftChapterPlan.chapter_mission || '建议补充本章推进目标'}</li>
-                <li>情绪目标：{draftChapterPlan.emotion_target || '建议补充本章情绪方向'}</li>
-              </ul>
-              {(chapterContext.previousFeedbackLabel || chapterContext.previousFeedbackFocus) ? (
-                <div className="chapter-feedback-carryover">
-                  <span>上一章反馈</span>
-                  {chapterContext.previousFeedbackLabel ? <p>{chapterContext.previousFeedbackLabel}</p> : null}
-                  {chapterContext.previousFeedbackFocus ? <p>{chapterContext.previousFeedbackFocus}</p> : null}
-                </div>
-              ) : null}
-            </PanelCard>
-
-            <PanelCard
-              eyebrow="卷与剧情线"
-              title="本章承接哪一层推进"
-              description="主线像本章主任务，关联线像顺手推进的支线。"
-              actions={
-                <>
-                  <button type="button" className="ghost-btn" onClick={openStorylineCreator} disabled={!selectedBookId}>
-                    新建剧情线
-                  </button>
-                  <button type="button" className="ghost-btn" onClick={clearStorylineSelection} disabled={!selectedBookId || selectedTargetStorylines.length === 0}>
-                    清空选择
-                  </button>
-                  <button type="button" className="solid-btn" onClick={handleSaveChapterPlan} disabled={!selectedBookId || savingState.loading}>
-                    保存剧情线选择
-                  </button>
-                </>
-              }
-            >
-              <ul className="meta-list">
-                <li>卷级定位：{chapterView.volumeLabel || '第 1 卷'}</li>
-                <li>卷内目标：{chapterView.volumeSummary || '暂无卷级说明'}</li>
-                <li>主剧情线：{selectedMainStorylineLabel}</li>
-                <li>关联剧情线：{selectedTargetStorylineLabel}</li>
-              </ul>
-              <div className="storyline-picker">
-                <label className="editor-field">
-                  <span>主推进剧情线</span>
-                  <select
-                    className="book-select storyline-select"
-                    value={draftChapterPlan.main_storyline_id}
-                    onChange={(event) => selectMainStoryline(event.target.value)}
-                    disabled={storylineOptions.length === 0}
-                  >
-                    <option value="">暂不指定</option>
-                    {storylineOptions.map((storyline) => (
-                      <option key={storyline.id} value={storyline.id}>
-                        第 {storyline.volumeNumber} 卷 · {storyline.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="editor-field">
-                  <span>关联剧情线</span>
-                  {storylineOptions.length > 0 ? (
-                    <div className="storyline-checkbox-list">
-                      {storylineOptions.map((storyline) => (
-                        <label key={storyline.id} className="storyline-checkbox-item">
-                          <input
-                            type="checkbox"
-                            checked={Array.isArray(draftChapterPlan.target_storylines) && draftChapterPlan.target_storylines.includes(storyline.id)}
-                            onChange={() => toggleTargetStoryline(storyline.id)}
-                          />
-                          <span>
-                            第 {storyline.volumeNumber} 卷 · {storyline.name}
-                            <em>{storyline.type} · 预计第 {storyline.startChapter}-{storyline.endChapter} 章</em>
-                          </span>
-                          <button
-                            type="button"
-                            className="inline-link-btn storyline-edit-btn"
-                            onClick={(event) => {
-                              event.preventDefault();
-                              openStorylineEditor(storyline);
-                            }}
-                          >
-                            编辑
-                          </button>
-                        </label>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="excerpt-text">当前书籍还没有剧情线。可以先用演示书籍测试，再继续接剧情线创建入口。</p>
-                  )}
-                </div>
-                {storylineRhythmHints.length > 0 ? (
-                  <div className="storyline-rhythm-hints">
-                    <span>节奏提示</span>
-                    {storylineRhythmHints.map((hint) => (
-                      <div key={hint.id} className="storyline-rhythm-hint-row">
-                        <p>{hint.text}</p>
-                        {hint.actionLabel ? (
-                          <button
-                            type="button"
-                            className="inline-link-btn storyline-rhythm-action"
-                            onClick={() => adjustStorylineRange(hint.storyline, hint.actionField)}
-                            disabled={savingState.loading}
-                          >
-                            {hint.actionLabel}
-                          </button>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </PanelCard>
-
-            <PanelCard
-              eyebrow="章节大纲"
-              title="本章计划说明"
-              description="正文生成前最重要的信息。"
-              actions={<button type="button" className="solid-btn" onClick={() => setChapterModal('outline')}>编辑大纲</button>}
-            >
-              <span className="info-chip info-chip-required">必要信息</span>
-              <p className="summary-state">{draftChapterPlan.outline_text ? '已填写' : '未填写'}</p>
-              {draftChapterPlan.outline_text ? (
-                <div className="structured-outline-summary">
-                  <p><strong>本章目标：</strong>{draftChapterPlan.chapter_structure?.chapter_goal || draftChapterPlan.chapter_mission || '未填写'}</p>
-                  <p><strong>关键场景：</strong>{draftChapterPlan.chapter_structure?.key_scenes || '未填写'}</p>
-                  <p><strong>冲突升级：</strong>{draftChapterPlan.chapter_structure?.conflict_escalation || '未填写'}</p>
-                  <p><strong>结尾钩子：</strong>{draftChapterPlan.chapter_structure?.ending_hook || draftChapterPlan.ending_hook || '未填写'}</p>
-                </div>
-              ) : (
-                <p className="excerpt-text">还没有章节任务表。建议先写本章目标、关键场景、冲突升级和结尾钩子。</p>
-              )}
-            </PanelCard>
-
-            <PanelCard
-              eyebrow="章节角色"
-              title="本章出场角色"
-              description="有人物变化或新角色登场时再补。"
-              actions={<button type="button" className="solid-btn" onClick={() => setChapterModal('character')}>编辑角色</button>}
-            >
-              <span className="info-chip info-chip-optional">建议信息</span>
-              <p className="summary-state">{draftChapterPlan.character_notes ? '已补充' : '可留空'}</p>
-              <p className="excerpt-text">{draftChapterPlan.character_notes || '还没有本章角色说明。'}</p>
-              {Array.isArray(draftChapterPlan.role_execution) && draftChapterPlan.role_execution.length > 0 ? (
-                <div className="structured-outline-summary">
-                  {draftChapterPlan.role_execution.slice(0, 3).map((item, index) => (
-                    <div key={`${item.role || 'role'}-${index}`} className="role-execution-summary-item">
-                      <p>
-                        <strong>{item.role || '未命名角色'}：</strong>
-                        {item.chapter_function || item.allowed_change || '本章角色执行要求待补充'}
-                      </p>
-                      <p className="summary-meta-text">{describeRoleExecutionMeta(item)}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </PanelCard>
+          <div className="workbench-dual-pane-right">
+            <ContentWorkspace
+              chapterNumber={chapterNumber}
+              draftChapterPlan={draftChapterPlan}
+              chapterContext={chapterContext}
+              constraintOverrides={constraintOverrides}
+              generationRiskReview={generationRiskReview}
+              generationReadiness={generationReadiness}
+              generationRequiredItems={generationRequiredItems}
+              generationRecommendedItems={generationRecommendedItems}
+              generationState={generationState}
+              generationRiskConfirmed={generationRiskConfirmed}
+              isGenerating={isGenerating}
+              loadingChapter={loadingChapter}
+              onGenerateChapter={handleGenerateChapter}
+              onOpenRevisionEditor={openRevisionEditor}
+              onSetPromptPreview={() => setPromptPreviewOpen(true)}
+              onPrevChapter={goToPreviousChapter}
+              onNextChapter={goToNextChapter}
+              onChapterNumberChange={setChapterNumber}
+              onSetConstraintOverride={setConstraintOverride}
+              onGenerationRiskConfirm={setGenerationRiskConfirmed}
+              onUpdateGenerationSetting={updateGenerationSetting}
+            />
           </div>
-        ) : null}
-
-        {activeStep === 'generate' ? (
-          <div className="panel-grid panel-grid-generation">
-            <PanelCard
-              eyebrow="生成前"
-              title={'开始第 ' + chapterNumber + ' 章'}
-              description="按第二步的章节计划生成正文，这里只处理生成控制与生成前检查。"
-              actions={
-                <>
-                  <button type="button" className="ghost-btn" onClick={() => setPromptPreviewOpen(true)}>查看生成摘要</button>
-                  <button
-                    type="button"
-                    className="solid-btn"
-                    onClick={handleGenerateChapter}
-                    disabled={isGenerating || (generationRiskReview.hasCritical && !generationRiskConfirmed)}
-                  >
-                    {isGenerating ? '正在生成...' : '生成章节'}
-                  </button>
-                </>
-              }
-            >
-              <div className="generation-chapter-switcher">
-                <button type="button" className="ghost-btn" onClick={goToPreviousChapter} disabled={chapterNumber <= 1 || loadingChapter || isGenerating}>
-                  上一章
-                </button>
-                <label className="editor-field generation-chapter-number-field">
-                  <span>当前章号</span>
-                  <input
-                    className="chapter-number-input"
-                    type="number"
-                    min="1"
-                    value={chapterNumber}
-                    onChange={(event) => setChapterNumber(Math.max(1, Number(event.target.value) || 1))}
-                    disabled={loadingChapter || isGenerating}
-                  />
-                </label>
-                <button type="button" className="ghost-btn" onClick={goToNextChapter} disabled={loadingChapter || isGenerating}>
-                  下一章
-                </button>
-              </div>
-              <section className={'inline-status-banner is-' + generationReadiness.kind}>
-                <strong>{generationReadiness.title}</strong>
-                <span>{generationReadiness.text}</span>
-              </section>
-              <div className="generation-settings-row">
-                <label className="editor-field generation-word-count-field">
-                  <span>目标字数</span>
-                  <input
-                    className="chapter-number-input"
-                    type="number"
-                    min="500"
-                    max="10000"
-                    step="500"
-                    value={getPlanWordCount(draftChapterPlan)}
-                    onChange={(event) => updateGenerationSetting('word_count', Math.min(10000, Math.max(500, Number(event.target.value) || 3000)))}
-                    disabled={loadingChapter || isGenerating}
-                  />
-                </label>
-              </div>
-              <BlockedConstraints
-                generationConstraints={chapterContext.generationConstraints}
-                constraintOverrides={constraintOverrides}
-                setConstraintOverride={setConstraintOverride}
-              />
-              {generationRiskReview.items.length > 0 ? (
-                <div className="generation-risk-review">
-                  <div className="generation-risk-review-head">
-                    <span>关键控制端点</span>
-                    <p>这些地方一旦放松，最容易让章节失控、空降大设定或把人物推得过头。</p>
-                  </div>
-                  <div className="generation-risk-review-list">
-                    {generationRiskReview.items.map((item, index) => (
-                      <article key={`${item.title}-${index}`} className={`generation-risk-item is-${item.level}`}>
-                        <strong>{item.title}</strong>
-                        <p>{item.text}</p>
-                        <p className="generation-risk-action">{item.action}</p>
-                      </article>
-                    ))}
-                  </div>
-                  {generationRiskReview.hasCritical ? (
-                    <label className="generation-risk-confirm">
-                      <input
-                        type="checkbox"
-                        checked={generationRiskConfirmed}
-                        onChange={(event) => setGenerationRiskConfirmed(event.target.checked)}
-                        disabled={isGenerating}
-                      />
-                      <span>我确认：本章已主动放开高风险禁止项，接受剧情掌控度会明显下降。</span>
-                    </label>
-                  ) : null}
-                </div>
-              ) : null}
-              <div className="generation-brief">
-                <div className="summary-group">
-                  <p className="summary-group-title">计划引用</p>
-                  <p className="excerpt-text">本次会直接按第二步已保存的章节计划生成；如需改目标、场景、角色或钩子，请先回第二步调整。</p>
-                </div>
-                <div className="summary-group">
-                  <p className="summary-group-title">必填信息</p>
-                  <div className="brief-check-list">
-                    {generationRequiredItems.map((item) => (
-                      <span key={item.key} className={'brief-check-item' + (hasText(item.value) ? ' is-ready' : ' is-missing')}>
-                        {item.label}：{hasText(item.value) ? '已填写' : '未填写'}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div className="summary-group">
-                  <p className="summary-group-title">建议补充</p>
-                  <div className="brief-check-list">
-                    {generationRecommendedItems.map((item) => (
-                      <span key={item.key} className={'brief-check-item' + (hasText(item.value) ? ' is-ready' : ' is-missing')}>
-                        {item.label}：{hasText(item.value) ? '已填写' : '可补充'}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </PanelCard>
-
-            <PanelCard
-              eyebrow="生成后"
-              title={generationState.hasContent ? '正文与下一章衔接' : '生成结果'}
-              description="这里集中查看正文结果和下一章承接。"
-              actions={<button type="button" className="solid-btn" onClick={openRevisionEditor} disabled={!generationState.hasContent}>查看/校改正文</button>}
-            >
-              <p className="summary-state">{generationState.metaText}</p>
-              <p className="summary-substate">{generationState.wordCountLabel}</p>
-              <p className="excerpt-text preview-excerpt-text">{generationState.previewText}</p>
-              <span className="info-chip info-chip-optional">反馈来源：本地整理</span>
-              <p className="excerpt-text">{generationState.feedbackSummary}</p>
-              <p className="excerpt-text">{generationState.feedbackFocus}</p>
-            </PanelCard>
-          </div>
-        ) : null}
+        </div>
       </section>
+      <ContextDrawer
+        open={activeDrawer === 'book'}
+        title="📖 全书设定"
+        onClose={handleCloseDrawer}
+      >
+        <BookSettingDrawer book={planningState?.currentBook} />
+      </ContextDrawer>
+      <ContextDrawer
+        open={activeDrawer === 'storyline'}
+        title="🗺 剧情线"
+        onClose={handleCloseDrawer}
+      >
+        <StorylineDrawer
+          storylines={storylineOptions}
+          mainStorylineId={draftChapterPlan.main_storyline_id}
+          targetStorylineIds={draftChapterPlan.target_storylines}
+          currentChapter={chapterNumber}
+        />
+      </ContextDrawer>
+      <ContextDrawer
+        open={activeDrawer === 'character'}
+        title="👤 角色档案"
+        onClose={handleCloseDrawer}
+      >
+        <CharacterDrawer
+          characters={planningState?.bookPlanning?.characters || []}
+          appearingRoles={draftChapterPlan.appearing_roles}
+        />
+      </ContextDrawer>
+      <ContextDrawer
+        open={activeDrawer === 'volume'}
+        title="📚 分卷"
+        onClose={handleCloseDrawer}
+      >
+        <VolumeDrawer
+          volumePlans={planningState?.bookPlanning?.volumePlans || []}
+          currentVolumeNumber={draftChapterPlan.volume_number}
+        />
+      </ContextDrawer>
 
       {chapterModal === 'outline' ? (
         <Modal
