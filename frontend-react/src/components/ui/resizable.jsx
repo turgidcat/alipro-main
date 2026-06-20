@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
+import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels';
 import { cn } from '../../lib/utils.js';
 
 const ResizablePanelGroup = React.forwardRef(function ResizablePanelGroup(
@@ -42,6 +42,7 @@ const ResizableHandle = React.forwardRef(function ResizableHandle(
 });
 
 ResizablePanelGroup.displayName = 'ResizablePanelGroup';
+ResizablePanel.displayName = 'ResizablePanel';
 ResizableHandle.displayName = 'ResizableHandle';
 
 export { ResizablePanelGroup, ResizablePanel, ResizableHandle };
