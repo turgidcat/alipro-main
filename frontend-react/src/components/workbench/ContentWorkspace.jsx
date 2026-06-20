@@ -1,11 +1,14 @@
-import PanelCard from './PanelCard.jsx';
 import GenerationBanner from './GenerationBanner.jsx';
 import GenerationSettingsPopover from './GenerationSettingsPopover.jsx';
 import IndentedTextBlock from '../IndentedTextBlock.jsx';
+import WorkbenchSection from './WorkbenchSection.jsx';
+import MetaCode from './MetaCode.jsx';
 
-const fieldLabelClass = 'mb-2 block text-[11px] font-bold tracking-[0.12em] text-[color:var(--muted)]';
-const inputClass = 'min-h-11 w-full rounded-[14px] border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_64%,white)] px-4 text-[15px] text-[color:var(--text)] shadow-none outline-none transition focus:border-[color:var(--brand-soft-strong)] focus:bg-[var(--panel)]';
-const insetTitleClass = 'font-serif text-[13px] font-semibold tracking-[0.04em] text-[color:var(--brand-deep)]';
+const ghostButtonClass =
+  'appearance-none inline-flex min-h-9 items-center justify-center rounded-md border border-[color:color-mix(in_srgb,var(--line)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--surface)_84%,transparent)] px-3.5 text-[13px] font-medium text-[color:var(--text)] transition hover:border-[color:color-mix(in_srgb,var(--brand-soft-strong)_45%,var(--line))] hover:text-[color:var(--brand-deep)] disabled:cursor-not-allowed disabled:opacity-60';
+
+const primaryButtonClass =
+  'appearance-none inline-flex min-h-9 items-center justify-center rounded-md border border-[color:color-mix(in_srgb,var(--brand-soft-strong)_72%,var(--line))] bg-[color:color-mix(in_srgb,var(--brand)_10%,var(--surface))] px-4 text-[13px] font-semibold text-[color:var(--brand-deep)] transition hover:bg-[color:color-mix(in_srgb,var(--brand)_16%,var(--surface))] disabled:cursor-not-allowed disabled:opacity-60';
 
 export default function ContentWorkspace(props) {
   const {
@@ -34,33 +37,33 @@ export default function ContentWorkspace(props) {
   } = props;
 
   return (
-    <>
-      <PanelCard
-        variant="flat"
-        eyebrow="生成前"
+    <div className="grid min-w-0 max-w-full gap-8 overflow-x-hidden px-5 py-6 lg:px-8">
+      <WorkbenchSection
+        code="PREP"
         title={`开始第 ${chapterNumber} 章`}
-        bodyClassName="space-y-7"
-        actionsClassName="justify-between"
+        description="生成前检查当前计划引用、必要信息和风险控制点。"
+        className="bg-transparent"
+        contentClassName="gap-5"
         actions={
-          <>
-            <div className="flex flex-wrap items-center gap-3">
-              <button type="button" className="ghost-btn" onClick={onSetPromptPreview}>查看生成摘要</button>
-              <GenerationSettingsPopover
-                draftChapterPlan={draftChapterPlan}
-                loadingChapter={loadingChapter}
-                isGenerating={isGenerating}
-                onUpdateGenerationSetting={onUpdateGenerationSetting}
-              />
-            </div>
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <button type="button" className={ghostButtonClass} onClick={onSetPromptPreview}>
+              查看生成摘要
+            </button>
+            <GenerationSettingsPopover
+              draftChapterPlan={draftChapterPlan}
+              loadingChapter={loadingChapter}
+              isGenerating={isGenerating}
+              onUpdateGenerationSetting={onUpdateGenerationSetting}
+            />
             <button
               type="button"
-              className="solid-btn"
+              className={primaryButtonClass}
               onClick={onGenerateChapter}
               disabled={!canGenerate || isGenerating || (generationRiskReview.hasCritical && !generationRiskConfirmed)}
             >
               {isGenerating ? '正在生成...' : '生成章节'}
             </button>
-          </>
+          </div>
         }
       >
         <GenerationBanner
@@ -75,58 +78,70 @@ export default function ContentWorkspace(props) {
           onSetConstraintOverride={onSetConstraintOverride}
           onGenerationRiskConfirm={onGenerationRiskConfirm}
         />
-      </PanelCard>
+      </WorkbenchSection>
 
-      <PanelCard
-        variant="flat"
-        className="workbench-result-card"
-        eyebrow="生成后"
+      <WorkbenchSection
+        code="PROSE"
         title={generationState.hasContent ? '正文与下一章衔接' : '生成结果'}
-        bodyClassName="space-y-5"
-        headerActions={<button type="button" className="solid-btn" onClick={onOpenRevisionEditor} disabled={!generationState.hasContent}>查看/校改正文</button>}
+        description={generationState.hasContent ? '正文预览优先展示，反馈和下一步关注压缩到侧下方。' : '当前还没有可预览的正文内容。'}
+        contentClassName="gap-6"
+        actions={
+          <button
+            type="button"
+            className={primaryButtonClass}
+            onClick={onOpenRevisionEditor}
+            disabled={!generationState.hasContent}
+          >
+            查看/校改正文
+          </button>
+        }
       >
-        <div className="flex flex-wrap items-center gap-3 text-[13px]">
-          <span className="text-[color:var(--muted)]">{generationState.wordCountLabel}</span>
+        <div className="flex min-w-0 flex-wrap items-center gap-3 overflow-x-hidden">
+          <MetaCode>CH.{String(chapterNumber).padStart(2, '0')}</MetaCode>
+          <span className="text-[13px] leading-6 text-[color:var(--muted)]">{generationState.wordCountLabel}</span>
         </div>
 
-        <div className="py-2">
-          <div className="rounded-[20px] border border-[color:color-mix(in_srgb,var(--line)_82%,white)] bg-[linear-gradient(180deg,rgba(255,253,248,0.94),rgba(250,245,236,0.88))] px-5 py-5">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[color:color-mix(in_srgb,var(--line)_68%,transparent)] pb-3">
-              <span className={insetTitleClass}>正文摘读</span>
-              <span className="text-[12px] font-semibold text-[color:var(--muted)]">当前生成内容预览</span>
+        <section className="min-w-0 max-w-full overflow-x-hidden border-t border-[color:color-mix(in_srgb,var(--line)_58%,transparent)] pt-5">
+          <div className="mx-auto grid w-full max-w-[860px] min-w-0 gap-4 overflow-x-hidden">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+              <MetaCode>PROSE PREVIEW</MetaCode>
+              <span className="text-[13px] leading-6 text-[color:var(--muted)]">当前生成内容预览</span>
             </div>
-            <div className="border-l-2 border-[color:color-mix(in_srgb,var(--brand-soft-strong)_52%,transparent)] pl-4">
+            <div className="min-w-0 border-l border-[color:color-mix(in_srgb,var(--brand-soft-strong)_48%,var(--line))] bg-[color:color-mix(in_srgb,var(--surface)_88%,var(--background))] pl-5 pr-1">
               <IndentedTextBlock
                 text={generationState.previewText}
-                paragraphClassName="cn-text-paragraph text-[15px] leading-9 text-[color:var(--text)]"
+                paragraphClassName="cn-text-paragraph font-serif text-[17px] leading-9 text-[color:var(--text)]"
               />
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-[16px] bg-[color:rgba(255,252,246,0.52)] px-4 py-4">
-            <div className="border-l-2 border-[color:color-mix(in_srgb,var(--line-strong)_76%,transparent)] pl-4">
-            <p className={insetTitleClass}>本章反馈</p>
-            <IndentedTextBlock
-              text={generationState.feedbackSummary}
-              className="mt-2"
-              paragraphClassName="cn-text-paragraph text-[14px] leading-7 text-[color:var(--muted)]"
-            />
+        <div className="grid min-w-0 gap-6 overflow-x-hidden lg:grid-cols-2">
+          <section className="min-w-0 border-t border-[color:color-mix(in_srgb,var(--line)_54%,transparent)] pt-4">
+            <div className="border-l border-[color:color-mix(in_srgb,var(--line-strong)_72%,transparent)] pl-4">
+              <MetaCode>FEEDBACK</MetaCode>
+              <p className="mt-1 text-[14px] font-semibold leading-6 text-[color:var(--text)]">本章反馈</p>
+              <IndentedTextBlock
+                text={generationState.feedbackSummary}
+                className="mt-3"
+                paragraphClassName="cn-text-paragraph text-[14px] leading-7 text-[color:var(--muted)]"
+              />
             </div>
-          </div>
-          <div className="rounded-[16px] bg-[color:rgba(255,252,246,0.52)] px-4 py-4">
-            <div className="border-l-2 border-[color:color-mix(in_srgb,var(--line-strong)_76%,transparent)] pl-4">
-            <p className={insetTitleClass}>下一步关注</p>
-            <IndentedTextBlock
-              text={generationState.feedbackFocus}
-              className="mt-2"
-              paragraphClassName="cn-text-paragraph text-[14px] leading-7 text-[color:var(--muted)]"
-            />
+          </section>
+
+          <section className="min-w-0 border-t border-[color:color-mix(in_srgb,var(--line)_54%,transparent)] pt-4">
+            <div className="border-l border-[color:color-mix(in_srgb,var(--line-strong)_72%,transparent)] pl-4">
+              <MetaCode>NEXT FOCUS</MetaCode>
+              <p className="mt-1 text-[14px] font-semibold leading-6 text-[color:var(--text)]">下一步关注</p>
+              <IndentedTextBlock
+                text={generationState.feedbackFocus}
+                className="mt-3"
+                paragraphClassName="cn-text-paragraph text-[14px] leading-7 text-[color:var(--muted)]"
+              />
             </div>
-          </div>
+          </section>
         </div>
-      </PanelCard>
-    </>
+      </WorkbenchSection>
+    </div>
   );
 }

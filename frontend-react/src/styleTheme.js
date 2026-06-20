@@ -1,6 +1,7 @@
 const STORAGE_KEY = 'alipro-style-theme-v3';
 const LEGACY_STORAGE_KEYS = ['alipro-style-theme-v2', 'alipro-style-theme-v1'];
 const ACTIVE_THEME_ID_STORAGE_KEY = 'alipro-style-theme-active-id-v2';
+const THEME_POPOVER_STORAGE_KEY = 'alipro-theme-popover-v1';
 
 export const STYLE_ATMOSPHERE_OPTIONS = [
   {
@@ -45,6 +46,12 @@ export const STYLE_TONE_OPTIONS = [
 export const DEFAULT_STYLE_THEME = {
   atmosphere: 'paper',
   tone: 'light'
+};
+
+export const DEFAULT_THEME_POPOVER_SETTINGS = {
+  mode: 'light',
+  warmth: 'standard',
+  proseFont: 'serif'
 };
 
 export const STYLE_THEME_PRESETS = STYLE_ATMOSPHERE_OPTIONS.map((option) => ({
@@ -476,6 +483,64 @@ const DARK_BRAND_DEEP_TOKENS = {
   orchid: '#e2d3ff'
 };
 
+const SEMANTIC_THEME_TOKENS = {
+  light: {
+    '--background': '#fafaf9',
+    '--foreground': '#292524',
+    '--primary': '#ea580c',
+    '--primary-foreground': '#fff7ed',
+    '--border': '#d6d3d1',
+    '--muted-bg': '#f5f5f4',
+    '--muted-foreground': '#78716c',
+    '--accent': '#ffedd5',
+    '--surface': '#fdfcf9'
+  },
+  dark: {
+    '--background': '#1c1917',
+    '--foreground': '#f5f5f4',
+    '--primary': '#f97316',
+    '--primary-foreground': '#431407',
+    '--border': '#44403c',
+    '--muted-bg': '#292524',
+    '--muted-foreground': '#a8a29e',
+    '--accent': '#7c2d12',
+    '--surface': '#221f1c'
+  }
+};
+
+const THEME_POPOVER_WARMTH_TOKENS = {
+  soft: {
+    '--primary': '#fb923c',
+    '--primary-foreground': '#431407',
+    '--accent': '#fed7aa',
+    '--brand': '#f08a3c',
+    '--brand-rgb': '240, 138, 60',
+    '--brand-deep': '#c76a1f',
+    '--brand-soft': 'rgba(240, 138, 60, 0.14)',
+    '--brand-soft-strong': 'rgba(240, 138, 60, 0.24)'
+  },
+  standard: {
+    '--primary': '#ea580c',
+    '--primary-foreground': '#fff7ed',
+    '--accent': '#ffedd5',
+    '--brand': '#ea580c',
+    '--brand-rgb': '234, 88, 12',
+    '--brand-deep': '#c2410c',
+    '--brand-soft': 'rgba(234, 88, 12, 0.14)',
+    '--brand-soft-strong': 'rgba(234, 88, 12, 0.24)'
+  },
+  deep: {
+    '--primary': '#c2410c',
+    '--primary-foreground': '#ffedd5',
+    '--accent': '#fdba74',
+    '--brand': '#c2410c',
+    '--brand-rgb': '194, 65, 12',
+    '--brand-deep': '#9a3412',
+    '--brand-soft': 'rgba(194, 65, 12, 0.16)',
+    '--brand-soft-strong': 'rgba(194, 65, 12, 0.28)'
+  }
+};
+
 function rgba(rgb, alpha) {
   const safeAlpha = Math.max(0, Math.min(1, Number(alpha) || 0));
   return `rgba(${rgb}, ${safeAlpha.toFixed(3)})`;
@@ -497,6 +562,18 @@ function normalizeTone(value) {
   return STYLE_TONE_OPTIONS.some((option) => option.value === value)
     ? value
     : DEFAULT_STYLE_THEME.tone;
+}
+
+function normalizeThemeMode(value) {
+  return value === 'dark' ? 'dark' : 'light';
+}
+
+function normalizeThemeWarmth(value) {
+  return ['soft', 'standard', 'deep'].includes(value) ? value : DEFAULT_THEME_POPOVER_SETTINGS.warmth;
+}
+
+function normalizeProseFont(value) {
+  return value === 'sans' ? 'sans' : 'serif';
 }
 
 function migrateLegacyTheme(theme) {
@@ -707,6 +784,36 @@ function buildDarkContrastTokens(recipe) {
   };
 }
 
+function buildSemanticThemeTokens(theme) {
+  return theme.tone === 'dark' ? SEMANTIC_THEME_TOKENS.dark : SEMANTIC_THEME_TOKENS.light;
+}
+
+function resolveThemePopoverSettings(settings) {
+  const record = settings || {};
+  return {
+    mode: normalizeThemeMode(record.mode),
+    warmth: normalizeThemeWarmth(record.warmth),
+    proseFont: normalizeProseFont(record.proseFont)
+  };
+}
+
+function applyThemePopoverTokenOverrides(settings) {
+  if (typeof document === 'undefined') return;
+
+  const safeSettings = resolveThemePopoverSettings(settings);
+  const root = document.documentElement;
+  const warmthTokens = THEME_POPOVER_WARMTH_TOKENS[safeSettings.warmth];
+
+  Object.entries(warmthTokens).forEach(([key, value]) => {
+    root.style.setProperty(key, value);
+  });
+
+  root.style.setProperty('--font-prose', safeSettings.proseFont === 'sans' ? 'var(--font-sans)' : 'var(--font-serif)');
+  root.dataset.proseFont = safeSettings.proseFont;
+  root.dataset.themeWarmth = safeSettings.warmth;
+  root.classList.toggle('dark', safeSettings.mode === 'dark');
+}
+
 export function getStyleThemeLibrary() {
   return STYLE_THEME_PRESETS.map((preset) => resolveThemeRecord({
     id: preset.id,
@@ -734,9 +841,36 @@ export function getStoredStyleTheme() {
   return getStoredThemeFromKeys([STORAGE_KEY, ...LEGACY_STORAGE_KEYS]) || DEFAULT_STYLE_THEME;
 }
 
+export function getStoredThemePopoverSettings() {
+  if (typeof window === 'undefined') {
+    return DEFAULT_THEME_POPOVER_SETTINGS;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(THEME_POPOVER_STORAGE_KEY);
+    if (raw) {
+      return resolveThemePopoverSettings(JSON.parse(raw));
+    }
+  } catch {
+    // Ignore malformed payloads and fall back to derived defaults.
+  }
+
+  const legacyTheme = getStoredStyleTheme();
+  return resolveThemePopoverSettings({
+    mode: legacyTheme.tone,
+    warmth: DEFAULT_THEME_POPOVER_SETTINGS.warmth,
+    proseFont: DEFAULT_THEME_POPOVER_SETTINGS.proseFont
+  });
+}
+
 export function saveStyleTheme(theme) {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(resolveStyleTheme(theme)));
+}
+
+export function saveThemePopoverSettings(settings) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(THEME_POPOVER_STORAGE_KEY, JSON.stringify(resolveThemePopoverSettings(settings)));
 }
 
 export function applyStyleTheme(theme) {
@@ -755,13 +889,15 @@ export function applyStyleTheme(theme) {
     ...TITLE_THEME_TOKENS[recipe.titleTheme],
     ...STATUS_THEME_TOKENS[recipe.statusTheme],
     ...buildFineTuneTokens(recipe),
-    ...buildDarkContrastTokens(recipe)
+    ...buildDarkContrastTokens(recipe),
+    ...buildSemanticThemeTokens(safeTheme)
   };
 
   const root = document.documentElement;
   Object.entries(merged).forEach(([key, value]) => {
     root.style.setProperty(key, value);
   });
+  root.style.colorScheme = safeTheme.tone === 'dark' ? 'dark' : 'light';
 
   root.dataset.atmosphere = safeTheme.atmosphere;
   root.dataset.tone = safeTheme.tone;
@@ -776,6 +912,15 @@ export function applyStyleTheme(theme) {
   root.dataset.densityTheme = recipe.densityTheme;
   root.dataset.titleTheme = recipe.titleTheme;
   root.dataset.statusTheme = recipe.statusTheme;
+}
+
+export function applyThemePopoverSettings(settings) {
+  const safeSettings = resolveThemePopoverSettings(settings);
+  applyStyleTheme({
+    atmosphere: 'paper',
+    tone: safeSettings.mode
+  });
+  applyThemePopoverTokenOverrides(safeSettings);
 }
 
 export function resetStyleTheme() {

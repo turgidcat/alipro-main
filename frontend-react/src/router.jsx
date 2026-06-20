@@ -4,11 +4,11 @@ import BooksPage from './pages/BooksPage.jsx';
 import ChangelogPage from './pages/ChangelogPage.jsx';
 import GenerationLogicPage from './pages/GenerationLogicPage.jsx';
 import AppLayout from './AppLayout.jsx';
-import StyleManagerPage from './pages/StyleManagerPage.jsx';
 import GenreUiDemoPage from './pages/GenreUiDemoPage.jsx';
 import GenreBookShowcasePage from './pages/GenreBookShowcasePage.jsx';
 import LightNovelShowcasePage from './pages/LightNovelShowcasePage.jsx';
 import StorylineManagementPage from './pages/StorylineManagementPage.jsx';
+import WorkbenchRedesignLabPage from './pages/WorkbenchRedesignLabPage.jsx';
 
 export const router = createBrowserRouter([
   {
@@ -27,11 +27,12 @@ export const router = createBrowserRouter([
       { path: 'books/chapters', element: <BooksPage /> },
       { path: 'changelog', element: <ChangelogPage /> },
       { path: 'generation-logic', element: <GenerationLogicPage /> },
-      { path: 'style-manager', element: <StyleManagerPage /> },
+      { path: 'style-manager', element: <Navigate to="/workbench" replace /> },
       { path: 'genre-ui-demo', element: <GenreUiDemoPage /> },
       { path: 'genre-book-showcase', element: <GenreBookShowcasePage /> },
+      { path: 'workbench-redesign-lab', element: <WorkbenchRedesignLabPage /> },
       { path: 'workbench', element: <App /> },
-      { path: 'visual-sample', element: <Navigate to="/style-manager" replace /> }
+      { path: 'visual-sample', element: <Navigate to="/workbench" replace /> }
     ]
   }
 ]);

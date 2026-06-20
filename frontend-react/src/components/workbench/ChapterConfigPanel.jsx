@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import PanelCard from './PanelCard.jsx';
+import WorkbenchSection from './WorkbenchSection.jsx';
+import MetaCode from './MetaCode.jsx';
 import {
   buildOutlineExcerpt,
   describeRoleExecutionMeta,
@@ -13,10 +14,14 @@ function joinClasses(...values) {
   return values.filter(Boolean).join(' ');
 }
 
-const fieldLabelClass = 'mb-1.5 block font-serif text-[13px] font-semibold tracking-[0.04em] text-[color:var(--brand-deep)]';
-const inputClass = 'min-h-10 w-full rounded-[14px] border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_64%,white)] px-4 text-[14px] text-[color:var(--text)] shadow-none outline-none transition focus:border-[color:var(--brand-soft-strong)] focus:bg-[var(--panel)]';
-const insetSurfaceClass = 'rounded-[16px] border border-[color:color-mix(in_srgb,var(--line)_68%,transparent)] bg-[color:rgba(255,252,246,0.42)] px-3 py-3';
-const insetTitleClass = 'font-serif text-[13px] font-semibold tracking-[0.04em] text-[color:var(--brand-deep)]';
+const ghostButtonClass =
+  'appearance-none inline-flex min-h-9 items-center justify-center rounded-md border border-[color:color-mix(in_srgb,var(--line)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--surface)_84%,transparent)] px-3.5 text-[13px] font-medium text-[color:var(--text)] transition hover:border-[color:color-mix(in_srgb,var(--brand-soft-strong)_45%,var(--line))] hover:text-[color:var(--brand-deep)] disabled:cursor-not-allowed disabled:opacity-60';
+
+const primaryButtonClass =
+  'appearance-none inline-flex min-h-9 items-center justify-center rounded-md border border-[color:color-mix(in_srgb,var(--brand-soft-strong)_72%,var(--line))] bg-[color:color-mix(in_srgb,var(--brand)_10%,var(--surface))] px-4 text-[13px] font-semibold text-[color:var(--brand-deep)] transition hover:bg-[color:color-mix(in_srgb,var(--brand)_16%,var(--surface))] disabled:cursor-not-allowed disabled:opacity-60';
+
+const statusChipClass =
+  'inline-flex min-h-8 items-center rounded-md border border-[color:color-mix(in_srgb,var(--line)_68%,transparent)] bg-[color:color-mix(in_srgb,var(--surface)_78%,transparent)] px-3 text-[13px] font-medium text-[color:var(--brand-deep)]';
 
 function normalizeText(value) {
   return String(value || '').trim();
@@ -80,122 +85,157 @@ export default function ChapterConfigPanel(props) {
   }, [latestOutline, draftChapterPlan.source]);
 
   return (
-    <>
-      <PanelCard
-        variant="flat"
-        eyebrow="剧情线挂载"
-        title="本章挂载哪些推进线"
-        bodyClassName="space-y-3.5"
-        actionsClassName="justify-between"
+    <div className="grid min-w-0 max-w-full gap-6 overflow-x-hidden px-4 py-4">
+      <WorkbenchSection code="PROJECT" title="基础信息" contentClassName="gap-4">
+        <div className="grid min-w-0 gap-4 overflow-x-hidden">
+          <section className="min-w-0 border-l border-[color:color-mix(in_srgb,var(--brand-soft-strong)_52%,var(--line))] pl-4">
+            <MetaCode>VOLUME</MetaCode>
+            <p className="mt-1 text-[14px] font-semibold leading-6 text-[color:var(--text)]">所属卷</p>
+            <p className="mt-1 break-words text-[15px] font-semibold leading-7 text-[color:var(--text)]">
+              {chapterView.volumeLabel || '第 1 卷'}
+            </p>
+          </section>
+
+          <section className="min-w-0 border-l border-[color:color-mix(in_srgb,var(--line)_72%,transparent)] pl-4">
+            <MetaCode>VOLUME TASK</MetaCode>
+            <p className="mt-1 text-[14px] font-semibold leading-6 text-[color:var(--text)]">卷任务</p>
+            <p className="mt-1 break-words text-[13px] leading-6 text-[color:var(--muted)]">
+              {chapterView.volumeSummary || '当前卷任务暂未填写'}
+            </p>
+          </section>
+        </div>
+      </WorkbenchSection>
+
+      <WorkbenchSection
+        code="CHAPTER CONFIG"
+        title="章节配置"
+        contentClassName="gap-5"
         actions={
-          <>
-            <div className="flex flex-wrap items-center gap-3">
-              <button type="button" className="ghost-btn" onClick={onOpenStorylineCreator} disabled={!selectedBookId}>
-                新建剧情线
-              </button>
-              <button type="button" className="ghost-btn" onClick={onClearStorylineSelection} disabled={!selectedBookId || selectedTargetStorylines.length === 0}>
-                清空选择
-              </button>
-            </div>
-            <button type="button" className="solid-btn" onClick={onSaveChapterPlan} disabled={!selectedBookId || savingState.loading}>
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-3">
+            <button
+              type="button"
+              className={ghostButtonClass}
+              onClick={onOpenStorylineCreator}
+              disabled={!selectedBookId}
+            >
+              新建剧情线
+            </button>
+            <button
+              type="button"
+              className={ghostButtonClass}
+              onClick={onClearStorylineSelection}
+              disabled={!selectedBookId || selectedTargetStorylines.length === 0}
+            >
+              清空选择
+            </button>
+            <button
+              type="button"
+              className={primaryButtonClass}
+              onClick={onSaveChapterPlan}
+              disabled={!selectedBookId || savingState.loading}
+            >
               保存本章挂载
             </button>
-          </>
+          </div>
         }
       >
-        <div className="grid gap-3 xl:grid-cols-[180px_minmax(0,1fr)]">
-          <div className={insetSurfaceClass}>
-            <p className={insetTitleClass}>所属卷</p>
-            <p className="mt-1.5 text-[14px] font-semibold text-[color:var(--text)]">{chapterView.volumeLabel || '第 1 卷'}</p>
-          </div>
-          <div className={insetSurfaceClass}>
-            <p className={insetTitleClass}>卷任务</p>
-            <p className="mt-1.5 text-[13px] leading-6 text-[color:var(--text)]">{chapterView.volumeSummary || '当前卷任务暂未填写'}</p>
-          </div>
+        <div className="flex min-w-0 flex-wrap items-center gap-3 overflow-x-hidden">
+          <span className={statusChipClass}>已挂载 {selectedTargetStorylines.length} 条剧情线</span>
+          <span className={statusChipClass}>{hasMainStoryline ? '已指定本章主推' : '尚未指定本章主推'}</span>
+          <span className={statusChipClass}>{effectiveOutlineAnchor ? '已有细纲锚点' : '缺少细纲锚点'}</span>
         </div>
 
-        <div className="space-y-2.5">
-          <span className={fieldLabelClass}>挂载剧情线</span>
-          {(!hasMainStoryline && hasMountedStorylines) || (!effectiveOutlineAnchor && !hasMountedStorylines) || earlyStartHints.length > 0 ? (
-            <div className="rounded-[16px] border border-[color:color-mix(in_srgb,#d86a6a_48%,transparent)] bg-[color:rgba(255,244,244,0.78)] px-3 py-2.5">
-              <div className="space-y-1">
-                {!hasMainStoryline && hasMountedStorylines ? (
-                  <p className="text-[12px] font-semibold leading-5 text-[color:#b34343]">
-                    已挂载剧情线，但还没有指定本章主推。
-                  </p>
-                ) : null}
-                {!effectiveOutlineAnchor && !hasMountedStorylines ? (
-                  <p className="text-[12px] font-semibold leading-5 text-[color:#b34343]">
-                    当前没有章节细纲，也没有剧情线挂载，暂不建议生成。
-                  </p>
-                ) : null}
-                {earlyStartHints.map((hint) => (
-                  <p key={hint.id} className="text-[12px] font-semibold leading-5 text-[color:#b34343]">
-                    {hint.storyline?.name || '该剧情线'}未到开启章节，原定第 {hint.storyline?.startChapter || '?'} 章启动。
-                  </p>
-                ))}
-              </div>
+        {(!hasMainStoryline && hasMountedStorylines) || (!effectiveOutlineAnchor && !hasMountedStorylines) || earlyStartHints.length > 0 ? (
+          <section className="min-w-0 border-l border-[color:color-mix(in_srgb,#d86a6a_56%,transparent)] bg-[color:rgba(255,244,244,0.52)] pl-4 pr-3 py-3">
+            <MetaCode className="text-[color:#b34343]">CAUTION</MetaCode>
+            <div className="mt-2 grid gap-2">
+              {!hasMainStoryline && hasMountedStorylines ? (
+                <p className="text-[13px] font-semibold leading-6 text-[color:#b34343]">
+                  已挂载剧情线，但还没有指定本章主推。
+                </p>
+              ) : null}
+              {!effectiveOutlineAnchor && !hasMountedStorylines ? (
+                <p className="text-[13px] font-semibold leading-6 text-[color:#b34343]">
+                  当前没有章节细纲，也没有剧情线挂载，暂不建议生成。
+                </p>
+              ) : null}
+              {earlyStartHints.map((hint) => (
+                <p key={hint.id} className="text-[13px] font-semibold leading-6 text-[color:#b34343] break-words">
+                  {hint.storyline?.name || '该剧情线'}未到开启章节，原定第 {hint.storyline?.startChapter || '?'} 章启动。
+                </p>
+              ))}
             </div>
-          ) : null}
-          {storylineOptions.length > 0 ? (
-            <div className="divide-y divide-[color:color-mix(in_srgb,var(--line)_68%,transparent)] rounded-[18px] border border-[color:color-mix(in_srgb,var(--line)_82%,transparent)] bg-[color:rgba(255,252,246,0.28)] px-3.5">
-              {storylineOptions.map((storyline) => (
+          </section>
+        ) : null}
+
+        {storylineOptions.length > 0 ? (
+          <div className="min-w-0 overflow-x-hidden border-t border-[color:color-mix(in_srgb,var(--line)_58%,transparent)]">
+            {storylineOptions.map((storyline) => {
+              const isSelected =
+                Array.isArray(draftChapterPlan.target_storylines) &&
+                draftChapterPlan.target_storylines.includes(storyline.id);
+              const hint = rhythmHintById.get(storyline.id);
+
+              return (
                 <label
                   key={storyline.id}
-                  className="grid gap-2 py-3 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-center"
+                  className="grid min-w-0 gap-3 border-b border-[color:color-mix(in_srgb,var(--line)_48%,transparent)] py-4 last:border-b-0"
                 >
-                  <input
-                    className="mt-1 h-4 w-4 accent-[var(--brand)]"
-                    type="checkbox"
-                    checked={Array.isArray(draftChapterPlan.target_storylines) && draftChapterPlan.target_storylines.includes(storyline.id)}
-                    onChange={() => onToggleTargetStoryline(storyline.id)}
-                  />
-                  <span className="space-y-1">
-                    <span className="block text-[14px] font-semibold text-[color:var(--text)]">
-                      第 {storyline.volumeNumber} 卷 · {storyline.name}
-                    </span>
-                    <span className="block text-[12px] leading-5 text-[color:var(--muted)]">
-                      {formatStorylineTypeLabel(storyline.type)} / 预计第 {storyline.startChapter}-{storyline.endChapter} 章
-                    </span>
-                    {Array.isArray(draftChapterPlan.target_storylines) && draftChapterPlan.target_storylines.includes(storyline.id) ? (
-                      (() => {
-                        const hint = rhythmHintById.get(storyline.id);
-                        if (!hint || hint.actionField === 'start' || !hint.actionField) return null;
-                        return (
-                          <span className="block text-[12px] leading-5 text-[color:var(--brand-deep)]">
-                            已超原定范围，原定第 {storyline.endChapter} 章收束
+                  <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
+                    <input
+                      className="mt-1 h-4 w-4 shrink-0 accent-[var(--brand)]"
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => onToggleTargetStoryline(storyline.id)}
+                    />
+
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                        <span className="min-w-0 break-words text-[14px] font-semibold leading-6 text-[color:var(--text)]">
+                          第 {storyline.volumeNumber} 卷 · {storyline.name}
+                        </span>
+                        {isSelected ? (
+                          <span className="shrink-0 text-[13px] font-medium leading-6 text-[color:var(--brand-deep)]">
+                            已挂载
                           </span>
-                        );
-                      })()
-                    ) : null}
-                  </span>
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    {Array.isArray(draftChapterPlan.target_storylines) &&
-                    draftChapterPlan.target_storylines.includes(storyline.id) &&
-                    rhythmHintById.get(storyline.id)?.actionLabel &&
-                    rhythmHintById.get(storyline.id)?.actionField !== 'start' ? (
+                        ) : null}
+                      </div>
+
+                      <p className="mt-1 break-words text-[13px] leading-6 text-[color:var(--muted)]">
+                        {formatStorylineTypeLabel(storyline.type)} / 预计第 {storyline.startChapter}-{storyline.endChapter} 章
+                      </p>
+
+                      {isSelected && hint?.actionField && hint.actionField !== 'start' ? (
+                        <p className="mt-1 break-words text-[13px] leading-6 text-[color:var(--brand-deep)]">
+                          已超原定范围，原定第 {storyline.endChapter} 章收束
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 pl-7">
+                    {isSelected && hint?.actionLabel && hint?.actionField !== 'start' ? (
                       <button
                         type="button"
-                        className="inline-flex min-h-9 items-center justify-center rounded-full border border-[color:var(--line)] px-3 text-[12px] font-semibold text-[color:var(--brand)] transition hover:border-[color:var(--brand-soft-strong)] hover:bg-[var(--brand-soft)]"
+                        className={ghostButtonClass}
                         onClick={(event) => {
                           event.preventDefault();
-                          const hint = rhythmHintById.get(storyline.id);
                           if (hint?.actionLabel) {
                             onAdjustStorylineRange(hint.storyline, hint.actionField);
                           }
                         }}
                         disabled={savingState.loading}
                       >
-                        {rhythmHintById.get(storyline.id)?.actionLabel}
+                        {hint.actionLabel}
                       </button>
                     ) : null}
+
                     <button
                       type="button"
                       className={
-                        'inline-flex min-h-9 items-center justify-center rounded-full border px-3 text-[12px] font-semibold transition ' +
-                        (draftChapterPlan.main_storyline_id === storyline.id
-                          ? 'border-[color:transparent] bg-[var(--brand)] text-[var(--btn-solid-text)] shadow-[var(--btn-nav-primary-shadow)]'
-                          : 'border-[color:var(--line)] text-[color:var(--brand)] hover:border-[color:var(--brand-soft-strong)] hover:bg-[var(--brand-soft)]')
+                        draftChapterPlan.main_storyline_id === storyline.id
+                          ? primaryButtonClass
+                          : ghostButtonClass
                       }
                       onClick={(event) => {
                         event.preventDefault();
@@ -204,9 +244,10 @@ export default function ChapterConfigPanel(props) {
                     >
                       {draftChapterPlan.main_storyline_id === storyline.id ? '当前主推' : '本章主推'}
                     </button>
+
                     <button
                       type="button"
-                      className="inline-flex min-h-9 items-center justify-center rounded-full border border-[color:var(--line)] px-3 text-[12px] font-semibold text-[color:var(--brand)] transition hover:border-[color:var(--brand-soft-strong)] hover:bg-[var(--brand-soft)]"
+                      className={ghostButtonClass}
                       onClick={(event) => {
                         event.preventDefault();
                         onOpenStorylineEditor(storyline);
@@ -216,106 +257,123 @@ export default function ChapterConfigPanel(props) {
                     </button>
                   </div>
                 </label>
-              ))}
-            </div>
-          ) : (
-            <p className="text-[14px] leading-7 text-[color:var(--muted)]">当前还没有剧情线，可先用演示书测试。</p>
-          )}
-        </div>
-      </PanelCard>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-[14px] leading-7 text-[color:var(--muted)]">当前还没有剧情线，可先用演示书测试。</p>
+        )}
+      </WorkbenchSection>
 
-      <PanelCard
-        variant="flat"
-        eyebrow="章节细纲"
-        title="当前最新细纲"
-        bodyClassName="space-y-3"
-        headerActions={<button type="button" className="solid-btn" onClick={onOpenOutlineModal}>编辑细纲</button>}
+      <WorkbenchSection
+        code="OUTLINE"
+        title="章节细纲"
+        actions={
+          <button type="button" className={primaryButtonClass} onClick={onOpenOutlineModal}>
+            编辑细纲
+          </button>
+        }
       >
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="inline-flex rounded-full border border-[color:color-mix(in_srgb,var(--line)_72%,transparent)] bg-[color:rgba(255,252,246,0.52)] px-3 py-1 text-[12px] font-semibold text-[color:var(--brand-deep)]">
-            {latestOutline ? `${latestOutline.length} 字` : '未填写'}
-          </span>
-          <span className="inline-flex rounded-full border border-[color:color-mix(in_srgb,var(--line)_72%,transparent)] bg-[color:rgba(255,252,246,0.52)] px-3 py-1 text-[12px] font-semibold text-[color:var(--brand-deep)]">
-            {outlineSourceLabel}
-          </span>
+        <div className="flex min-w-0 flex-wrap items-center gap-3 overflow-x-hidden">
+          <span className={statusChipClass}>{latestOutline ? `${latestOutline.length} 字` : '未填写'}</span>
+          <span className={statusChipClass}>{outlineSourceLabel}</span>
         </div>
-        <div className={insetSurfaceClass}>
-          <p className={insetTitleClass}>摘要</p>
-          <div className="cn-text-block mt-1.5">
+
+        <section className="min-w-0 border-l border-[color:color-mix(in_srgb,var(--brand-soft-strong)_48%,var(--line))] pl-4">
+          <MetaCode>SUMMARY</MetaCode>
+          <div className="cn-text-block mt-2 min-w-0">
             {displayOutlineParagraphs.map((paragraph, index) => {
               const isLastParagraph = index === displayOutlineParagraphs.length - 1;
               return (
-                <p key={`${index}-${paragraph.slice(0, 12)}`} className="cn-text-paragraph text-[14px] leading-6 text-[color:var(--text)]">
+                <p
+                  key={`${index}-${paragraph.slice(0, 12)}`}
+                  className="cn-text-paragraph break-words text-[14px] leading-7 text-[color:var(--text)]"
+                >
                   {paragraph}
                   {canExpandOutline && isLastParagraph ? (
-                    <>
-                      <button
-                        type="button"
-                        className="ml-2 inline border-0 bg-transparent p-0 text-[13px] font-medium text-[color:color-mix(in_srgb,var(--brand)_78%,white)] underline-offset-2 transition hover:text-[color:var(--brand-deep)] hover:underline"
-                        onClick={() => setOutlineExpanded((current) => !current)}
-                      >
-                        {outlineExpanded ? '收起' : '展开'}
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      className="ml-2 inline border-0 bg-transparent p-0 text-[13px] font-medium text-[color:color-mix(in_srgb,var(--brand)_78%,white)] underline-offset-2 transition hover:text-[color:var(--brand-deep)] hover:underline"
+                      onClick={() => setOutlineExpanded((current) => !current)}
+                    >
+                      {outlineExpanded ? '收起' : '展开'}
+                    </button>
                   ) : null}
                 </p>
               );
             })}
           </div>
-        </div>
-      </PanelCard>
+        </section>
+      </WorkbenchSection>
 
-      <PanelCard
-        variant="flat"
-        eyebrow="章节角色"
-        title="本章出场角色"
-        bodyClassName="space-y-3.5"
-        headerActions={<button type="button" className="solid-btn" onClick={onOpenCharacterModal}>编辑角色</button>}
+      <WorkbenchSection
+        code="CAST"
+        title="角色相关配置"
+        actions={
+          <button type="button" className={primaryButtonClass} onClick={onOpenCharacterModal}>
+            编辑角色
+          </button>
+        }
       >
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="inline-flex rounded-full bg-[color:color-mix(in_srgb,var(--brand-soft)_72%,var(--panel))] px-3 py-1 text-[12px] font-semibold text-[color:var(--brand-deep)]">
-            建议信息
+        <div className="flex min-w-0 flex-wrap items-center gap-3 overflow-x-hidden">
+          <span className={statusChipClass}>章内要点</span>
+          <span className="text-[13px] font-medium leading-6 text-[color:var(--brand-deep)]">
+            {draftChapterPlan.character_notes ? '已补充' : '可留空'}
           </span>
-          <p className="text-[14px] font-semibold text-[color:var(--brand)]">{draftChapterPlan.character_notes ? '已补充' : '可留空'}</p>
         </div>
-        <p className="text-[14px] leading-7 text-[color:var(--muted)]">{draftChapterPlan.character_notes || '还没有角色说明。'}</p>
+
+        <section className="min-w-0 border-l border-[color:color-mix(in_srgb,var(--line)_72%,transparent)] pl-4">
+          <MetaCode>NOTES</MetaCode>
+          <p className="mt-2 break-words text-[14px] leading-7 text-[color:var(--muted)]">
+            {draftChapterPlan.character_notes || '还没有角色说明。'}
+          </p>
+        </section>
+
         {Array.isArray(draftChapterPlan.role_execution) && draftChapterPlan.role_execution.length > 0 ? (
-          <div className="divide-y divide-[color:color-mix(in_srgb,var(--line)_68%,transparent)]">
+          <div className="min-w-0 overflow-x-hidden border-t border-[color:color-mix(in_srgb,var(--line)_58%,transparent)]">
             {draftChapterPlan.role_execution.slice(0, 3).map((item, index) => (
-              <div key={`${item.role || 'role'}-${index}`} className="py-3 first:pt-0 last:pb-0">
-                <p className="text-[13px] leading-6 text-[color:var(--text)]">
+              <section
+                key={`${item.role || 'role'}-${index}`}
+                className="min-w-0 border-b border-[color:color-mix(in_srgb,var(--line)_48%,transparent)] py-4 last:border-b-0"
+              >
+                <MetaCode>ROLE {String(index + 1).padStart(2, '0')}</MetaCode>
+                <p className="mt-2 break-words text-[13px] leading-6 text-[color:var(--text)]">
                   <strong>{item.role || '未命名角色'}：</strong>
                   {item.chapter_function || item.allowed_change || '本章角色执行要求待补充'}
                 </p>
-                <p className="mt-1 text-[12px] leading-5 text-[color:var(--muted)]">{describeRoleExecutionMeta(item)}</p>
-              </div>
+                <p className="mt-1 break-words text-[13px] leading-6 text-[color:var(--muted)]">
+                  {describeRoleExecutionMeta(item)}
+                </p>
+              </section>
             ))}
           </div>
         ) : null}
-      </PanelCard>
+      </WorkbenchSection>
 
-      <div className="flex flex-wrap gap-3 border-t border-[color:var(--line)] pt-5">
-        {[
-          ['book', '全书设定'],
-          ['storyline', '剧情线'],
-          ['character', '角色档案'],
-          ['volume', '分卷规划']
-        ].map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            className={joinClasses(
-              'rounded-full border px-4 py-2 text-[12px] font-bold transition',
-              activeDrawer === key
-                ? 'border-[color:transparent] bg-[var(--brand)] text-[var(--btn-solid-text)] shadow-[var(--btn-nav-primary-shadow)]'
-                : 'border-[color:var(--line)] bg-transparent text-[color:var(--brand-deep)] hover:border-[color:var(--brand-soft-strong)] hover:bg-[var(--brand-soft)] hover:text-[color:var(--brand)]'
-            )}
-            onClick={() => onContextChipClick(key)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-    </>
+      <WorkbenchSection code="TOOLS" title="资料入口">
+        <div className="flex min-w-0 flex-wrap gap-3 overflow-x-hidden">
+          {[
+            ['book', '全书设定'],
+            ['storyline', '剧情线'],
+            ['character', '角色档案'],
+            ['volume', '分卷规划']
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className={joinClasses(
+                'appearance-none inline-flex min-h-9 items-center justify-center rounded-md border px-3.5 text-[13px] font-medium transition',
+                activeDrawer === key
+                  ? 'border-[color:color-mix(in_srgb,var(--brand-soft-strong)_72%,var(--line))] bg-[color:color-mix(in_srgb,var(--brand)_12%,var(--surface))] text-[color:var(--brand-deep)]'
+                  : 'border-[color:color-mix(in_srgb,var(--line)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--surface)_84%,transparent)] text-[color:var(--text)] hover:border-[color:color-mix(in_srgb,var(--brand-soft-strong)_45%,var(--line))] hover:text-[color:var(--brand-deep)]'
+              )}
+              onClick={() => onContextChipClick(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </WorkbenchSection>
+    </div>
   );
 }
