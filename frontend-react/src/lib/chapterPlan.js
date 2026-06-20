@@ -40,6 +40,101 @@ export function summarizeText(text, fallback = '') {
   return normalized || String(fallback || '').trim();
 }
 
+function stripNarrativeOutlineMarker(line = '') {
+  return String(line || '')
+    .replace(/^[-*•]\s*/, '')
+    .replace(/^\d+[\.\)、]\s*/, '')
+    .replace(/^[（(]?\d+[)）]\s*/, '')
+    .replace(/^要点\s*\d+\s*[:：]?\s*/, '')
+    .replace(/^第[\d一二三四五六七八九十百]+点\s*[:：]?\s*/, '')
+    .replace(/^(章节细纲|章节大纲|细纲正文|正文细纲|以下是细纲|以下为细纲|本章细纲)\s*[:：]?\s*/, '')
+    .replace(/^(本章目标|关键场景|冲突升级|角色变化|读者爽点\s*\/\s*情绪落点|读者爽点|情绪落点|结尾钩子|剧情线约束|剧情线推进|剧情推进|章节任务)\s*[:：]?\s*/, '')
+    .trim();
+}
+
+function ensureNarrativeSentenceEnding(text = '') {
+  const normalized = String(text || '').trim();
+  if (!normalized) return '';
+  if (/[。！？!?]$/.test(normalized)) return normalized;
+  return `${normalized}。`;
+}
+
+export function normalizeNarrativeOutlineText(outlineText = '') {
+  const raw = String(outlineText || '').replace(/\r/g, '').trim();
+  if (!raw) return '';
+
+  const looksLikeList = /(^|\s)(\d+[\.\)、]|[（(]?\d+[)）]|要点\s*\d+|第[一二三四五六七八九十百]+点|本章目标\s*[:：]|关键场景\s*[:：]|冲突升级\s*[:：]|角色变化\s*[:：]|读者爽点\s*[:：]|情绪落点\s*[:：]|结尾钩子\s*[:：])/m.test(raw);
+  if (!looksLikeList) return raw;
+
+  const prepared = raw
+    .replace(/([。！？!?])\s*(?=(\d+[\.\)、]|[（(]?\d+[)）]|要点\s*\d+|第[一二三四五六七八九十百]+点))/g, '$1\n')
+    .replace(/\s+(?=(\d+[\.\)、]|[（(]?\d+[)）]|要点\s*\d+|第[一二三四五六七八九十百]+点))/g, '\n');
+
+  const fragments = prepared
+    .split(/\n+/)
+    .map(stripNarrativeOutlineMarker)
+    .map((line) => line.replace(/[：:]\s*$/g, '').trim())
+    .filter(Boolean)
+    .flatMap((line) => line.split(/[;；]+/))
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.replace(/[，,；;。！？!?]+$/g, '').trim())
+    .filter(Boolean);
+
+  if (fragments.length === 0) return raw;
+
+  return ensureNarrativeSentenceEnding(
+    fragments
+      .join('，')
+      .replace(/，{2,}/g, '，')
+      .replace(/。\s*，/g, '，')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+}
+
+export function getLatestChapterOutline(plan = {}) {
+  const directOutline = normalizeNarrativeOutlineText(plan?.outline_text || '');
+  if (directOutline) return directOutline;
+
+  const snapshotOutline = normalizeNarrativeOutlineText(
+    plan?.structured_content?.chapter_outline_snapshot?.outline_text
+    || plan?.structuredContent?.chapter_outline_snapshot?.outline_text
+    || ''
+  );
+  return snapshotOutline;
+}
+
+export function getGenerationChapterOutline(plan = {}) {
+  const latestOutline = getLatestChapterOutline(plan);
+  if (latestOutline) return latestOutline;
+
+  const chapterStructure = plan?.chapter_structure || emptyChapterStructure;
+  return composeStructuredOutline({
+    chapter_goal: chapterStructure.chapter_goal || plan?.chapter_mission || '',
+    key_scenes: chapterStructure.key_scenes || '',
+    conflict_escalation: chapterStructure.conflict_escalation || '',
+    character_change: chapterStructure.character_change || plan?.character_notes || '',
+    reader_payoff: chapterStructure.reader_payoff || plan?.emotion_target || '',
+    ending_hook: chapterStructure.ending_hook || plan?.ending_hook || ''
+  }).trim();
+}
+
+export function buildOutlineExcerpt(outlineText = '', fallback = '尚未建立章节细纲') {
+  const normalized = String(outlineText || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return fallback;
+  const sentenceBreakIndex = normalized.search(/[。！？!?]/);
+  if (sentenceBreakIndex === -1) return normalized;
+  return normalized.slice(0, sentenceBreakIndex + 1).trim();
+}
+
+export function getOutlineSourceLabel(source) {
+  const normalized = String(source || '').trim().toLowerCase();
+  if (normalized === 'ai') return '系统生成';
+  if (normalized === 'imported') return '导入';
+  return '手动编辑';
+}
+
 export function buildConstraintBriefText(generationConstraints, overrides) {
   if (!generationConstraints || typeof generationConstraints !== 'object') return '';
   const lines = [];
@@ -194,15 +289,6 @@ export function buildGenerationRiskReview(plan, generationConstraints, overrides
     });
   }
 
-  if (!String(plan?.main_storyline_id || '').trim() && (!Array.isArray(plan?.target_storylines) || plan.target_storylines.length === 0)) {
-    items.push({
-      level: 'warning',
-      title: '本章没有挂主剧情线',
-      text: '当前章节计划缺少剧情线锚点，模型更容易只根据上一章反馈临场续写。',
-      action: '建议至少挂一条主剧情线，避免章节目标和长期推进脱节。'
-    });
-  }
-
   if (highConfidenceCoreCandidates.length > 0) {
     items.push({
       level: 'warning',
@@ -286,6 +372,34 @@ export function prepareOutlineModalPlan(plan) {
   );
 }
 
+export function buildLatestOutlinePlan(plan, outlineText, source = 'manual') {
+  const normalizedOutline = normalizeNarrativeOutlineText(outlineText);
+  const summary = buildOutlineExcerpt(normalizedOutline, '');
+  const emptyStructure = { ...emptyChapterStructure };
+  const previousStructuredContent = plan?.structured_content || {};
+  const previousSnapshot = previousStructuredContent.chapter_outline_snapshot || {};
+
+  return {
+    ...plan,
+    summary,
+    outline_text: normalizedOutline,
+    source,
+    chapter_structure: emptyStructure,
+    structured_content: {
+      ...previousStructuredContent,
+      chapter_outline_mode: 'single_latest',
+      chapter_outline_structure: emptyStructure,
+      chapter_outline_snapshot: {
+        ...previousSnapshot,
+        summary,
+        outline_text: normalizedOutline,
+        source,
+        mode: 'single_latest'
+      }
+    }
+  };
+}
+
 export function withStructuredChapterPlan(plan, structure) {
   const outlineText = composeStructuredOutline(structure);
   return {
@@ -313,4 +427,19 @@ export function withStructuredChapterPlan(plan, structure) {
 
 export function hasText(value) {
   return String(value || '').trim().length > 0;
+}
+
+export function hasMountedStorylineAnchor(plan = {}) {
+  const mainStorylineId = String(plan?.main_storyline_id || '').trim();
+  const targetStorylines = Array.isArray(plan?.target_storylines) ? plan.target_storylines : [];
+  return !!mainStorylineId || targetStorylines.some((item) => String(item || '').trim());
+}
+
+export function hasUsableChapterOutline(plan = {}) {
+  if (getLatestChapterOutline(plan)) return true;
+  const chapterStructure = plan?.chapter_structure || emptyChapterStructure;
+  const chapterGoal = String(chapterStructure?.chapter_goal || plan?.chapter_mission || '').trim();
+  const keyScenes = String(chapterStructure?.key_scenes || '').trim();
+  const endingHook = String(chapterStructure?.ending_hook || plan?.ending_hook || '').trim();
+  return !!chapterGoal && !!keyScenes && !!endingHook;
 }

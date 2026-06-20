@@ -1,3 +1,6 @@
+import { formatStorylineTypeLabel } from './lib/storylineLabel.js';
+import { normalizeNarrativeOutlineText } from './lib/chapterPlan.js';
+
 const API_BASE = '/api';
 const CURRENT_BOOK_KEY = 'current_book_id';
 const CURRENT_BOOK_EVENT = 'alipro:current-book-changed';
@@ -48,12 +51,13 @@ function normalizeBook(book) {
 }
 
 function normalizeStoryline(storyline) {
+  const normalizedType = String(storyline.storyline_type || '').trim().toLowerCase() === 'main' ? 'main' : 'branch';
   return {
     id: storyline.id,
     volumeNumber: Number(storyline.volume_number || 1),
     storylineNumber: Number(storyline.storyline_number || 1),
     name: storyline.storyline_name || '未命名剧情线',
-    type: storyline.storyline_type || 'branch',
+    type: normalizedType,
     description: storyline.description || '',
     coreConflict: storyline.core_conflict || '',
     startChapter: Number(storyline.start_chapter || 1),
@@ -409,7 +413,7 @@ function buildChapterGoalPayload(planData = {}) {
 function buildChapterOutlinePayload(planData = {}) {
   return {
     summary: planData.summary || '',
-    outline_text: planData.outline_text || '',
+    outline_text: normalizeNarrativeOutlineText(planData.outline_text || ''),
     scene_outline: Array.isArray(planData.scene_outline) ? planData.scene_outline : [],
     ending_hook: planData.ending_hook || '',
     character_notes: planData.character_notes || ''
@@ -419,8 +423,11 @@ function buildChapterOutlinePayload(planData = {}) {
 function buildChapterStructuredContent(planData = {}, chapterGoal, chapterOutline) {
   const structuredContent = parseJsonObject(planData.structured_content || planData.structuredContent);
   const roleExecution = normalizeRoleExecutionList(planData.role_execution || structuredContent.role_execution);
+  const outlineSource = String(planData.source || structuredContent.chapter_outline_source || 'manual').trim() || 'manual';
   return {
     ...structuredContent,
+    chapter_outline_mode: structuredContent.chapter_outline_mode || 'single_latest',
+    chapter_outline_source: outlineSource,
     chapter_goal_snapshot: {
       chapter_mission: chapterGoal.chapter_mission,
       emotion_target: chapterGoal.emotion_target,
@@ -434,7 +441,9 @@ function buildChapterStructuredContent(planData = {}, chapterGoal, chapterOutlin
       outline_text: chapterOutline.outline_text,
       scene_outline: chapterOutline.scene_outline,
       ending_hook: chapterOutline.ending_hook,
-      character_notes: chapterOutline.character_notes
+      character_notes: chapterOutline.character_notes,
+      source: outlineSource,
+      mode: 'single_latest'
     },
     role_execution: roleExecution.length > 0 ? roleExecution : buildRoleExecutionFallback({
       ...planData,
@@ -572,7 +581,7 @@ function hasAnyPlanContent(plan = {}) {
   return listFields.some((items) => Array.isArray(items) && items.length > 0);
 }
 
-function buildChapterListItems(chapters = [], chapterPlans = []) {
+function buildChapterListItems(chapters = [], chapterPlans = [], currentChapterNumber = 1) {
   const chapterMap = new Map();
   const planMap = new Map();
 
@@ -592,7 +601,8 @@ function buildChapterListItems(chapters = [], chapterPlans = []) {
 
   const allNumbers = [...chapterMap.keys(), ...planMap.keys()];
   const maxChapterNumber = allNumbers.length > 0 ? Math.max(...allNumbers) : 0;
-  const count = Math.max(1, maxChapterNumber);
+  const normalizedCurrentChapterNumber = Number(currentChapterNumber || 1);
+  const count = Math.max(1, maxChapterNumber, normalizedCurrentChapterNumber);
 
   const items = Array.from({ length: count }, (_, index) => {
     const chapterNumber = index + 1;
@@ -640,7 +650,7 @@ export async function fetchChapterSetupBundle(bookId, chapterNumber) {
     : [];
 
   const chapterContext = buildChapterContext(chapters);
-  const chapterList = buildChapterListItems(chapters, chapterPlans);
+  const chapterList = buildChapterListItems(chapters, chapterPlans, chapterNumber);
   const currentChapter = Array.isArray(chapters)
     ? chapters.find((item) => Number(item.chapter_number || 0) === Number(chapterNumber))
     : null;
@@ -728,13 +738,14 @@ export async function fetchChapterSetupBundle(bookId, chapterNumber) {
         chapterTitle: plan.chapter_name || '',
         chapterMission: plan.chapter_mission || '',
         emotionTarget: plan.emotion_target || '',
-        previousHook: normalizedPreviousFeedbackFocus || plan.previous_hook || '',
-        outlineText: plan.outline_text || '',
-        characterNotes: plan.character_notes || '',
+      previousHook: normalizedPreviousFeedbackFocus || plan.previous_hook || '',
+      outlineText: normalizeNarrativeOutlineText(plan.outline_text || ''),
+      source: plan.source || 'manual',
+      characterNotes: plan.character_notes || '',
         endingHook: plan.ending_hook || '',
         mainStorylineId: plan.main_storyline_id || '',
         mainStorylineLabel: mainStoryline
-          ? `${mainStoryline.name} · ${mainStoryline.type || '剧情线'}`
+          ? `${mainStoryline.name} · ${formatStorylineTypeLabel(mainStoryline.type)}`
           : '',
         targetStorylines: parsedTargetStorylines,
         targetStorylineLabels: matchedStorylines.map((item) => item.name).filter(Boolean),
@@ -804,7 +815,17 @@ export async function saveChapterPlan(bookId, chapterNumber, planData) {
       target_storylines: chapterGoal.target_storylines,
       structured_content: structuredContent,
       status: chapterOutline.outline_text ? 'draft' : 'generated',
-      source: 'manual'
+      source: planData.source || 'manual'
+    })
+  });
+}
+
+export async function generateChapterOutline(payload) {
+  return request('/generate', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...payload,
+      promptType: 'outline'
     })
   });
 }
@@ -849,7 +870,15 @@ export async function upsertGeneratedChapter(bookId, chapterData) {
   });
 }
 
-async function seedDemoWorkspace(bookId) {
+const DEMO_WORKSPACE_TITLE = '血月残卷';
+
+async function seedDemoWorkspace(book) {
+  const bookId = book?.id || '';
+  const bookTitle = typeof book?.title === 'string' ? book.title.trim() : '';
+  if (!bookId || bookTitle !== DEMO_WORKSPACE_TITLE) {
+    throw new Error('演示数据只能写入演示书，不能灌入当前正式作品。');
+  }
+
   await saveCharacterSummary(
     bookId,
     [
@@ -1113,10 +1142,10 @@ async function seedDemoWorkspace(bookId) {
 
 export async function createDemoWorkspace() {
   const existingBooks = await fetchBookList().catch(() => []);
-  const existingDemoBook = existingBooks.find((book) => book.title === '血月残卷');
+  const existingDemoBook = existingBooks.find((book) => book.title === DEMO_WORKSPACE_TITLE);
 
   if (existingDemoBook) {
-    await seedDemoWorkspace(existingDemoBook.id);
+    await seedDemoWorkspace(existingDemoBook);
     return {
       ...existingDemoBook,
       reused: true
@@ -1124,15 +1153,13 @@ export async function createDemoWorkspace() {
   }
 
   const demoBook = await createBook({
-    title: '血月残卷',
+    title: DEMO_WORKSPACE_TITLE,
     genre: 'fantasy',
     description: 'React 工作台演示用样例书籍',
     author: '演示数据'
   });
 
-  const bookId = demoBook.id;
-
-  await seedDemoWorkspace(bookId);
+  await seedDemoWorkspace(demoBook);
 
   return demoBook;
 }

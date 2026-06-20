@@ -10,6 +10,8 @@ export default function RevisionEditor(props) {
     setRevisionRequirement,
     revisionOriginal,
     revisionDraft,
+    setRevisionDraft,
+    revisionSuggestions,
     generationState,
     revisionPolishing,
     revisionSaving,
@@ -33,6 +35,7 @@ export default function RevisionEditor(props) {
       title={'第 ' + chapterNumber + ' 章正文校改'}
       description="直接修改当前章节正文，保存后会写回章节记录。"
       onClose={onClose}
+      closeOnBackdrop={false}
       actions={
         <>
           {revisionError ? <div className="modal-error">{revisionError}</div> : null}
@@ -62,6 +65,15 @@ export default function RevisionEditor(props) {
           <span>校改稿 {revisionDraft.length} 字</span>
           <span>{generationState.metaText}</span>
         </div>
+        <section className="revision-edit-box revision-compare-pane-edit">
+          <span>校改稿</span>
+          <textarea
+            className="modal-textarea modal-textarea-longform modal-textarea-revision"
+            value={revisionDraft}
+            onChange={(event) => setRevisionDraft(event.target.value)}
+            placeholder="这里是最终保存稿。可以直接手改，也可以先应用下面的局部建议。"
+          />
+        </section>
         {revisionChangeItems.length > 0 ? (
           <div className="revision-change-nav">
             <div className="revision-change-nav-info">
@@ -78,6 +90,56 @@ export default function RevisionEditor(props) {
               </button>
             </div>
           </div>
+        ) : null}
+        {revisionSuggestions ? (
+          <section className="revision-suggestion-panel">
+            <div className="revision-suggestion-head">
+              <span>建议概览</span>
+              <strong>本次返回 {Array.isArray(revisionSuggestions.suggestions) ? revisionSuggestions.suggestions.length : 0} 条局部建议</strong>
+            </div>
+            {revisionSuggestions.regeneration_notes ? (
+              <div className="revision-suggestion-regenerate">
+                <span>模型提醒</span>
+                <p>{revisionSuggestions.regeneration_notes}</p>
+              </div>
+            ) : null}
+            {Array.isArray(revisionSuggestions.suggestions) && revisionSuggestions.suggestions.length > 0 ? (
+              <div className="revision-suggestion-list">
+                {revisionSuggestions.suggestions.map((suggestion, index) => {
+                  const locationNumber = Number(suggestion?.paragraph || suggestion?.afterParagraph || index + 1);
+                  const actionLabel = suggestion?.action === 'insert_after'
+                    ? `第 ${locationNumber} 段后新增`
+                    : suggestion?.action === 'delete'
+                      ? `第 ${locationNumber} 段删除`
+                      : `第 ${locationNumber} 段修改`;
+                  const suggestionText = String(suggestion?.suggested_text || '').trim();
+                  return (
+                    <article key={`${suggestion?.action || 'change'}-${locationNumber}-${index}`} className="revision-suggestion-item">
+                      <div className="revision-suggestion-location">
+                        <span>{index + 1}</span>
+                        <strong>{actionLabel}</strong>
+                      </div>
+                      <p>{String(suggestion?.reason || suggestion?.note || '已在原文标注区同步高亮，可直接应用到校改稿。').trim()}</p>
+                      {suggestionText ? (
+                        <div className={'revision-suggestion-text' + (suggestion?.action === 'insert_after' ? ' is-new' : '')}>
+                          <span>建议文本</span>
+                          <p>{suggestionText}</p>
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="revision-suggestion-empty">这次没有返回可直接应用的逐段建议，可以结合下方原始结果手动调整。</p>
+            )}
+            {revisionSuggestions.raw_content ? (
+              <div className="revision-suggestion-text">
+                <span>原始校改输出</span>
+                <pre className="revision-suggestion-raw">{revisionSuggestions.raw_content}</pre>
+              </div>
+            ) : null}
+          </section>
         ) : null}
         <section className="revision-original-panel">
           <div className="revision-original-head">

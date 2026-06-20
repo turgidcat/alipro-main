@@ -32,8 +32,8 @@ alipro-main/
 说明：
 
 - 唯一前端源码目录：`frontend-react/`
-- 开发入口：`frontend-react` 的 Vite 开发服务
-- 生产入口：后端托管 `frontend-react/dist`
+- 开发入口：`frontend-react` 的 Vite 开发服务，地址是 `http://127.0.0.1:5173/`，支持热更新
+- 托管入口：后端托管 `frontend-react/dist`，地址是 `http://localhost:3000/`，不支持热更新
 
 ## 本地运行
 
@@ -45,7 +45,7 @@ alipro-main/
 backend\start.bat
 ```
 
-默认会启动后端并打开：
+默认会启动后端，并引导你打开带热更新的开发入口：
 
 ```text
 http://127.0.0.1:5173/
@@ -75,8 +75,8 @@ http://127.0.0.1:5173/
 
 ## 常用页面
 
-- 开发首页：`http://127.0.0.1:5173/`
-- 生产首页：`http://localhost:3000/`
+- 开发首页：`http://127.0.0.1:5173/`，这是本地改 React 时应使用的入口，支持热更新
+- 托管首页：`http://localhost:3000/`，这是后端返回的静态构建页，不支持热更新
 - 启动引导：`http://localhost:3000/start-guide`
 - 更新日志：`http://localhost:3000/changelog`
 - 健康检查：`http://localhost:3000/health`
@@ -109,6 +109,7 @@ node scripts/bump-version.js major "重大变更"
 
 ## 排障建议
 
-- 如果页面打不开，先确认 `frontend-react` 是否已执行 `npm run dev` 或是否已有最新构建产物
+- 如果改了前端代码却没自动刷新，先确认你打开的是 `http://127.0.0.1:5173/`，并且 `frontend-react` 已执行 `npm run dev`
+- 如果页面打不开，再确认 `frontend-react` 是否已执行 `npm run dev` 或是否已有最新构建产物
 - 如果接口请求失败，先检查 `http://localhost:3000/health`
 - 如果部署后页面不一致，优先检查是否已重新构建 `frontend-react/dist`

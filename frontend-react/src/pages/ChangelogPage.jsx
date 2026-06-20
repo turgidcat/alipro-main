@@ -94,7 +94,7 @@ export default function ChangelogPage() {
         <div>
           <span className="hero-eyebrow">Release Notes</span>
           <h1>更新日志</h1>
-          <p>按版本号归档，再按分类展开具体更新内容。</p>
+          <p>按版本归档，按分类查看改动。</p>
         </div>
         <div className="hero-note-card">
           <strong>{data.currentVersion ? `当前版本 v${data.currentVersion}` : '当前版本待同步'}</strong>

@@ -36,6 +36,7 @@ export function normalizeChapterBundle(bundle, chapterNumber) {
       emotion_target: plan.emotionTarget || '',
       previous_hook: plan.previousHook || context.previousFeedbackFocus || '',
       outline_text: plan.outlineText || '',
+      source: plan.source || 'manual',
       character_notes: plan.characterNotes || '',
       ending_hook: plan.endingHook || '',
       scene_outline: plan.sceneOutline || [],

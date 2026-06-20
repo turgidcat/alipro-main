@@ -11,6 +11,70 @@ function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function stripOutlineListMarker(line = '') {
+  return String(line || '')
+    .replace(/^[-*•]\s*/, '')
+    .replace(/^\d+[\.\)、]\s*/, '')
+    .replace(/^[（(]?\d+[)）]\s*/, '')
+    .replace(/^要点\s*\d+\s*[:：]?\s*/, '')
+    .replace(/^第[\d一二三四五六七八九十百]+点\s*[:：]?\s*/, '')
+    .replace(/^(章节细纲|章节大纲|细纲正文|正文细纲|以下是细纲|以下为细纲|本章细纲)\s*[:：]?\s*/, '')
+    .replace(/^(本章目标|关键场景|冲突升级|角色变化|读者爽点\s*\/\s*情绪落点|读者爽点|情绪落点|结尾钩子|剧情线约束|剧情线推进|剧情推进|章节任务)\s*[:：]?\s*/, '')
+    .trim();
+}
+
+function ensureSentenceEnding(text = '') {
+  const normalized = String(text || '').trim();
+  if (!normalized) return '';
+  if (/[。！？!?]$/.test(normalized)) return normalized;
+  return normalized + '。';
+}
+
+function normalizeOutlineNarrativeOutput(value) {
+  const raw = String(value || '').replace(/\r/g, '').trim();
+  if (!raw) return '';
+
+  const fragments = raw
+    .split('\n')
+    .map(stripOutlineListMarker)
+    .map((line) => line.replace(/[：:]\s*$/g, '').trim())
+    .filter(Boolean)
+    .flatMap((line) => line.split(/[;；]+/))
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.replace(/^(同时|接着|随后|然后|最后)\s*[，,]/, '$1'))
+    .map((line) => line.replace(/[，,；;。！？!?]+$/g, '').trim())
+    .filter(Boolean);
+
+  if (fragments.length === 0) return '';
+
+  return ensureSentenceEnding(
+    fragments
+      .join('，')
+      .replace(/，{2,}/g, '，')
+      .replace(/。\s*，/g, '，')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+}
+
+function looksLikeOutlineList(value = '') {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  return /(^|\s)(\d+[\.\)、]|[（(]?\d+[)）]|要点\s*\d+|第[一二三四五六七八九十百]+点|本章目标\s*[:：]|关键场景\s*[:：]|冲突升级\s*[:：]|角色变化\s*[:：]|读者爽点\s*[:：]|情绪落点\s*[:：]|结尾钩子\s*[:：])/m.test(text);
+}
+
+function mergeUsage(primary, secondary) {
+  const first = primary && typeof primary === 'object' ? primary : {};
+  const second = secondary && typeof secondary === 'object' ? secondary : {};
+  const merged = {
+    prompt_tokens: Number(first.prompt_tokens || 0) + Number(second.prompt_tokens || 0),
+    completion_tokens: Number(first.completion_tokens || 0) + Number(second.completion_tokens || 0),
+    total_tokens: Number(first.total_tokens || 0) + Number(second.total_tokens || 0)
+  };
+  return merged.prompt_tokens || merged.completion_tokens || merged.total_tokens ? merged : (primary || secondary || null);
+}
+
 function normalizeJsonArray(value) {
   if (Array.isArray(value)) {
     return value;
@@ -315,6 +379,69 @@ function buildCharacterSummaryContext(characters = []) {
     summaryParts.push(`章节临时角色摘要：${normalizeText(chapterSummary.background)}`);
   }
   return summaryParts.join('\n\n');
+}
+
+function collectStoredCharacterNames(characters = []) {
+  if (!Array.isArray(characters)) return [];
+  return characters
+    .map((character) => normalizeText(character.name))
+    .filter((name) => name && name !== '全书角色设定' && name !== '本章新增角色');
+}
+
+function hasAnyCharacterNameInText(text, characterNames = []) {
+  const normalizedText = normalizeText(text);
+  if (!normalizedText || !Array.isArray(characterNames) || characterNames.length === 0) return false;
+  return characterNames.some((name) => name && normalizedText.includes(name));
+}
+
+function validateChapterGenerationContext({ requestCharacters = '', storedContext = {} }) {
+  const storedCharacterNames = Array.isArray(storedContext.characterNames) ? storedContext.characterNames : [];
+  const requestCharacterText = normalizeText(requestCharacters);
+  if (storedCharacterNames.length === 0 && !requestCharacterText) {
+    return '当前作品还没有可用角色设定。请先在工作台补齐角色卡，避免模型临时乱造人物名。';
+  }
+
+  const chapterSnapshots = [
+    { label: '当前章正文', content: storedContext.currentChapter?.content || '' },
+    { label: '上一章正文', content: storedContext.previousChapter?.content || '' }
+  ];
+
+  for (const snapshot of chapterSnapshots) {
+    const normalizedContent = normalizeText(snapshot.content);
+    if (!normalizedContent || normalizedContent.length < 80 || storedCharacterNames.length === 0) continue;
+    if (!hasAnyCharacterNameInText(normalizedContent, storedCharacterNames)) {
+      return `${snapshot.label}与当前角色库对不上，疑似混入了其他作品内容。请先清理污染正文或修正角色设定，再继续生成。`;
+    }
+  }
+
+  return '';
+}
+
+function hasMountedStorylineSelectionForGeneration(plan = {}) {
+  const mainStorylineId = normalizeText(plan?.main_storyline_id || plan?.mainStorylineId || '');
+  const targetStorylines = normalizeJsonArray(plan?.target_storylines || plan?.targetStorylines);
+  return !!mainStorylineId || targetStorylines.some((item) => normalizeText(item));
+}
+
+function hasUsableChapterOutlineForGeneration({ outline = '', chapterPlan = {}, chapterStructure = {} }) {
+  if (normalizeText(outline)) return true;
+  const effectiveStructure = chapterStructure && typeof chapterStructure === 'object'
+    ? chapterStructure
+    : {};
+  const chapterGoal = normalizeText(
+    effectiveStructure.chapter_goal
+    || effectiveStructure.chapterGoal
+    || chapterPlan?.chapter_mission
+    || ''
+  );
+  const keyScenes = normalizeText(effectiveStructure.key_scenes || effectiveStructure.keyScenes || '');
+  const endingHook = normalizeText(
+    effectiveStructure.ending_hook
+    || effectiveStructure.endingHook
+    || chapterPlan?.ending_hook
+    || ''
+  );
+  return !!chapterGoal && !!keyScenes && !!endingHook;
 }
 
 function buildGenerationBriefText(generationBrief = {}) {
@@ -1865,6 +1992,7 @@ async function loadBookGenerationContext(bookId, chapterNumber) {
     contextNotes: notes.join('\n\n'),
     generationConstraints,
     chapterStorylineContext,
+    characterNames: collectStoredCharacterNames(characterRows),
     storedCharacters,
     characterSummary,
     chapterPlan: chapterPlanRow || null,
@@ -1960,8 +2088,9 @@ function buildChapterNamePrompt({ genre, subgenre, chapterNumber }) {
 function buildOutlinePrompt({ genre, subgenre, bookTitle, chapterTitle, characters, contextNotes, chapterStorylinePrompt }) {
   const typeInfo = subgenre ? genre + ' - ' + subgenre : genre;
   return [
-    '请为以下章节创作极简大纲。',
+    '请为以下章节创作一段给作者直接使用的章节细纲。',
     '你必须优先遵守章节任务与剧情线约束，不要自由偏航。',
+    '这份细纲是前端正式展示稿，不是内部任务清单。',
     '',
     '类型：' + typeInfo,
     '书名：' + (bookTitle || '未提供'),
@@ -1971,12 +2100,72 @@ function buildOutlinePrompt({ genre, subgenre, bookTitle, chapterTitle, characte
     contextNotes ? '上下文：\n' + contextNotes : '',
     chapterStorylinePrompt ? '\n剧情线约束：\n' + chapterStorylinePrompt : '\n剧情线约束：\n暂无结构化剧情线，仅使用章节目标兜底。',
     '输出要求：',
-    '1. 用最简洁的语言列出 5 个要点。',
-    '2. 总字数控制在 50-250 字。',
-    '3. 不要写完整句子，不要解释。',
-    '4. 每个要点都要服务当前章必须推进的剧情节点，不能提前写出被禁止发生的事件。',
-    '5. 直接输出要点。'
+    '1. 直接输出一版内容完整的章节细纲草稿，优先把剧情推进信息写全。',
+    '2. 必须使用完整自然句，严禁小标题，严禁写“本章目标/关键场景/冲突升级”这类栏目名。',
+    '3. 总字数控制在 110-180 字之间，够清楚即可，不要膨胀成剧情正文。',
+    '4. 只按 5W1H 章纲方式写：谁在什么处境下，于哪里展开行动，要做什么，为什么会这样推进，最后形成什么结果或钩子。',
+    '5. 保持章纲粒度，允许概括“前段/中段/后段”的推进，不要展开成逐场景描写、心理细描或对白片段。',
+    '6. 每一句都必须服务当前章必须推进的剧情节点，不能提前写出被禁止发生的事件。',
+    '7. 不要输出解释性话术，不要说“以下是细纲”或“要点如下”，直接给细纲正文。'
   ].filter(Boolean).join('\n');
+}
+
+function buildOutlineNarrativeRewritePrompt({
+  genre,
+  subgenre,
+  bookTitle,
+  chapterTitle,
+  contextNotes,
+  chapterStorylinePrompt,
+  draftOutline
+}) {
+  const typeInfo = subgenre ? genre + ' - ' + subgenre : genre;
+  return [
+    '请把下面的章节细纲草稿，改写成给作者直接阅读的自然叙事稿。',
+    '你的任务不是重写剧情，而是保留全部有效信息，只优化表达方式。',
+    '',
+    '类型：' + typeInfo,
+    '书名：' + (bookTitle || '未提供'),
+    '章节名：' + (chapterTitle || '未提供'),
+    '',
+    contextNotes ? '上下文：\n' + contextNotes : '',
+    chapterStorylinePrompt ? '\n剧情线约束：\n' + chapterStorylinePrompt : '',
+    '',
+    '原始细纲草稿：',
+    draftOutline || '未提供',
+    '',
+    '改写要求：',
+    '1. 只输出最终叙事稿，不要解释。',
+    '2. 必须改写成单段或双段的自然叙事型章纲，像编辑写给作者的正式章节说明，不是正文。',
+    '3. 绝对不能删掉原稿里的推进点、冲突点、角色动作、结尾钩子和真假目标信息。',
+    '4. 可以补足连接词和承接语，让因果与节奏更顺，但不能新增原稿没有的重要剧情事实。',
+    '5. 不要分点，不要编号，不要栏目名，不要字段拼接感。',
+    '6. 语言要自然，但保持“章纲抽象层级”：只概括推进，不展开成具体画面、对白、长动作链或细腻心理描写。',
+    '7. 按 5W1H 收束表达：谁、在什么处境、于哪里、要做什么、为什么这样推进、结果与后续钩子是什么。',
+    '8. 优先使用“前段/中段/后段”“先…再…最后…”这类概括表达，而不是把每个瞬间写成小说段落。',
+    '9. 总字数控制在 120-180 字，信息完整，但不要写得像正文。'
+  ].filter(Boolean).join('\n');
+}
+
+async function rewriteOutlineNarratively({
+  genre,
+  subgenre,
+  bookTitle,
+  chapterTitle,
+  contextNotes,
+  chapterStorylinePrompt,
+  rawOutline
+}) {
+  const rewritePrompt = buildOutlineNarrativeRewritePrompt({
+    genre,
+    subgenre,
+    bookTitle,
+    chapterTitle,
+    contextNotes,
+    chapterStorylinePrompt,
+    draftOutline: rawOutline
+  });
+  return runTextGeneration(rewritePrompt, { temperature: 0.65, maxTokens: 900 });
 }
 
 function buildCharacterNamesPrompt({ genre, subgenre, importantCount = 5, otherCount = 5 }) {
@@ -2261,6 +2450,25 @@ async function handleOutlineGeneration(req, res) {
     if (!result.success) {
       return res.status(result.statusCode || 500).json({ success: false, error: result.error });
     }
+    const firstPassContent = normalizeText(result.content);
+    const rewrittenResult = await rewriteOutlineNarratively({
+      genre,
+      subgenre,
+      bookTitle,
+      chapterTitle,
+      contextNotes: mergedContextNotes,
+      chapterStorylinePrompt: storylineContextMeta?.promptText || '',
+      rawOutline: firstPassContent
+    });
+    const finalRawContent = rewrittenResult.success
+      ? rewrittenResult.content
+      : firstPassContent;
+    const normalizedContent = normalizeOutlineNarrativeOutput(finalRawContent);
+    const finalContent = (
+      (!looksLikeOutlineList(normalizedContent) && normalizedContent.length >= 120)
+        ? normalizedContent
+        : normalizeOutlineNarrativeOutput(firstPassContent)
+    ) || normalizedContent || firstPassContent;
     let persistedStorylineContext = null;
     if (normalizeText(bookId || '') && Number.parseInt(chapterNumber, 10)) {
       persistedStorylineContext = await saveChapterStorylineContext({
@@ -2272,8 +2480,8 @@ async function handleOutlineGeneration(req, res) {
     return res.json({
       success: true,
       data: {
-        content: normalizeText(result.content),
-        usage: result.usage,
+        content: finalContent,
+        usage: mergeUsage(result.usage, rewrittenResult.success ? rewrittenResult.usage : null),
         storylineContext: {
           ...(persistedStorylineContext || buildPersistedStorylineContext(storylineContextMeta))
         },
@@ -2501,17 +2709,51 @@ async function handleChapterContentGeneration(req, res) {
     const briefText = buildGenerationBriefText(req.body.generationBrief);
     const finalContextNotes = [storedContext.contextNotes, draftStorylineConstraint.text, briefText].filter(Boolean).join('\n\n');
     const structuredOutline = normalizeText(buildStructuredOutlineText(getChapterOutlineStructure(chapterPlan)));
+    const requestChapterPlan = req.body.chapterPlan && typeof req.body.chapterPlan === 'object' ? req.body.chapterPlan : {};
+    const requestChapterStructure = req.body.chapterStructure && typeof req.body.chapterStructure === 'object' ? req.body.chapterStructure : {};
+    const mergedChapterPlanForValidation = {
+      ...chapterPlan,
+      ...requestChapterPlan,
+      chapter_structure: {
+        ...(chapterPlan.chapter_structure || {}),
+        ...requestChapterStructure,
+        ...(requestChapterPlan.chapter_structure || {})
+      }
+    };
     const roleExecution = normalizeRoleExecutionList(
       req.body.chapterPlan?.role_execution
       || req.body.chapterPlan?.structured_content?.role_execution
       || chapterPlan?.structured_content?.role_execution
     );
-    const finalOutline = normalizeText(outline)
+    const requestedOutline = normalizeText(outline);
+    const finalOutlineCandidate = requestedOutline
       || structuredOutline
       || normalizeText(chapterPlan.outline_text || buildOutlineFromChapterPlan(chapterPlan));
+    const hasOutlineAnchor = hasUsableChapterOutlineForGeneration({
+      outline: finalOutlineCandidate,
+      chapterPlan: mergedChapterPlanForValidation,
+      chapterStructure: requestChapterStructure
+    });
+    const hasStorylineAnchor = hasMountedStorylineSelectionForGeneration(mergedChapterPlanForValidation);
+    const finalOutline = finalOutlineCandidate || (
+      hasStorylineAnchor
+        ? '当前章节未填写细纲，请严格围绕已挂接剧情线、卷任务与现有上下文推进，不得擅自扩线或跳出既定承接。'
+        : ''
+    );
 
-    if (!finalOutline) {
-      return res.status(400).json({ success: false, error: 'Outline is required' });
+    if (!hasOutlineAnchor && !hasStorylineAnchor) {
+      return res.status(400).json({
+        success: false,
+        error: '当前既没有章节细纲，也没有剧情线挂载。请先补齐章节细纲，或至少挂载一条剧情线后再生成。'
+      });
+    }
+
+    const generationContextError = validateChapterGenerationContext({
+      requestCharacters: characters,
+      storedContext
+    });
+    if (generationContextError) {
+      return res.status(400).json({ success: false, error: generationContextError });
     }
 
     const requestedWordCount = Number(wordCount) || 2000;

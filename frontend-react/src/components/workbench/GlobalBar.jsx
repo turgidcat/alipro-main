@@ -16,27 +16,33 @@ export default function GlobalBar({
 
   return (
     <div className="workbench-global-bar">
-      <span
-        className="workbench-global-bar-book"
-        onClick={() => navigate('/books')}
-        title="点击查看资料库"
-      >
-        📖 {bookTitle || '未选择书籍'}
-      </span>
-      <span className="workbench-global-bar-sep">|</span>
-      <span className="workbench-global-bar-chapter">
-        第 {chapterNumber} 章{chapterName ? ` ${chapterName}` : ''}
-      </span>
-      {mainStorylineLabel && mainStorylineLabel !== '暂未指定剧情线' ? (
-        <>
-          <span className="workbench-global-bar-sep">|</span>
-          <span className="workbench-global-bar-storyline">{mainStorylineLabel}</span>
-        </>
-      ) : null}
-      <div className="workbench-global-bar-nav">
+      <div className="flex flex-wrap items-center gap-3 text-[13px] text-[color:var(--muted)]">
         <button
           type="button"
-          className="workbench-global-bar-nav-btn"
+          className="workbench-global-bar-book"
+          onClick={() => navigate('/books')}
+          title="点击查看资料库"
+        >
+          {bookTitle || '未选择书籍'}
+        </button>
+        <span className="workbench-global-bar-label">
+          // chapter
+        </span>
+        <span className="workbench-global-bar-chapter">
+          第 {chapterNumber} 章{chapterName ? ` ${chapterName}` : ''}
+        </span>
+        {mainStorylineLabel && mainStorylineLabel !== '暂未指定剧情线' ? (
+          <span className="workbench-global-bar-storyline">
+            {mainStorylineLabel}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="workbench-global-bar-nav">
+        <div className="flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          className="ghost-btn"
           onClick={onPrevChapter}
           disabled={chapterNumber <= 1}
         >
@@ -47,7 +53,7 @@ export default function GlobalBar({
         </span>
         <button
           type="button"
-          className="workbench-global-bar-nav-btn"
+          className="ghost-btn"
           onClick={onNextChapter}
         >
           下一章 ▸
@@ -56,7 +62,9 @@ export default function GlobalBar({
           currentChapter={chapterNumber}
           items={chapterListItems}
           onSelect={onSelectChapter}
+          triggerClassName="ghost-btn"
         />
+        </div>
       </div>
     </div>
   );

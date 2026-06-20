@@ -5,7 +5,7 @@ export default function BookSettingDrawer({ book }) {
 
   return (
     <div className="drawer-book-setting">
-      <p style={{ fontSize: '13px', color: 'var(--muted, #9ca3af)', marginBottom: '10px' }}>
+      <p style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '10px' }}>
         写作速查 · 只读摘要,完整编辑请前往资料库。
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px' }}>
@@ -17,7 +17,7 @@ export default function BookSettingDrawer({ book }) {
         {book.synopsis ? (
           <div>
             <strong>核心矛盾:</strong>
-            <p style={{ marginTop: '4px', color: 'var(--muted, #9ca3af)', lineHeight: 1.6 }}>{book.synopsis}</p>
+            <p style={{ marginTop: '4px', color: 'var(--muted)', lineHeight: 1.6 }}>{book.synopsis}</p>
           </div>
         ) : null}
       </div>

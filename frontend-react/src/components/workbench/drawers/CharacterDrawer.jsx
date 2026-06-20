@@ -13,7 +13,7 @@ export default function CharacterDrawer({ characters, appearingRoles }) {
 
   return (
     <div className="drawer-character">
-      <p style={{ fontSize: '13px', color: 'var(--muted, #9ca3af)', marginBottom: '10px' }}>
+      <p style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '10px' }}>
         写作速查 · 本章出场角色高亮,其他灰显。完整编辑请前往资料库。
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -24,17 +24,17 @@ export default function CharacterDrawer({ characters, appearingRoles }) {
             <div
               key={index}
               style={{
-                borderLeft: `3px solid ${isAppearing ? 'var(--brand, #bf6a2a)' : 'var(--line, #e5e7eb)'}`,
+                borderLeft: `3px solid ${isAppearing ? 'var(--brand)' : 'var(--line)'}`,
                 padding: '6px 10px',
-                background: isAppearing ? 'var(--brand-soft, #fdf3ec)' : 'var(--panel, #f9fafb)',
+                background: isAppearing ? 'var(--brand-soft)' : 'var(--panel)',
                 borderRadius: '0 6px 6px 0',
                 opacity: isAppearing ? 1 : 0.6,
                 fontSize: '12px'
               }}
             >
               <strong>{name}</strong>
-              {isAppearing ? <span style={{ fontSize: '10px', marginLeft: '6px', color: 'var(--brand, #bf6a2a)' }}>本章出场</span> : null}
-              <div style={{ color: 'var(--muted, #9ca3af)', marginTop: '3px' }}>{buildCharacterSubtitle(char)}</div>
+              {isAppearing ? <span style={{ fontSize: '10px', marginLeft: '6px', color: 'var(--brand)' }}>本章出场</span> : null}
+              <div style={{ color: 'var(--muted)', marginTop: '3px' }}>{buildCharacterSubtitle(char)}</div>
             </div>
           );
         })}

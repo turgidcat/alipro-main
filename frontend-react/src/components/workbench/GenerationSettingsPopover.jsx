@@ -31,17 +31,17 @@ export default function GenerationSettingsPopover(props) {
         onClick={() => setOpen((current) => !current)}
         disabled={loadingChapter || isGenerating}
       >
-        ⚙ 参数
+        参数
       </button>
       {open ? (
         <div className="generation-settings-panel">
           <div className="generation-settings-panel-head">
             <strong>生成参数</strong>
-            <span>这些是低频调节项，不占主路径位置。</span>
+            <span>低频项收在这里，不占主路径。</span>
           </div>
-          <div className="generation-settings-row">
+          <div className="space-y-4">
             <label className="editor-field generation-word-count-field">
-              <span>目标字数</span>
+              <span className="mb-2 block font-mono text-[11px] font-bold tracking-[0.12em] text-[color:var(--muted)]">目标字数</span>
               <input
                 className="chapter-number-input"
                 type="number"
@@ -53,8 +53,8 @@ export default function GenerationSettingsPopover(props) {
                 disabled={loadingChapter || isGenerating}
               />
             </label>
-            <p className="generation-settings-hint">
-              先只保留字数，后续如果要加更多低频项，也统一收在这里。
+            <p className="generation-settings-hint text-[14px] leading-7 text-[color:var(--muted)]">
+              先只保留字数，后续低频项也统一放这里。
             </p>
           </div>
         </div>

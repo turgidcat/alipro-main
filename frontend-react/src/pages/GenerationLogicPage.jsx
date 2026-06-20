@@ -7,67 +7,67 @@ const conceptChain = [
     label: '全书规划',
     db: 'book_plans',
     output: '产出全书主线、世界规则、核心冲突、分卷草案',
-    note: '这一层只定整本书的大方向，不直接决定某一章写什么。'
+    note: '定整本书方向，不定单章。'
   },
   {
     order: '02',
     label: '分卷规划',
     db: 'volume_plans',
     output: '产出本卷阶段目标、卷级冲突、卷末结果、激活线池',
-    note: '这一层只把长线拆成阶段任务，不直接决定单章结尾钩子。'
+    note: '把长线拆成卷任务，不定单章钩子。'
   },
   {
     order: '03',
     label: '剧情线规划',
     db: 'storylines',
-    output: '产出当前活跃线、推进状态、下一步和优先级',
-    note: '这一层决定“当前该推进哪条线”，是章节决策前的中间层。'
+    output: '产出本卷剧情线集合、初始起止章节、跨卷许可与收束预期',
+    note: '先定本卷有哪些线，再按章挂载。'
   },
   {
     order: '04',
     label: '章节目标',
     db: 'chapter_plans',
-    output: '产出本章任务、情绪目标、关联剧情线、出场角色',
-    note: '这一层回答“这一章到底推进什么”，还不是正文执行蓝图。'
+    output: '产出本章任务、情绪目标、主推进线、关联线、出场角色',
+    note: '定本章挂哪几条线、主推哪条。'
   },
   {
     order: '05',
     label: '章节细纲',
     db: 'chapter_plans',
     output: '产出场景拆解、冲突推进、结尾钩子、结构化细纲',
-    note: '这一层回答“这一章具体怎么写出来”，是正文前最后一层。'
+    note: '定这一章怎么写，是正文前最后一层。'
   },
   {
     order: '06',
     label: '正文生成',
     db: 'chapters',
     output: '产出正文、字数、章节状态',
-    note: '这一层只负责把上游已确定的目标和细纲执行成正文。'
+    note: '按既定目标和细纲写成正文。'
   },
   {
     order: '07',
     label: '生成反馈',
     db: 'chapter_plans / storylines',
     output: '产出推进反馈、状态回写、下一章焦点',
-    note: '这一层把结果重新翻译回结构化推进状态，形成真正闭环。'
+    note: '把结果回写成推进状态，形成闭环。'
   },
   {
     order: '08',
     label: '校改收口',
     db: 'chapters / structured_content',
     output: '产出局部修改、人工保留结果、最终稿',
-    note: '这一层做局部精修，不重做上游规划。'
+    note: '做局部精修，不重做上游规划。'
   }
 ];
 
 const mismatchAlerts = [
   {
     title: '当前第一卡点：章节规划层还没彻底拆清目标层和执行层',
-    detail: '主链已经能从章节任务表一路推进到正文和反馈，但 chapter_plans 里还同时挂着“本章推进什么”和“本章具体怎么写”，这会持续影响第三步生成控制与第二步章节计划的边界。'
+    detail: '主链已能从章节任务表一路推进到正文和反馈，但 chapter_plans 里还同时挂着“推什么”和“怎么写”，会继续影响边界。'
   },
   {
     title: '当前第二卡点：剧情线回写已接通，但 storylines 还没变成稳定中枢',
-    detail: '章节反馈已经能把进度推回剧情线，也能带动 active 状态推进；但 storylines 现在仍同时承担主链中枢和兼容容器两种角色，P2 还要继续压缩职责。'
+    detail: '章节反馈已能把进度推回剧情线，也能带动 active 推进；但 storylines 仍同时承担主链中枢和兼容容器两种角色。'
   }
 ];
 
@@ -178,93 +178,244 @@ const branchChains = [
   }
 ];
 
-const phaseRoadmap = [
+const currentTracks = [
   {
-    phase: 'P0',
-    title: '验收收口',
-    status: '已完成',
+    track: '前端',
+    title: 'React 前端改造',
+    status: '稳定期',
     statusTone: 'done',
-    logic: '先验主链。先确认“章节计划 -> 正文生成 -> feedback 回写”这条最小闭环能稳定反复跑，再谈扩功能和结构升级。',
-    goal: 'P0 已按 3 轮收口：第一轮验主链，第二轮统一解析与保存闭环，第三轮完成真实前端回归。',
+    logic: '这一块不再大拆骨架，重点是把 React 工作台、资料库和说明页继续拉齐口径，补视觉统一和稳定性。',
+    goal: '前端主改造已收口，现阶段以稳定和小修为主。',
     done: [
-      '第 1 轮硬验收已完成：以《破雾修真录》第 8 章真实跑通了“章节计划 -> 正文生成 -> chapter_feedback 回写”。',
-      '数据库已确认 chapter_feedback 会刷新 updated_at，说明 feedback 不是只在前端假显示，而是真的写回了 chapter_plans。',
-      '同章 upsert 保存接口已回测通过，现有章节内容可正常写回，不会因为新主链接入而失去保存能力。',
-      '第 2 轮已落地：workbenchApi 先统一标准化 chapter_plan，页面不再一边吃字符串、一边吃对象。',
-      '第 2 轮已落地：生成后保存和校改后保存已收成同一条闭环，减少两套近似流程继续漂移。',
-      '第 3 轮已完成真实前端回归：`/workbench` 上重新生成后，正文、feedback 和 chapter_plan 会同步刷新。',
-      '第 3 轮已完成真实前端回归：打开校改弹窗后直接保存，feedback 也会再次刷新并写回；回归样本已恢复原始数据。',
-      'React 构建、前后端启动链路都已经验证可用。'
+      'React 工作台已经接管创作主入口，旧静态前端退到兼容层。',
+      '路由、工作台双栏结构、抽屉区、章节三态、校改闭环都已经接通并验收。',
+      '资料库、样式管理、说明页等外围页面已经进入 React 体系内统一维护。',
+      '当前文档已明确：工程地基、信息架构、交互收口都已完成。'
     ],
     todo: [
-      'P0 不再挂新问题；剩余历史 prompt 乱码、演示脏数据和重复快照转入后续阶段继续清理。'
+      '继续处理页面之间残留的视觉不统一，避免有的页面像新站，有的页面还像旧壳。',
+      '后续优先做稳定性回归和性能优化，不再重开一轮大改造。'
     ],
-    nextGate: 'P0 结束后，后面不该再重复讨论“主链到底通没通”，而是直接进入入口收口和结构正式化。',
+    nextGate: '这不是不管前端，而是后续所有调整都要建立在现有 React 架构上。',
     files: [
-      'backend/routes/ai.js',
-      'backend/routes/data.js',
-      'frontend-react/src/workbenchApi.js',
       'frontend-react/src/App.jsx',
-      'backend/services/deepseek.js'
+      'frontend-react/src/router.jsx',
+      'frontend-react/src/components/workbench/*',
+      'frontend-react/src/pages/*',
+      'docs/latest-task-status.md'
     ]
   },
   {
-    phase: 'P1',
-    title: '主链扩展收口',
-    status: '已完成',
-    statusTone: 'done',
-    logic: '再收入口。主链能跑之后，下一步不是继续堆样例，而是把前端入口、演示书、批量生成和说明口径全部拉回同一条新主链。',
-    goal: 'P1 已按 3 轮收口：第一轮收前端入口，第二轮收演示样例与批量路径，第三轮收页面和台账口径。',
+    track: '链路',
+    title: '生成链路校正',
+    status: '进行中',
+    statusTone: 'active',
+    logic: '这一块不是堆新功能，而是把“全书规划 -> 分卷规划 -> 剧情线 -> 章节目标 -> 章节细纲 -> 正文 -> 反馈回写”的边界校正清楚。',
+    goal: '当前主任务已从“能不能跑”转成“怎么稳定传、怎么回写、怎么避免混层”。',
     done: [
-      '第 1 轮入口收口已基本完成：结构化章节任务表已经接进 React 创作主链，chapter_plans 也已成为章节规划主对象。',
-      '第 1 轮入口收口已基本完成：generation-logic 页面已经能把章节目标层、章节细纲层、反馈层拆开讲清楚。',
-      '第 2 轮样例 / 批量收口已完成：批量生成今天已重新复验，1-4 章走 outline_text 兼容输入，第 5 章走 stored_structured_outline 新主链输入，结果全部通过。',
-      '第 2 轮样例 / 批量收口已完成：这轮批量复验里，5 个样本章节的字数波动都压在 10% 以内。',
-      '第 2 轮样例 / 批量收口已完成：`/workbench` 主入口、批量验收脚本和 chapter_plans 的读写口径已回到同一条链路。',
-      '第 3 轮说明收口已完成：已把“批量链路已验真”和“演示书仍含种子正文样板”这两件事拆开表述，不再用一句“演示链路已收口”混写。',
-      '第 3 轮说明收口已完成：《破雾修真录》当前可确认的是 1-8 章任务表连续挂在同一主线下；但其中前段章节仍有短正文种子，不能假装它们都已经是完整长正文样板。'
+      'book_plans 和 volume_plans 已经开始承担正式主表职责，旧表只做兼容兜底。',
+      '章节计划、正文生成、chapter_feedback 回写这条最小闭环已经验通过。',
+      '剧情线进度已能从章节反馈写回 storylines.structured_content.chapter_progress，并推动 active 状态。',
+      'generation-logic 页面已经按新链路拆出了全书、分卷、剧情线、章节、反馈的层级说明。'
     ],
     todo: [
-      'P1 不再挂新问题；如果后面继续补演示章节或替换短正文种子，按新增施工单独记录，不回头虚增 P1 完成度。'
+      '继续把剧情线定义从“说明概念”收成“前端可见、可挂载、可回写修正”的真实结构。',
+      '继续拆清 chapter_plans 里的目标层和执行层，避免一张表同时说“这章推什么”和“这章怎么写”。',
+      '把“剧情线影响下一章目标”的下行联动补齐，形成真正闭环。'
     ],
-    nextGate: 'P1 结束后，后面不该再反复确认“主入口到底是不是新链路”或“批量验收是不是只写在页面上”；这些口径已经验真，下一步直接进入 P2 结构正式化。',
+    nextGate: '这一块做完后，前端看到的就不只是生成按钮，而是完整传递链路。',
     files: [
-      'frontend-react/src/App.jsx',
       'frontend-react/src/pages/GenerationLogicPage.jsx',
-      'backend/verify-batch-generation.js',
+      'frontend-react/src/workbenchApi.js',
+      'backend/routes/ai.js',
+      'backend/routes/data.js',
       'docs/task-board.md'
     ]
   },
   {
-    phase: 'P2',
-    title: '结构正式化',
-    status: '进行中',
-    statusTone: 'active',
-    logic: '最后正结构。等主链和入口都稳了，再继续压缩旧表职责、拆清层级边界，把反馈和剧情线回写做成长期可维护的正式结构。',
-    goal: '继续把概念层和工程层对齐，让前几层不再只是摆在图上，而是真正落到表结构、路由职责和反馈闭环里。',
+    track: '正式化',
+    title: '结构正式化卡点',
+    status: '继续收口',
+    statusTone: 'warm',
+    logic: '这张卡讲的不是新路线，而是当前还没彻底收干净的旧职责和兼容层。真正难点不在“有没有数据”，而在“哪一层应该说哪句话”。',
+    goal: '把旧兼容结构稳定降级，把剧情线与反馈层从“已接上”推进到“职责清楚、长期可维护”。',
     done: [
-      '前端章节准备区已优先读取 volume_plans。',
-      '旧 volume-settings 路由已经开始内部转向 VolumePlanService。',
-      '章节目标包 / 细纲包的保存口径已经分开。',
-      'React 全书规划读取与保存已经切到 book_plans 优先，旧 outline 与角色摘要只做兜底。',
-      '章节反馈已能同步写入 storylines.structured_content.chapter_progress，并推动剧情线进入 active。',
-      '已用《破雾修真录》第 1 章验证：剧情线状态可自动推进为 active。'
+      'React 全书规划读取与保存已经切到 book_plans 优先。',
+      'React 章节准备区已经优先读取 volume_plans。',
+      '章节反馈已经能推动剧情线进入 active，而不是只停在正文生成结果里。'
     ],
     todo: [
-      '继续压缩 novel_outlines / volume_settings 的主链职责，把它们稳定降为兼容层。',
-      '把剧情线进度回写从“已能推进 active”继续做成前端可见联动，而不是只停在库里。',
-      '继续推进 chapter_feedback 独立化，避免反馈层长期挂在 structured_content 上。',
-      '准备旧静态入口退场条件，但暂不急着硬下线。'
+      '继续压缩 novel_outlines 和 volume_settings 的主链职责，让它们只保留兼容意义。',
+      '继续推进 chapter_feedback 独立化，避免长期挂在 structured_content 上。',
+      '把剧情线回写从“库里有记录”继续推进到“前端页面能稳定解释和利用”。'
     ],
-    nextGate: '这一层完成后，后续再接大模型主判或更细的自动化链路，底层结构才不会继续摇摆。',
+    nextGate: '如果这层不收好，后面无论是继续做自动决策、写作辅助还是更细的模型控制，都会被旧结构反复拖回来。',
     files: [
-      'backend/routes/storylines.js',
-      'backend/services/database.js',
+      'backend/services/VolumePlanService.js',
+      'backend/routes/data.js',
       'frontend-react/src/workbenchApi.js',
-      'docs/implementation-roadmap.md'
+      'docs/latest-task-status.md',
+      'docs/task-board.md'
     ]
   }
 ];
+
+const storylineBoardGuide = [
+  {
+    title: '初始章数',
+    detail: '每条剧情线一开始就允许给“预计起始章”和“预计终止章”，这样创作者对篇幅和节奏有明确预期。'
+  },
+  {
+    title: '动态校正',
+    detail: '正文写完后，不是只记一句“已推进”，而是根据真实结果缩短、延长、拆分或跨卷转移剧情线。'
+  },
+  {
+    title: '收卷判断',
+    detail: '进入下一卷不能只看写到第几章，还要同时看卷目标、必要剧情线、角色状态和下卷钩子是否到位。'
+  }
+];
+
+const storylineBoard = {
+  volumeBands: [
+    { label: '全书', span: 12, tone: 'book', range: '长期总方向' },
+    { label: '卷1', span: 6, tone: 'volume-1', range: '预计 1-24 章' },
+    { label: '卷2', span: 3, tone: 'volume-2', range: '预计 25-36 章' },
+    { label: '卷3', span: 3, tone: 'volume-3', range: '预计 37-48 章' }
+  ],
+  stageBands: [
+    '卷1 · 起势',
+    '卷1 · 推进',
+    '卷1 · 转折',
+    '卷1 · 高压',
+    '卷1 · 收束前',
+    '卷1 · 卷尾',
+    '卷2 · 起势',
+    '卷2 · 对抗',
+    '卷2 · 卷尾',
+    '卷3 · 起势',
+    '卷3 · 高潮',
+    '卷3 · 终局'
+  ],
+  rows: [
+    {
+      label: '全书总线',
+      hint: '长期不变的总命题与总冲突',
+      tone: 'book',
+      bars: [
+        {
+          start: 1,
+          span: 12,
+          title: '命运真相线',
+          meta: '全书长期主线 · 跨卷延续',
+          status: '长期活跃'
+        }
+      ]
+    },
+    {
+      label: '卷1 · 主线',
+      hint: '当前卷必须完成的阶段任务',
+      tone: 'main',
+      bars: [
+        {
+          start: 1,
+          span: 6,
+          title: '走出封闭世界',
+          meta: '卷1主任务 · 初始计划 1-24 章',
+          status: '进行中'
+        }
+      ]
+    },
+    {
+      label: '卷1 · 支线1',
+      hint: '服务主角立足与早期成长',
+      tone: 'growth',
+      bars: [
+        {
+          start: 1,
+          span: 2,
+          title: '求生立足线',
+          meta: '初始计划 1-8 章',
+          status: '可提前收束'
+        }
+      ]
+    },
+    {
+      label: '卷1 · 支线2',
+      hint: '可与主线并行推进的关系或资源线',
+      tone: 'relation',
+      bars: [
+        {
+          start: 1,
+          span: 4,
+          title: '师门关系线',
+          meta: '初始计划 2-16 章',
+          status: '进行中'
+        }
+      ]
+    },
+    {
+      label: '卷1 · 支线3',
+      hint: '中段爆发的阶段事件线',
+      tone: 'trial',
+      bars: [
+        {
+          start: 2,
+          span: 3,
+          title: '洞府传承线',
+          meta: '初始计划 7-14 章',
+          status: '回写后可缩短'
+        }
+      ]
+    },
+    {
+      label: '卷1 · 支线4',
+      hint: '尾段接入的伏笔或钩子线',
+      tone: 'hook',
+      bars: [
+        {
+          start: 4,
+          span: 3,
+          title: '旧势力露头线',
+          meta: '初始计划 15-24 章',
+          status: '可能跨卷'
+        }
+      ]
+    },
+    {
+      label: '卷2 · 主线',
+      hint: '上一卷收束后承接的下一阶段任务',
+      tone: 'main',
+      bars: [
+        {
+          start: 7,
+          span: 3,
+          title: '进入更大棋局',
+          meta: '卷2主任务 · 初始计划 25-36 章',
+          status: '待激活'
+        }
+      ]
+    },
+    {
+      label: '跨卷延续线',
+      hint: '本卷未完但需转交下一卷的线',
+      tone: 'carry',
+      bars: [
+        {
+          start: 6,
+          span: 4,
+          title: '血脉真相线',
+          meta: '卷1尾声露头，卷2继续发酵',
+          status: '跨卷延续'
+        }
+      ]
+    }
+  ],
+  currentMarker: {
+    chapter: '当前写作：卷1 · 第 9 章',
+    note: '此时应该优先挂“卷1主线 + 洞府传承线”，并允许顺带推进师门关系线。',
+    gridColumn: 3.2
+  }
+};
 
 function SectionLine({ text }) {
   return (
@@ -274,6 +425,12 @@ function SectionLine({ text }) {
   );
 }
 
+function getTimelineBarStyle(bar) {
+  return {
+    gridColumn: `${bar.start} / span ${bar.span}`
+  };
+}
+
 export default function GenerationLogicPage() {
   return (
     <div className="page-shell">
@@ -281,11 +438,11 @@ export default function GenerationLogicPage() {
         <div>
           <span className="hero-eyebrow">Generation Logic</span>
           <h1>生成逻辑与结构归属图</h1>
-          <p>这页把概念主链、工程主表、真实路由和前端入口放在一张图里，先把认知地图画准。</p>
+          <p>这页把主链、主表、真实路由和前端入口放在一张图里。</p>
         </div>
         <div className="hero-note-card logic-note">
           <strong>当前重点</strong>
-          <p>当前施工顺序不是“想到哪修哪”，而是先验主链，再收入口，最后正结构。</p>
+          <p>当前顺序是先验主链，再收入口，最后正结构。</p>
         </div>
       </header>
 
@@ -296,7 +453,7 @@ export default function GenerationLogicPage() {
         </div>
         <div className="chain-grid">
           {conceptChain.map((item) => (
-            <article key={item.order} className="chain-card">
+            <article key={item.order} className="chain-card panel-card is-card">
               <span className="chain-order">{item.order}</span>
               <strong>{item.label}</strong>
               <p className="chain-output">{item.output}</p>
@@ -314,7 +471,7 @@ export default function GenerationLogicPage() {
         </div>
         <div className="alert-grid">
           {mismatchAlerts.map((item) => (
-            <article key={item.title} className="alert-card">
+            <article key={item.title} className="alert-card panel-card is-card">
               <strong>{item.title}</strong>
               <p>{item.detail}</p>
             </article>
@@ -324,46 +481,156 @@ export default function GenerationLogicPage() {
 
       <section className="logic-section">
         <div className="section-head">
+          <span className="guide-eyebrow">Storyline Board</span>
+          <SectionLine text="剧情进度表与章数动态校正图" />
+        </div>
+        <div className="alert-grid">
+          {storylineBoardGuide.map((item) => (
+            <article key={item.title} className="alert-card panel-card is-card">
+              <strong>{item.title}</strong>
+              <p>{item.detail}</p>
+            </article>
+          ))}
+        </div>
+        <article className="storyline-board-card panel-card is-card">
+          <div className="storyline-board-copy">
+            <div>
+              <strong>这张图解决什么问题</strong>
+              <p>它不是章节目录，也不是正文时间轴，而是看本卷剧情线分布、当前章挂载和回写后缩放范围的卷级进度表。</p>
+            </div>
+            <div className="field-list">
+              <span className="field-chip">红色语义：全书总线</span>
+              <span className="field-chip">橙色语义：分卷任务</span>
+              <span className="field-chip">蓝紫语义：卷内剧情线</span>
+              <span className="field-chip">当前章高亮：挂载决策入口</span>
+            </div>
+          </div>
+
+          <div className="storyline-board-shell">
+            <div className="storyline-board-head">
+              <div className="storyline-header-row">
+                <div className="storyline-header-side">
+                  <strong>卷与阶段表头</strong>
+                  <span>同一张进度总表的横轴</span>
+                </div>
+                <div className="storyline-volume-overview">
+                  {storylineBoard.volumeBands.map((band, index) => (
+                    <div
+                      key={`${band.label}-${index}`}
+                      className={`storyline-volume-band is-${band.tone}`}
+                      style={{ gridColumn: `span ${band.span}` }}
+                    >
+                      <strong>{band.label}</strong>
+                      <span>{band.range}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="storyline-header-row">
+                <div className="storyline-header-side is-muted">
+                  <strong>卷内阶段</strong>
+                  <span>用来判断当前章落在哪一段</span>
+                </div>
+                <div className="storyline-stage-overview">
+                  {storylineBoard.stageBands.map((stage) => (
+                    <div key={stage} className="storyline-stage-pill">{stage}</div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="storyline-board-divider" aria-hidden="true" />
+
+            <div className="storyline-current-guide">
+              <div className="storyline-current-guide-spacer" aria-hidden="true">
+                <span>当前写作坐标</span>
+              </div>
+              <div className="storyline-current-guide-track">
+                <div
+                  className="storyline-current-marker"
+                  style={{ left: `calc((100% / 12) * ${storylineBoard.currentMarker.gridColumn})` }}
+                >
+                  <span>{storylineBoard.currentMarker.chapter}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="storyline-board-grid">
+              {storylineBoard.rows.map((row) => (
+                <div key={row.label} className="storyline-row">
+                  <div className="storyline-row-meta">
+                    <strong>{row.label}</strong>
+                    <p>{row.hint}</p>
+                  </div>
+                  <div className="storyline-row-track">
+                    {row.bars.map((bar) => (
+                      <div
+                        key={`${row.label}-${bar.title}`}
+                        className={`storyline-bar is-${row.tone}`}
+                        style={getTimelineBarStyle(bar)}
+                      >
+                        <strong>{bar.title}</strong>
+                        <p>{bar.meta}</p>
+                        <span>{bar.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="storyline-board-footer">
+            <div className="phase-block">
+              <span>当前章挂载判断</span>
+              <p>{storylineBoard.currentMarker.note}</p>
+            </div>
+            <div className="phase-block">
+              <span>回写后的动作</span>
+              <p>如果线提前完成，就前拉终止章；如果卷主线未完成，就后移卷尾和总章数。</p>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section className="logic-section">
+        <div className="section-head">
           <span className="guide-eyebrow">Branch Chains</span>
-          <SectionLine text="先梳理角色链与大纲链" />
+          <SectionLine text="只保留角色链与大纲链的最小传递骨架" />
         </div>
         <div className="branch-grid">
           {branchChains.map((chain) => (
-            <article key={chain.title} className="branch-card">
+            <article key={chain.title} className="branch-card panel-card is-card">
               <div className="branch-head">
                 <strong>{chain.title}</strong>
                 <p>{chain.summary}</p>
+              </div>
+              <div className="branch-rule-summary">
+                <span>当前优选规则</span>
+                <p>{chain.rule}</p>
               </div>
               <div className="branch-stage-list">
                 {chain.stages.map((stage) => (
                   <div key={`${chain.title}-${stage.layer}`} className="branch-stage">
                     <div className="branch-stage-top">
-                      <span className="branch-layer">{stage.layer}</span>
-                      <em className="chain-db-tag">{stage.source}</em>
+                      <div className="branch-stage-title">
+                        <span className="branch-layer">{stage.layer}</span>
+                        <em className="chain-db-tag">{stage.source}</em>
+                      </div>
+                      <span className="branch-required-line">关键字段：{stage.required.join(' / ')}</span>
                     </div>
-                    <p><strong>输入：</strong>{stage.input}</p>
-                    <p><strong>本层职责：</strong>{stage.process}</p>
-                    <p><strong>向下输出：</strong>{stage.output}</p>
-                    <div className="branch-rule-grid">
-                      <div className="branch-rule-box">
-                        <span>必传字段</span>
-                        <p>{stage.required.join(' / ')}</p>
-                      </div>
-                      <div className="branch-rule-box">
-                        <span>参考字段</span>
-                        <p>{stage.optional.join(' / ')}</p>
-                      </div>
+                    <div className="branch-stage-copy">
+                      <p><strong>接收：</strong>{stage.input}</p>
+                      <p><strong>负责：</strong>{stage.process}</p>
+                      <p><strong>交出：</strong>{stage.output}</p>
                     </div>
                     <div className="branch-rule-ban">
-                      <span>禁止跳层</span>
+                      <span>别做</span>
                       <p>{stage.forbidden}</p>
                     </div>
                   </div>
                 ))}
-              </div>
-              <div className="phase-block">
-                <span>当前优选传输规则</span>
-                <p>{chain.rule}</p>
               </div>
             </article>
           ))}
@@ -372,15 +639,15 @@ export default function GenerationLogicPage() {
 
       <section className="logic-section">
         <div className="section-head">
-          <span className="guide-eyebrow">Roadmap Sync</span>
-          <SectionLine text="P0 / P1 / P2 施工看板" />
+          <span className="guide-eyebrow">Current Focus</span>
+          <SectionLine text="React 前端改造 / 生成链路校正" />
         </div>
         <div className="phase-grid">
-          {phaseRoadmap.map((item) => (
-            <article key={item.phase} className="phase-card">
+          {currentTracks.map((item) => (
+            <article key={item.track} className="phase-card panel-card is-card">
               <div className="phase-top">
                 <div className="phase-top-main">
-                  <span className="phase-tag">{item.phase}</span>
+                  <span className="phase-tag">{item.track}</span>
                   <strong>{item.title}</strong>
                 </div>
                 <span className={`phase-status is-${item.statusTone}`}>{item.status}</span>
@@ -422,19 +689,19 @@ export default function GenerationLogicPage() {
       <section className="summary-banner">
         <div className="summary-copy">
           <span className="summary-kicker">一句话</span>
-          <p>当前施工逻辑就是三句话：先验主链，再收入口，最后正结构。</p>
+          <p>当前重点只有两件事：前端收口，链路校正。</p>
         </div>
         <div className="logic-links">
           <a href="/">返回创作台</a>
-          <a href="/start-guide">返回启动引导</a>
+          <a href="/books">返回资料库</a>
         </div>
       </section>
 
       <style>{`
         .logic-hero { align-items: stretch; }
-        .logic-note { max-width: 440px; }
+        .logic-note { max-width: 400px; }
         .logic-section,
-        .summary-banner { margin-top: 24px; }
+        .summary-banner { margin-top: 20px; }
 
         .section-head {
           display: grid;
@@ -444,19 +711,19 @@ export default function GenerationLogicPage() {
         .section-line {
           display: flex;
           align-items: center;
-          gap: 14px;
-          color: #b46d2b;
-          font-size: 18px;
-          font-weight: 800;
-          letter-spacing: 0.06em;
+          gap: 12px;
+          color: var(--brand-deep);
+          font-size: 16px;
+          font-weight: 700;
+          letter-spacing: 0.04em;
         }
 
         .section-line::before,
         .section-line::after {
           content: '';
-          height: 2px;
+          height: 1px;
           flex: 1;
-          background: linear-gradient(90deg, rgba(217, 168, 117, 0.08), rgba(217, 168, 117, 0.95), rgba(217, 168, 117, 0.08));
+          background: linear-gradient(90deg, rgba(217, 168, 117, 0.06), rgba(217, 168, 117, 0.55), rgba(217, 168, 117, 0.06));
           border-radius: 999px;
         }
 
@@ -464,11 +731,11 @@ export default function GenerationLogicPage() {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          min-height: 36px;
-          padding: 0 16px;
+          min-height: 34px;
+          padding: 0 14px;
           border-radius: 999px;
-          border: 1px solid rgba(217, 168, 117, 0.45);
-          background: rgba(255, 249, 242, 0.96);
+          border: 1px solid var(--line);
+          background: color-mix(in srgb, var(--panel-strong) 90%, transparent);
           white-space: nowrap;
         }
 
@@ -488,10 +755,346 @@ export default function GenerationLogicPage() {
 
         .phase-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(300px, 348px));
-          justify-content: center;
+          grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
           gap: 14px;
           margin-top: 18px;
+        }
+
+        .storyline-board-card {
+          margin-top: 18px;
+          padding: 22px;
+          display: grid;
+          gap: 16px;
+          min-height: 0;
+        }
+
+        .storyline-board-copy {
+          display: grid;
+          gap: 12px;
+        }
+
+        .storyline-board-copy strong {
+          font-size: 24px;
+          line-height: 1.18;
+          color: var(--text);
+        }
+
+        .storyline-board-copy p {
+          margin: 0;
+          color: var(--muted);
+          line-height: 1.68;
+          font-size: 15px;
+        }
+
+        .storyline-board-shell {
+          display: grid;
+          gap: 10px;
+          overflow-x: auto;
+          padding: 14px;
+          border-radius: 16px;
+          border: 1px solid var(--line);
+          background: color-mix(in srgb, var(--panel-strong) 78%, transparent);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.55);
+        }
+
+        .storyline-board-head {
+          min-width: 1412px;
+          display: grid;
+          gap: 8px;
+        }
+
+        .storyline-header-row,
+        .storyline-current-guide {
+          display: grid;
+          grid-template-columns: 220px minmax(0, 1fr);
+          gap: 12px;
+          align-items: stretch;
+        }
+
+        .storyline-header-side,
+        .storyline-current-guide-spacer {
+          padding: 10px 14px;
+          border-radius: 14px;
+          border: 1px solid var(--line);
+          background: color-mix(in srgb, var(--panel-strong) 92%, transparent);
+          display: grid;
+          gap: 3px;
+          align-content: center;
+        }
+
+        .storyline-header-side strong,
+        .storyline-current-guide-spacer span {
+          color: var(--brand-deep);
+          font-size: 14px;
+          font-weight: 800;
+          line-height: 1.2;
+          white-space: nowrap;
+        }
+
+        .storyline-header-side span {
+          color: var(--muted);
+          font-size: 12px;
+          line-height: 1.3;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .storyline-header-side.is-muted {
+          background: color-mix(in srgb, var(--panel-strong) 82%, transparent);
+        }
+
+        .storyline-volume-overview,
+        .storyline-stage-overview {
+          min-width: 1180px;
+          display: grid;
+          grid-template-columns: repeat(12, minmax(70px, 1fr));
+          gap: 8px;
+        }
+
+        .storyline-volume-overview {
+          align-items: stretch;
+        }
+
+        .storyline-board-divider {
+          min-width: 1412px;
+          height: 1px;
+          background: linear-gradient(90deg, rgba(214, 186, 156, 0.08), rgba(214, 186, 156, 0.92), rgba(214, 186, 156, 0.08));
+        }
+
+        .storyline-volume-band {
+          min-height: 64px;
+          padding: 10px 12px;
+          border-radius: 12px;
+          display: grid;
+          gap: 4px;
+          border: 1px solid var(--line);
+        }
+
+        .storyline-volume-band strong {
+          font-size: 16px;
+          line-height: 1.2;
+          color: #43220f;
+          white-space: nowrap;
+        }
+
+        .storyline-volume-band span {
+          color: rgba(67, 43, 25, 0.72);
+          font-size: 12px;
+          font-weight: 700;
+          white-space: nowrap;
+        }
+
+        .storyline-volume-band.is-book {
+          background: linear-gradient(135deg, rgba(246, 196, 205, 0.95), rgba(249, 218, 224, 0.92));
+        }
+
+        .storyline-volume-band.is-volume-1 {
+          background: linear-gradient(135deg, rgba(251, 214, 183, 0.96), rgba(255, 236, 219, 0.94));
+        }
+
+        .storyline-volume-band.is-volume-2 {
+          background: linear-gradient(135deg, rgba(247, 146, 151, 0.92), rgba(255, 210, 213, 0.92));
+        }
+
+        .storyline-volume-band.is-volume-3 {
+          background: linear-gradient(135deg, rgba(201, 163, 33, 0.92), rgba(237, 218, 146, 0.9));
+        }
+
+        .storyline-stage-pill {
+          min-height: 36px;
+          padding: 0 8px;
+          border-radius: 12px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+          border: 1px dashed rgba(182, 133, 80, 0.28);
+          background: color-mix(in srgb, var(--panel-strong) 94%, transparent);
+          color: var(--brand-deep);
+          font-size: 12px;
+          font-weight: 700;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .storyline-current-guide-track {
+          position: relative;
+          min-height: 34px;
+        }
+
+        .storyline-board-grid {
+          min-width: 1412px;
+          display: grid;
+          gap: 8px;
+        }
+
+        .storyline-row {
+          display: grid;
+          grid-template-columns: 220px minmax(0, 1fr);
+          gap: 12px;
+          align-items: stretch;
+        }
+
+        .storyline-row-meta {
+          padding: 10px 14px;
+          border-radius: 12px;
+          border: 1px solid var(--line);
+          background: color-mix(in srgb, var(--panel-strong) 94%, transparent);
+          display: grid;
+          gap: 4px;
+        }
+
+        .storyline-row-meta strong {
+          font-size: 17px;
+          line-height: 1.18;
+          color: var(--text);
+          white-space: nowrap;
+        }
+
+        .storyline-row-meta p {
+          margin: 0;
+          color: var(--muted);
+          font-size: 12px;
+          line-height: 1.4;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .storyline-row-track {
+          position: relative;
+          display: grid;
+          grid-template-columns: repeat(12, minmax(70px, 1fr));
+          gap: 8px;
+          padding: 2px 0;
+          align-items: center;
+          min-height: 56px;
+          border-radius: 12px;
+          background:
+            repeating-linear-gradient(
+              to right,
+              rgba(214, 186, 156, 0.12) 0,
+              rgba(214, 186, 156, 0.12) calc((100% - 88px) / 12),
+              transparent calc((100% - 88px) / 12),
+              transparent calc((100% - 88px) / 12 + 8px)
+            ),
+            linear-gradient(180deg, rgba(255,255,255,0.38), rgba(255,248,239,0.22));
+        }
+
+        .storyline-bar {
+          position: relative;
+          z-index: 1;
+          min-height: 50px;
+          margin: 2px 0;
+          padding: 8px 12px;
+          border-radius: 12px;
+          display: grid;
+          gap: 2px;
+          align-content: center;
+          border: 1px solid rgba(130, 98, 72, 0.22);
+          box-shadow: 0 6px 12px rgba(47, 40, 30, 0.06);
+          overflow: hidden;
+        }
+
+        .storyline-bar strong {
+          font-size: 15px;
+          line-height: 1.12;
+          color: #2f1b0e;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .storyline-bar p,
+        .storyline-bar span {
+          margin: 0;
+          font-size: 12px;
+          line-height: 1.2;
+          font-weight: 700;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .storyline-bar p {
+          color: rgba(67, 43, 25, 0.88);
+        }
+
+        .storyline-bar span {
+          width: fit-content;
+          max-width: 100%;
+          min-height: 20px;
+          padding: 0 8px;
+          border-radius: 999px;
+          display: inline-flex;
+          align-items: center;
+          color: #5b4026;
+          background: rgba(255,255,255,0.94);
+          border: 1px solid rgba(108, 78, 52, 0.18);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.72);
+        }
+
+        .storyline-bar.is-book {
+          background: linear-gradient(135deg, rgba(248, 208, 216, 0.88), rgba(255, 227, 232, 0.86));
+        }
+
+        .storyline-bar.is-main {
+          background: linear-gradient(135deg, rgba(204, 229, 184, 0.84), rgba(228, 243, 212, 0.84));
+        }
+
+        .storyline-bar.is-growth {
+          background: linear-gradient(135deg, rgba(255, 243, 64, 0.82), rgba(255, 249, 166, 0.82));
+        }
+
+        .storyline-bar.is-relation {
+          background: linear-gradient(135deg, rgba(191, 208, 242, 0.84), rgba(225, 234, 252, 0.84));
+        }
+
+        .storyline-bar.is-trial {
+          background: linear-gradient(135deg, rgba(181, 134, 244, 0.8), rgba(226, 208, 255, 0.84));
+        }
+
+        .storyline-bar.is-hook {
+          background: linear-gradient(135deg, rgba(169, 227, 223, 0.82), rgba(214, 245, 242, 0.82));
+        }
+
+        .storyline-bar.is-carry {
+          background: linear-gradient(135deg, rgba(121, 195, 246, 0.82), rgba(204, 236, 255, 0.82));
+        }
+
+        .storyline-current-marker {
+          position: absolute;
+          inset: 0 auto auto 0;
+          width: 0;
+          z-index: 2;
+          border-left: 2px dashed rgba(225, 79, 104, 0.85);
+          pointer-events: none;
+          height: 100%;
+        }
+
+        .storyline-current-marker span {
+          position: absolute;
+          top: -6px;
+          left: 8px;
+          min-height: 26px;
+          padding: 0 10px;
+          border-radius: 999px;
+          display: inline-flex;
+          align-items: center;
+          background: rgba(255, 240, 243, 0.96);
+          color: #af3450;
+          border: 1px solid rgba(225, 79, 104, 0.28);
+          font-size: 12px;
+          font-weight: 800;
+          white-space: nowrap;
+        }
+
+        .storyline-board-footer {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
         }
 
         .branch-grid {
@@ -507,24 +1110,22 @@ export default function GenerationLogicPage() {
         .ledger-card,
         .layer-card,
         .phase-card {
-          border: 1px solid var(--line);
-          border-radius: 18px;
-          background: rgba(255, 255, 255, 0.96);
-          box-shadow: 0 14px 30px rgba(145, 88, 32, 0.06);
+          border-radius: var(--radius-panel-lg);
         }
 
         .chain-card {
-          padding: 16px;
+          padding: 18px;
           display: grid;
           gap: 8px;
-          min-height: 220px;
+          min-height: 0;
         }
 
         .alert-card {
           padding: 18px;
           display: grid;
-          gap: 10px;
-          background: rgba(255, 248, 239, 0.96);
+          gap: 8px;
+          min-height: 0;
+          background: color-mix(in srgb, var(--panel-card-bg) 88%, var(--status-warning-bg));
         }
 
         .phase-card {
@@ -533,75 +1134,109 @@ export default function GenerationLogicPage() {
           gap: 14px;
           align-content: start;
           min-width: 0;
+          min-height: 0;
         }
 
         .branch-card {
-          padding: 20px;
+          padding: 18px;
           display: grid;
-          gap: 14px;
+          gap: 12px;
           align-content: start;
+          min-height: 0;
         }
 
         .branch-head {
           display: grid;
-          gap: 8px;
+          gap: 6px;
+        }
+
+        .branch-head p {
+          margin: 0;
+        }
+
+        .branch-rule-summary {
+          display: grid;
+          gap: 6px;
+          padding: 12px 14px;
+          border-radius: 12px;
+          border: 1px solid var(--line);
+          background: color-mix(in srgb, var(--panel-strong) 94%, transparent);
+        }
+
+        .branch-rule-summary span {
+          color: var(--brand);
+          font-size: 13px;
+          font-weight: 800;
+          letter-spacing: 0.04em;
+        }
+
+        .branch-rule-summary p {
+          margin: 0;
         }
 
         .branch-stage-list {
           display: grid;
-          gap: 12px;
+          gap: 10px;
         }
 
         .branch-stage {
           display: grid;
-          gap: 8px;
-          padding: 14px 16px;
-          border-radius: 14px;
-          border: 1px solid rgba(214, 186, 156, 0.72);
-          background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,249,242,0.95));
+          gap: 6px;
+          padding: 12px 14px;
+          border-radius: 12px;
+          border: 1px solid var(--line);
+          background: color-mix(in srgb, var(--panel-strong) 92%, transparent);
         }
 
         .branch-stage-top {
           display: flex;
-          align-items: center;
+          align-items: flex-start;
           justify-content: space-between;
           gap: 10px;
           flex-wrap: wrap;
         }
 
+        .branch-stage-title {
+          display: grid;
+          gap: 6px;
+        }
+
         .branch-layer {
           color: var(--brand);
-          font-size: 18px;
+          font-size: 15px;
           font-weight: 800;
         }
 
-        .branch-rule-grid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 10px;
-          margin-top: 4px;
+        .branch-required-line {
+          color: var(--muted);
+          font-size: 12px;
+          line-height: 1.45;
+          white-space: nowrap;
         }
 
-        .branch-rule-box,
-        .branch-rule-ban {
+        .branch-stage-copy {
           display: grid;
-          gap: 6px;
-          padding: 10px 12px;
-          border-radius: 12px;
-          background: rgba(255, 252, 247, 0.9);
-          border: 1px solid rgba(214, 186, 156, 0.58);
+          gap: 4px;
         }
 
-        .branch-rule-box span,
+        .branch-stage-copy p {
+          margin: 0;
+        }
+
         .branch-rule-ban span {
           color: var(--brand);
-          font-size: 15px;
+          font-size: 13px;
           font-weight: 800;
           letter-spacing: 0.04em;
         }
 
         .branch-rule-ban {
-          background: rgba(255, 245, 238, 0.92);
+          display: grid;
+          gap: 4px;
+          padding-top: 6px;
+          margin-top: 2px;
+          border-top: 1px dashed color-mix(in srgb, var(--line) 82%, transparent);
+          background: color-mix(in srgb, var(--status-warning-bg) 64%, var(--panel-strong));
         }
 
         .chain-order {
@@ -623,8 +1258,8 @@ export default function GenerationLogicPage() {
         .layer-card strong,
         .phase-card strong,
         .ledger-top strong {
-          font-size: 28px;
-          line-height: 1.18;
+          font-size: 22px;
+          line-height: 1.2;
           color: var(--text);
         }
 
@@ -632,23 +1267,23 @@ export default function GenerationLogicPage() {
         .ledger-table,
         .field-chip {
           width: fit-content;
-          padding: 0 12px;
-          min-height: 30px;
+          padding: 0 10px;
+          min-height: 28px;
           border-radius: 999px;
           display: inline-flex;
           align-items: center;
-          background: rgba(255, 244, 232, 0.95);
-          color: #8a4a18;
+          background: var(--brand-soft);
+          color: var(--brand-deep);
           font-style: normal;
-          font-size: 17px;
+          font-size: 12px;
           font-weight: 700;
-          font-family: "SF Mono", "Fira Code", monospace;
+          font-family: var(--font-mono);
         }
 
         .chain-output {
           color: var(--text) !important;
           font-weight: 700;
-          font-size: 18px !important;
+          font-size: 16px !important;
         }
 
         .chain-card p,
@@ -659,8 +1294,8 @@ export default function GenerationLogicPage() {
         .ledger-cell p {
           margin: 0;
           color: var(--muted);
-          line-height: 1.65;
-          font-size: 17px;
+          line-height: 1.6;
+          font-size: 14px;
         }
 
         .phase-top {
@@ -695,6 +1330,12 @@ export default function GenerationLogicPage() {
           border: 1px solid rgba(214, 186, 156, 0.72);
         }
 
+        .phase-status.is-done {
+          background: rgba(59, 130, 246, 0.12);
+          color: #1d4ed8;
+          border: 1px solid rgba(59, 130, 246, 0.22);
+        }
+
         .phase-status.is-muted {
           background: rgba(148, 163, 184, 0.16);
           color: #475569;
@@ -715,23 +1356,23 @@ export default function GenerationLogicPage() {
 
         .phase-goal {
           color: var(--text) !important;
-          font-size: 18px !important;
+          font-size: 16px !important;
           font-weight: 700;
         }
 
         .phase-block {
           display: grid;
-          gap: 10px;
+          gap: 8px;
           padding: 14px 16px;
-          border-radius: 14px;
-          border: 1px solid rgba(214, 186, 156, 0.72);
-          background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,249,242,0.95));
+          border-radius: 12px;
+          border: 1px solid var(--line);
+          background: color-mix(in srgb, var(--panel-strong) 92%, transparent);
           min-width: 0;
         }
 
         .phase-block > span {
           color: var(--brand);
-          font-size: 17px;
+          font-size: 14px;
           font-weight: 800;
           letter-spacing: 0.04em;
         }
@@ -740,8 +1381,8 @@ export default function GenerationLogicPage() {
           margin: 0;
           padding-left: 18px;
           color: var(--muted);
-          line-height: 1.65;
-          font-size: 17px;
+          line-height: 1.6;
+          font-size: 14px;
           min-width: 0;
         }
 
@@ -758,8 +1399,9 @@ export default function GenerationLogicPage() {
           gap: 18px;
           padding: 20px 22px;
           border: 1px solid var(--line);
-          border-radius: 20px;
-          background: rgba(255, 250, 243, 0.92);
+          border-radius: var(--radius-panel-lg);
+          background: var(--panel-card-bg);
+          box-shadow: var(--shadow);
         }
 
         .summary-kicker {
@@ -778,9 +1420,9 @@ export default function GenerationLogicPage() {
         .summary-copy p {
           margin: 0;
           color: var(--text);
-          font-size: 27px;
+          font-size: 22px;
           font-weight: 700;
-          line-height: 1.45;
+          line-height: 1.4;
         }
 
         .logic-links {
@@ -793,14 +1435,15 @@ export default function GenerationLogicPage() {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          min-height: 40px;
-          padding: 0 15px;
+          min-height: 36px;
+          padding: 0 14px;
           border-radius: 999px;
           border: 1px solid var(--line);
-          background: #fff;
+          background: color-mix(in srgb, var(--panel-strong) 96%, white);
           color: var(--text);
           text-decoration: none;
           font-weight: 600;
+          font-size: 14px;
         }
 
         @media (max-width: 1280px) {
@@ -808,6 +1451,7 @@ export default function GenerationLogicPage() {
           .branch-grid,
           .alert-grid,
           .phase-grid,
+          .storyline-board-footer,
           .summary-banner {
             grid-template-columns: 1fr;
             display: grid;
@@ -832,8 +1476,26 @@ export default function GenerationLogicPage() {
             font-size: 22px;
           }
 
-          .branch-rule-grid {
+          .storyline-row {
             grid-template-columns: 1fr;
+          }
+
+          .storyline-header-row,
+          .storyline-current-guide {
+            grid-template-columns: 1fr;
+          }
+
+          .storyline-current-guide-spacer {
+            display: inline-flex;
+            align-items: center;
+          }
+
+          .storyline-board-card {
+            padding: 18px;
+          }
+
+          .branch-required-line {
+            white-space: normal;
           }
         }
       `}</style>

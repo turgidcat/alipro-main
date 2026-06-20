@@ -11,13 +11,96 @@ export function splitRevisionParagraphs(text) {
     .map((line) => line.trim());
 }
 
+export function applyRevisionSuggestionToDraft({
+  revisionDraft,
+  revisionOriginal,
+  suggestion
+}) {
+  const baseContent = String(revisionDraft || revisionOriginal || '').trim();
+  if (!baseContent) {
+    return { error: '没有可编辑的正文。' };
+  }
+
+  const paragraphs = splitRevisionParagraphs(baseContent);
+  const mode = suggestion?.action;
+  const replacement = String(suggestion?.suggested_text || '').trim();
+  const focusParagraph = Number(suggestion?.paragraph || suggestion?.afterParagraph || 1) || 1;
+  let nextParagraphs = [...paragraphs];
+
+  if (mode === 'replace') {
+    if (!replacement) {
+      return { error: '这条修改没有可写入的正文。' };
+    }
+    const paragraphIndex = Number(suggestion?.paragraph || 0) - 1;
+    if (paragraphIndex < 0 || paragraphIndex >= nextParagraphs.length) {
+      return { error: '替换段落编号超出范围。' };
+    }
+    nextParagraphs[paragraphIndex] = replacement;
+  } else if (mode === 'insert_after') {
+    if (!replacement) {
+      return { error: '这条新增没有可写入的正文。' };
+    }
+    const anchorIndex = Number(suggestion?.afterParagraph || suggestion?.paragraph || 0) - 1;
+    if (anchorIndex < 0 || anchorIndex >= nextParagraphs.length) {
+      return { error: '插入位置超出范围。' };
+    }
+    nextParagraphs.splice(anchorIndex + 1, 0, replacement);
+  } else if (mode === 'delete') {
+    const paragraphIndex = Number(suggestion?.paragraph || 0) - 1;
+    if (paragraphIndex < 0 || paragraphIndex >= nextParagraphs.length) {
+      return { error: '删除段落编号超出范围。' };
+    }
+    nextParagraphs[paragraphIndex] = '';
+  } else {
+    return { error: '不支持的建议类型。' };
+  }
+
+  return {
+    nextDraft: nextParagraphs.join('\n\n'),
+    focusParagraph
+  };
+}
+
+export function buildRevisionSessionState(content) {
+  const currentContent = String(content || '');
+  return {
+    revisionOriginal: currentContent,
+    revisionDraft: currentContent,
+    revisionSuggestions: null,
+    revisionError: '',
+    revisionNotice: '',
+    revisionFocusIndex: 0,
+    revisionAppliedChangeKeys: []
+  };
+}
+
+export function resolveRevisionSuggestionsResponse(response) {
+  const suggestions = Array.isArray(response?.suggestions) ? response.suggestions : [];
+  const hasUsablePayload = Boolean(
+    response && (
+      suggestions.length > 0
+      || response.regeneration_notes
+      || response.raw_content
+    )
+  );
+
+  if (!hasUsablePayload) {
+    return { error: '校改接口没有返回可用建议。' };
+  }
+
+  return {
+    suggestions,
+    notice: '已生成局部修改建议，正文不会自动替换，请挑选可用改动手动写入校改稿。'
+  };
+}
+
 export function normalizeRevisionText(value) {
   return String(value || '').replace(/\s+/g, '').trim();
 }
 
 export function normalizeSentences(text) {
   return normalizeParagraphs(text)
-    .flatMap((paragraph) => paragraph.match(/[^銆傦紒锛??锛?]+[銆傦紒锛??锛?]?/g) || [paragraph])
+    .flatMap((paragraph) => paragraph.match(/[^。！？!?]+[。！？!?]?/g) || [paragraph])
     .map((sentence) => sentence.trim())
     .filter(Boolean);
 }
@@ -82,7 +165,7 @@ export function buildRevisionSentenceDiff(original, draft) {
     return {
       id: index,
       type: score > 0.5 ? 'changed' : 'rewritten',
-      label: score > 0.5 ? '鏀瑰啓' : '閲嶅啓',
+      label: score > 0.5 ? '改写' : '重写',
       before,
       after
     };
@@ -125,7 +208,7 @@ export function buildRevisionEvaluation(original, draft, diffItems) {
     : changedRatio < 0.12
       ? '价值偏低'
       : '只适合参考';
-  const action = verdict === '鍊煎緱鑰冭檻'
+  const action = verdict === '值得保留'
     ? '可以通读全文后决定是否保留。'
     : '不建议整版直接保存，先挑选局部可用改动。';
 
