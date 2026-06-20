@@ -8,6 +8,7 @@ import GenreUiDemoPage from './pages/GenreUiDemoPage.jsx';
 import GenreBookShowcasePage from './pages/GenreBookShowcasePage.jsx';
 import LightNovelShowcasePage from './pages/LightNovelShowcasePage.jsx';
 import StorylineManagementPage from './pages/StorylineManagementPage.jsx';
+import WorkbenchRedesignLabPage from './pages/WorkbenchRedesignLabPage.jsx';
 
 export const router = createBrowserRouter([
   {
@@ -29,6 +30,7 @@ export const router = createBrowserRouter([
       { path: 'style-manager', element: <Navigate to="/workbench" replace /> },
       { path: 'genre-ui-demo', element: <GenreUiDemoPage /> },
       { path: 'genre-book-showcase', element: <GenreBookShowcasePage /> },
+      { path: 'workbench-redesign-lab', element: <WorkbenchRedesignLabPage /> },
       { path: 'workbench', element: <App /> },
       { path: 'visual-sample', element: <Navigate to="/workbench" replace /> }
     ]
