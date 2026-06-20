@@ -837,6 +837,179 @@ export async function generateChapterContent(payload) {
   });
 }
 
+function splitSseEventBlocks(buffer) {
+  const normalized = String(buffer || '');
+  const blocks = normalized.split(/\r?\n\r?\n/);
+  return {
+    blocks: blocks.slice(0, -1),
+    rest: blocks.at(-1) || ''
+  };
+}
+
+function parseSseEventBlock(block) {
+  const lines = String(block || '').split(/\r?\n/);
+  let eventName = '';
+  const dataLines = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith('event:')) {
+      eventName = trimmed.slice(6).trim();
+      continue;
+    }
+    if (trimmed.startsWith('data:')) {
+      dataLines.push(trimmed.slice(5).trimStart());
+    }
+  }
+
+  if (!dataLines.length) return null;
+  return {
+    eventName,
+    data: dataLines.join('\n')
+  };
+}
+
+export async function streamChapterContent(payload, {
+  signal,
+  onDelta,
+  onUsage,
+  onAudit,
+  onDone,
+  onError
+} = {}) {
+  const response = await fetch(`${API_BASE}/generate/stream`, {
+    method: 'POST',
+    headers: createHeaders(),
+    body: JSON.stringify(payload),
+    signal
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || `HTTP ${response.status}`);
+  }
+
+  if (!response.body) {
+    throw new Error('流式响应不可用，当前浏览器没有返回可读取的数据流。');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullContent = '';
+  let latestUsage = null;
+  let latestAudit = null;
+  let donePayload = null;
+  let errorHandled = false;
+
+  const processBlock = (block) => {
+    const parsedBlock = parseSseEventBlock(block);
+    if (!parsedBlock?.data) return false;
+
+    let eventPayload;
+    try {
+      eventPayload = JSON.parse(parsedBlock.data);
+    } catch (_) {
+      return false;
+    }
+
+    const eventType = eventPayload.type || parsedBlock.eventName || 'message';
+
+    if (eventType === 'delta') {
+      const delta = String(eventPayload.content || '');
+      fullContent += delta;
+      onDelta?.({
+        delta,
+        content: fullContent,
+        contentLength: Number(eventPayload.content_length || fullContent.length)
+      });
+      return false;
+    }
+
+    if (eventType === 'usage') {
+      latestUsage = eventPayload.usage || latestUsage;
+      onUsage?.({
+        ...eventPayload,
+        content: fullContent
+      });
+      return false;
+    }
+
+    if (eventType === 'audit') {
+      latestAudit = eventPayload;
+      onAudit?.({
+        ...eventPayload,
+        content: fullContent
+      });
+      return false;
+    }
+
+    if (eventType === 'done') {
+      donePayload = {
+        ...eventPayload,
+        content: fullContent,
+        usage: eventPayload.usage || latestUsage,
+        audit: latestAudit
+      };
+      onDone?.(donePayload);
+      return true;
+    }
+
+    if (eventType === 'error') {
+      const streamError = new Error(eventPayload.message || '流式生成失败');
+      errorHandled = true;
+      onError?.(streamError.message);
+      throw streamError;
+    }
+
+    return false;
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const { blocks, rest } = splitSseEventBlocks(buffer);
+      buffer = rest;
+
+      for (const block of blocks) {
+        if (processBlock(block)) {
+          return donePayload;
+        }
+      }
+    }
+
+    buffer += decoder.decode();
+    const { blocks } = splitSseEventBlocks(`${buffer}\n\n`);
+    for (const block of blocks) {
+      if (processBlock(block)) {
+        return donePayload;
+      }
+    }
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw error;
+    }
+    if (!errorHandled) {
+      onError?.(error.message || '流式生成失败');
+    }
+    throw error;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch (_) {}
+  }
+
+  if (donePayload) {
+    return donePayload;
+  }
+
+  throw new Error('流式响应提前结束，未收到完成事件。');
+}
+
 export async function generateChapterFeedback(payload) {
   return request('/generate', {
     method: 'POST',

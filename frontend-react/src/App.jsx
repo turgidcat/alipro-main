@@ -159,6 +159,7 @@ export default function App() {
     handleSaveChapterPlan,
     handleSaveRevision,
     handleSaveStoryline,
+    handleStopGeneration,
     openRevisionEditor,
     requestChapterChange
   } = useWorkbenchActions({
@@ -272,6 +273,7 @@ export default function App() {
     isGenerating,
     loadingChapter,
     onGenerateChapter: handleGenerateWithGuards,
+    onStopGeneration: handleStopGeneration,
     onOpenRevisionEditor: openRevisionEditor,
     onSetPromptPreview: () => setPromptPreviewOpen(true),
     onPrevChapter: goToPreviousChapter,

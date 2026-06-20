@@ -26,6 +26,7 @@ export default function ContentWorkspace(props) {
     isGenerating,
     loadingChapter,
     onGenerateChapter,
+    onStopGeneration,
     onOpenRevisionEditor,
     onSetPromptPreview,
     onPrevChapter,
@@ -55,6 +56,15 @@ export default function ContentWorkspace(props) {
               isGenerating={isGenerating}
               onUpdateGenerationSetting={onUpdateGenerationSetting}
             />
+            {isGenerating ? (
+              <button
+                type="button"
+                className={ghostButtonClass}
+                onClick={onStopGeneration}
+              >
+                停止生成
+              </button>
+            ) : null}
             <button
               type="button"
               className={primaryButtonClass}
@@ -100,6 +110,18 @@ export default function ContentWorkspace(props) {
           <MetaCode>CH.{String(chapterNumber).padStart(2, '0')}</MetaCode>
           <span className="text-[13px] leading-6 text-[color:var(--muted)]">{generationState.wordCountLabel}</span>
         </div>
+
+        <section className="min-w-0 border-t border-[color:color-mix(in_srgb,var(--line)_58%,transparent)] pt-4">
+          <div className="border-l border-[color:color-mix(in_srgb,var(--line-strong)_72%,transparent)] pl-4">
+            <MetaCode>STREAM STATUS</MetaCode>
+            <p className="mt-1 text-[15px] font-semibold leading-6 text-[color:var(--text)]">
+              {generationState.statusTitle}
+            </p>
+            <p className="mt-2 text-[14px] leading-7 text-[color:var(--muted)]">
+              {generationState.statusText}
+            </p>
+          </div>
+        </section>
 
         <section className="min-w-0 max-w-full overflow-x-hidden border-t border-[color:color-mix(in_srgb,var(--line)_58%,transparent)] pt-5">
           <div className="mx-auto grid w-full max-w-[860px] min-w-0 gap-4 overflow-x-hidden">

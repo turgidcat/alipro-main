@@ -1,11 +1,12 @@
+import { useEffect, useRef } from 'react';
 import {
   fetchChapterSetupBundle,
   generateChapterOutline,
-  generateChapterContent,
   generateChapterFeedback,
   polishChapterContent,
   saveChapterPlan,
   saveStoryline,
+  streamChapterContent,
   upsertGeneratedChapter
 } from '../workbenchApi.js';
 import { emptyChapterPlan, emptyChapterStructure } from '../lib/constants.js';
@@ -33,6 +34,7 @@ import {
   buildSyncedChapterListContext,
   persistChapterResultCycle
 } from '../lib/chapterResult.js';
+import { readStreamDraftCache } from '../lib/generationActions.js';
 
 function serializeChapterPlanDraft(plan) {
   return JSON.stringify(plan || emptyChapterPlan);
@@ -84,6 +86,43 @@ export function useWorkbenchActions({
   setRevisionFocusIndex,
   setRevisionAppliedChangeKeys
 }) {
+  const generateAbortRef = useRef(null);
+
+  useEffect(() => () => {
+    generateAbortRef.current?.abort?.();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedBookId || generationState?.content) return;
+    const cachedDraft = readStreamDraftCache({
+      bookId: selectedBookId,
+      chapterNumber
+    });
+    const recoveredContent = String(cachedDraft?.content || '').trim();
+    if (!recoveredContent) return;
+
+    const recoveredTitle = cachedDraft?.chapterTitle || (
+      draftChapterPlan.chapter_name
+        ? `第 ${chapterNumber} 章 ${draftChapterPlan.chapter_name}`
+        : `第 ${chapterNumber} 章`
+    );
+
+    setGenerationState((prev) => {
+      if (prev?.content) return prev;
+      return {
+        ...prev,
+        hasContent: true,
+        content: recoveredContent,
+        statusKind: 'warning',
+        statusTitle: '发现未保存的流式草稿',
+        statusText: '上次流式生成没有完整保存，这份草稿已从 sessionStorage 恢复。你可以重新生成，或直接进入校改后再保存。',
+        metaText: recoveredTitle,
+        wordCountLabel: `恢复约 ${recoveredContent.length} 字的未保存草稿`,
+        previewText: recoveredContent
+      };
+    });
+  }, [selectedBookId, chapterNumber, draftChapterPlan.chapter_name, generationState?.content, setGenerationState]);
+
   async function saveChapterPlanAndReload(planPayload, { closeModal = true } = {}) {
     await saveChapterPlanAndReloadAction({
       selectedBookId,
@@ -311,30 +350,51 @@ export function useWorkbenchActions({
   }
 
   async function handleGenerateChapter() {
-    await generateChapterAction({
-      selectedBookId,
-      chapterNumber,
-      planningState,
-      draftChapterPlan,
-      emptyChapterStructure,
-      chapterContext,
-      constraintOverrides,
-      generationReadiness,
-      missingRequiredItems,
-      generationState,
-      generationRiskReview,
-      generationRiskConfirmed,
-      generationRequiredItems,
-      generationRecommendedItems,
-      missingRecommendedItems,
-      selectedMainStorylineLabel,
-      selectedTargetStorylineLabel,
-      storylineRhythmHints,
-      setGenerationState,
-      setIsGenerating,
-      generateChapterContent,
-      handlePersistChapterResultCycle
-    });
+    const abortController = new AbortController();
+    generateAbortRef.current = abortController;
+
+    try {
+      await generateChapterAction({
+        selectedBookId,
+        chapterNumber,
+        planningState,
+        draftChapterPlan,
+        emptyChapterStructure,
+        chapterContext,
+        constraintOverrides,
+        generationReadiness,
+        missingRequiredItems,
+        generationState,
+        generationRiskReview,
+        generationRiskConfirmed,
+        generationRequiredItems,
+        generationRecommendedItems,
+        missingRecommendedItems,
+        selectedMainStorylineLabel,
+        selectedTargetStorylineLabel,
+        storylineRhythmHints,
+        setGenerationState,
+        setIsGenerating,
+        streamChapterContent,
+        abortController,
+        handlePersistChapterResultCycle
+      });
+    } finally {
+      if (generateAbortRef.current === abortController) {
+        generateAbortRef.current = null;
+      }
+    }
+  }
+
+  function handleStopGeneration() {
+    if (!generateAbortRef.current) return;
+    setGenerationState((prev) => ({
+      ...prev,
+      statusKind: 'warning',
+      statusTitle: '正在停止生成',
+      statusText: '停止请求已发出，当前已返回的正文草稿会继续保留。'
+    }));
+    generateAbortRef.current.abort();
   }
 
   function confirmDiscardUnsavedChanges(actionLabel) {
@@ -376,6 +436,7 @@ export function useWorkbenchActions({
     handleSaveChapterPlan,
     handleSaveRevision,
     handleSaveStoryline,
+    handleStopGeneration,
     openRevisionEditor,
     reloadChapterSetup,
     requestChapterChange

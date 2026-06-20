@@ -54,7 +54,7 @@ export function buildGenerationSuccessState({
     statusText: successText,
     metaText: chapterTitle,
     wordCountLabel: `实际约 ${content.length} 字 / 目标 ${targetWordCount} 字`,
-    previewText: String(content).replace(/\s+/g, ' ').slice(0, 520),
+    previewText: String(content || ''),
     feedbackSummary: chapterFeedback.chapter_summary || '',
     feedbackFocus: chapterFeedback.next_chapter_focus || chapterFeedback.open_hooks || ''
   };
