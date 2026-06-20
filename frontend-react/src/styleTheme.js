@@ -476,6 +476,31 @@ const DARK_BRAND_DEEP_TOKENS = {
   orchid: '#e2d3ff'
 };
 
+const SEMANTIC_THEME_TOKENS = {
+  light: {
+    '--background': '#fafaf9',
+    '--foreground': '#292524',
+    '--primary': '#ea580c',
+    '--primary-foreground': '#fff7ed',
+    '--border': '#d6d3d1',
+    '--muted-bg': '#f5f5f4',
+    '--muted-foreground': '#78716c',
+    '--accent': '#ffedd5',
+    '--surface': '#fdfcf9'
+  },
+  dark: {
+    '--background': '#1c1917',
+    '--foreground': '#f5f5f4',
+    '--primary': '#f97316',
+    '--primary-foreground': '#431407',
+    '--border': '#44403c',
+    '--muted-bg': '#292524',
+    '--muted-foreground': '#a8a29e',
+    '--accent': '#7c2d12',
+    '--surface': '#221f1c'
+  }
+};
+
 function rgba(rgb, alpha) {
   const safeAlpha = Math.max(0, Math.min(1, Number(alpha) || 0));
   return `rgba(${rgb}, ${safeAlpha.toFixed(3)})`;
@@ -707,6 +732,10 @@ function buildDarkContrastTokens(recipe) {
   };
 }
 
+function buildSemanticThemeTokens(theme) {
+  return theme.tone === 'dark' ? SEMANTIC_THEME_TOKENS.dark : SEMANTIC_THEME_TOKENS.light;
+}
+
 export function getStyleThemeLibrary() {
   return STYLE_THEME_PRESETS.map((preset) => resolveThemeRecord({
     id: preset.id,
@@ -755,13 +784,15 @@ export function applyStyleTheme(theme) {
     ...TITLE_THEME_TOKENS[recipe.titleTheme],
     ...STATUS_THEME_TOKENS[recipe.statusTheme],
     ...buildFineTuneTokens(recipe),
-    ...buildDarkContrastTokens(recipe)
+    ...buildDarkContrastTokens(recipe),
+    ...buildSemanticThemeTokens(safeTheme)
   };
 
   const root = document.documentElement;
   Object.entries(merged).forEach(([key, value]) => {
     root.style.setProperty(key, value);
   });
+  root.style.colorScheme = safeTheme.tone === 'dark' ? 'dark' : 'light';
 
   root.dataset.atmosphere = safeTheme.atmosphere;
   root.dataset.tone = safeTheme.tone;

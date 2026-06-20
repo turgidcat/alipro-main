@@ -105,13 +105,22 @@ Tailwind 唯一入口为 `frontend-react/src/index.css`，当前直接加载字�
 | `--foreground` | 主文字 | stone 深色 |
 | `--primary` | 主要操作与焦点 | `#ea580c` |
 | `--border` | 分隔线与控件边界 | stone 暖灰 |
-| `--muted` | 次级表面或弱背景 | stone 浅灰 |
+| `--muted` | 历史遗留次级文字色 token，Phase 1 暂不改含义 | 继承旧主题 |
+| `--muted-bg` | 弱背景 / 次级表面 | stone 浅灰 |
+| `--muted-foreground` | 新语义体系里的弱文字色 | stone 中灰 |
 | `--accent` | hover、选中、强调背景 | orange 浅色 |
 | `--surface` | 面板/栏位表面 | 暖白 |
 
 暗色模式只改变这些语义变量的值，`--primary` 使用 `#f97316`。组件只消费语义 token，不根据 `paper / cool / deep / signal` 自行分支。
 
-迁移期保留 `--brand / --line / --panel / --text` 等旧变量，并在 `theme.css` 中映射：旧变量引用新变量，而不是维护第二套颜色来源。Phase 7 确认所有引用清零后再删除兼容层。
+Phase 1 兼容说明：
+
+- 当前仓库里的 `--muted` 已被旧页面大量用于次级文字色，不能在本阶段直接改成弱背景。
+- 因此 Phase 1 新增 `--muted-bg` 承接弱背景语义，新增 `--muted-foreground` 承接新体系的弱文字语义。
+- Tailwind 里的 `bg-muted` 先映射到 `var(--muted-bg)`，`text-muted-foreground` 映射到 `var(--muted-foreground)`。
+- 旧代码中的 `color: var(--muted)` 本阶段不改；待旧组件迁移完成后，再在最终清理阶段统一收敛 `--muted`。
+
+迁移期保留 `--brand / --line / --panel / --text` 等旧变量，并补齐新语义 token，先让旧页面和新工作台样式并存。Phase 7 确认所有引用清零后再删除兼容层。
 
 正文字体可额外使用 `--font-prose`，由 ThemePopover 切换；UI 字体和 mono 字体保持固定。建议在 Tailwind 配置中只暴露语义颜色、字体和明确需要复用的字号，不复制整套旧 recipe。
 
@@ -194,7 +203,7 @@ WorkbenchStage
 
 ### Phase 1：新增 Tailwind 语义 token + 保留旧 token 兼容层
 
-建立新语义变量和字体规则，由旧变量映射到新变量。保留旧主题大表、旧组件和全部业务界面，先让新旧样式可以并存。
+建立新语义变量和字体规则，保留旧主题大表、旧组件和全部业务界面，先让新旧样式可以并存。由于 `--muted` 当前仍承担历史文字色职责，Phase 1 使用 `--muted-bg` 承接弱背景语义，不对旧 `var(--muted)` 用法做全局替换。
 
 ### Phase 2：StyleManager 降级为 ThemePopover
 
@@ -241,6 +250,7 @@ WorkbenchStage
 - 禁止删除 `PanelCard.jsx`、`StyleManagerPage.jsx` 或旧 `styleTheme.js` 大表。
 - 禁止修改工作台业务组件。
 - 禁止删除旧 token；只能增加新 token 和兼容映射。
+- 禁止全局替换旧页面里的 `var(--muted)`；Phase 1 只新增 `--muted-bg / --muted-foreground`。
 - 禁止修改后端、数据库、AI 生成接口。
 
 ### Phase 2
@@ -289,7 +299,9 @@ WorkbenchStage
 
 ### Phase 1
 
-- `--background / --foreground / --primary / --border / --muted / --accent / --surface` 在亮暗模式均有明确值。
+- `--background / --foreground / --primary / --border / --muted-bg / --muted-foreground / --accent / --surface` 在亮暗模式均有明确值。
+- 旧 `--muted` 继续保留次级文字色含义，没有被改写成弱背景。
+- Tailwind 的 `muted` 颜色映射到 `--muted-bg`，`muted-foreground` 映射到 `--muted-foreground`。
 - `--brand / --line / --panel / --text` 等旧 token 映射到新 token，旧页面视觉没有明显回归。
 - `index.css` 仍是唯一包含 `@import "tailwindcss"` 的入口。
 - `npm run build` 通过；未修改工作台业务组件。

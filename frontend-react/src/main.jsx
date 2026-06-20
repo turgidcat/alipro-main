@@ -4,6 +4,7 @@ import { router } from './router.jsx';
 import { applyStyleTheme, getStoredStyleTheme } from './styleTheme.js';
 import './index.css';
 import './styles.css';
+import './styles/theme.css';
 
 applyStyleTheme(getStoredStyleTheme());
 
