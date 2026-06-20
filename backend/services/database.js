@@ -56,6 +56,220 @@ function parseJsonObject(value) {
   }
 }
 
+function normalizeText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeJsonArray(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function normalizeRoleNames(value) {
+  return normalizeJsonArray(value)
+    .map((item) => {
+      if (typeof item === 'string') return normalizeText(item);
+      if (item && typeof item === 'object') {
+        return normalizeText(item.name || item.characterName || item.title || item.role || '');
+      }
+      return '';
+    })
+    .filter(Boolean);
+}
+
+function normalizeRoleExecutionItem(item) {
+  if (!item || typeof item !== 'object') return null;
+  const role = normalizeText(item.role || '');
+  const baseline = normalizeText(item.baseline || '');
+  const chapterFunction = normalizeText(item.chapter_function || item.chapterFunction || '');
+  const allowedChange = normalizeText(item.allowed_change || item.allowedChange || '');
+  const forbiddenChange = normalizeText(item.forbidden_change || item.forbiddenChange || '');
+  const dimension = normalizeText(item.dimension || item.change_dimension || item.changeDimension || '') || 'story_function';
+  const direction = normalizeText(item.direction || item.change_direction || item.changeDirection || '') || 'hold';
+  const scope = normalizeText(item.scope || item.change_scope || item.changeScope || '') || 'temporary';
+  const confidence = normalizeText(item.confidence || '') || 'low';
+  if (!role && !baseline && !chapterFunction && !allowedChange && !forbiddenChange) return null;
+  return {
+    role,
+    baseline,
+    chapter_function: chapterFunction,
+    allowed_change: allowedChange,
+    forbidden_change: forbiddenChange,
+    dimension,
+    direction,
+    scope,
+    confidence
+  };
+}
+
+function normalizeRoleExecutionList(value) {
+  return normalizeJsonArray(value).map(normalizeRoleExecutionItem).filter(Boolean);
+}
+
+function buildRoleExecutionFallback(appearingRoles = [], characterNotes = '', chapterMission = '') {
+  return normalizeRoleNames(appearingRoles).map((role) => ({
+    role,
+    baseline: normalizeText(characterNotes) || '延续当前人物底色。',
+    chapter_function: chapterMission
+      ? `围绕本章任务“${normalizeText(chapterMission)}”承担推进作用。`
+      : '承担本章推进作用。',
+    allowed_change: '只允许推进一步，不允许跨阶段突变。',
+    forbidden_change: '不能直接完成长期关系翻转、立场逆转或真相彻底揭示。',
+    dimension: 'story_function',
+    direction: 'hold',
+    scope: 'temporary',
+    confidence: 'low'
+  }));
+}
+
+function buildChapterPlanRepairPayload(plan = {}) {
+  const chapterGoal = normalizeChapterGoalPayload({
+    chapter_mission: plan.chapter_mission,
+    emotion_target: plan.emotion_target,
+    appearing_roles: normalizeJsonArray(plan.appearing_roles),
+    main_storyline_id: plan.main_storyline_id,
+    target_storylines: normalizeJsonArray(plan.target_storylines),
+    previous_hook: plan.previous_hook
+  });
+  const chapterOutline = normalizeChapterOutlinePayload({
+    summary: plan.summary,
+    outline_text: plan.outline_text,
+    scene_outline: normalizeJsonArray(plan.scene_outline),
+    ending_hook: plan.ending_hook,
+    character_notes: plan.character_notes
+  });
+  const existingStructuredContent = parseJsonObject(plan.structured_content);
+  const currentRoleNames = new Set(normalizeRoleNames(chapterGoal.appearing_roles));
+  const repairedRoleExecution = normalizeRoleExecutionList(existingStructuredContent.role_execution)
+    .filter((item) => item.role && currentRoleNames.has(normalizeText(item.role)));
+  const structuredContent = buildChapterPlanStructuredContent(
+    {
+      structured_content: existingStructuredContent,
+      role_execution: repairedRoleExecution.length > 0
+        ? repairedRoleExecution
+        : buildRoleExecutionFallback(
+            chapterGoal.appearing_roles,
+            chapterOutline.character_notes,
+            chapterGoal.chapter_mission
+          )
+    },
+    chapterGoal,
+    chapterOutline
+  );
+
+  return { chapterGoal, chapterOutline, structuredContent };
+}
+
+function collectFeedbackAnchorTerms(structuredContent = {}) {
+  const chapterGoalSnapshot = parseJsonObject(structuredContent.chapter_goal_snapshot);
+  const chapterOutlineSnapshot = parseJsonObject(structuredContent.chapter_outline_snapshot);
+  const storylineContext = parseJsonObject(structuredContent.storyline_context);
+
+  const terms = [
+    normalizeText(chapterGoalSnapshot.chapter_mission || ''),
+    normalizeText(chapterGoalSnapshot.previous_hook || ''),
+    normalizeText(chapterOutlineSnapshot.summary || ''),
+    normalizeText(chapterOutlineSnapshot.ending_hook || ''),
+    normalizeText(chapterOutlineSnapshot.character_notes || '')
+  ];
+
+  normalizeJsonArray(chapterGoalSnapshot.appearing_roles).forEach((item) => {
+    const name = typeof item === 'string'
+      ? normalizeText(item)
+      : normalizeText(item?.name || item?.characterName || item?.title || '');
+    if (name) terms.push(name);
+  });
+
+  normalizeJsonArray(storylineContext.relatedStorylines).forEach((item) => {
+    const title = normalizeText(item?.title || item?.name || '');
+    const summary = normalizeText(item?.summary || '');
+    if (title) terms.push(title);
+    if (summary) terms.push(summary);
+  });
+
+  normalizeJsonArray(storylineContext.currentBeats).forEach((item) => {
+    const title = normalizeText(item?.title || '');
+    const summary = normalizeText(item?.summary || '');
+    if (title) terms.push(title);
+    if (summary) terms.push(summary);
+  });
+
+  normalizeJsonArray(storylineContext.mustAdvance).forEach((item) => {
+    const text = typeof item === 'string'
+      ? normalizeText(item)
+      : normalizeText(item?.summary || item?.title || '');
+    if (text) terms.push(text);
+  });
+
+  return [...new Set(terms.filter(Boolean))];
+}
+
+function hasStorylineAnchorEvidence(text, anchorTerms = []) {
+  const normalized = normalizeText(text);
+  if (!normalized) return false;
+  return anchorTerms.some((term) => {
+    if (!term) return false;
+    if (term.length <= 12) {
+      return normalized.includes(term);
+    }
+    const chunks = term
+      .split(/[，。；：、\s]/)
+      .map((item) => normalizeText(item))
+      .filter((item) => item.length >= 2)
+      .slice(0, 4);
+    return chunks.some((item) => normalized.includes(item));
+  });
+}
+
+function sanitizeStorylineFeedbackForProgress(feedback = {}, structuredContent = {}, requiresStorylineReview = false) {
+  const rawChapterSummary = normalizeText(feedback.chapter_summary || '');
+  const rawStoryProgress = normalizeText(feedback.story_progress || '');
+  const rawNextFocus = normalizeText(feedback.next_chapter_focus || '');
+  const rawOpenHooks = normalizeText(feedback.open_hooks || '');
+  const anchorTerms = collectFeedbackAnchorTerms(structuredContent);
+  const chapterSummary = hasStorylineAnchorEvidence(rawChapterSummary, anchorTerms) ? rawChapterSummary : '';
+  const storyProgress = hasStorylineAnchorEvidence(rawStoryProgress, anchorTerms) ? rawStoryProgress : '';
+  const nextFocus = hasStorylineAnchorEvidence(rawNextFocus, anchorTerms) ? rawNextFocus : '';
+  const openHooks = hasStorylineAnchorEvidence(rawOpenHooks, anchorTerms) ? rawOpenHooks : '';
+  const hasUnverifiedFeedback = [
+    rawChapterSummary && !chapterSummary,
+    rawStoryProgress && !storyProgress,
+    rawNextFocus && !nextFocus,
+    rawOpenHooks && !openHooks
+  ].some(Boolean);
+
+  if (requiresStorylineReview) {
+    return {
+      chapter_summary: chapterSummary,
+      story_progress: '',
+      next_chapter_focus: '',
+      open_hooks: '',
+      progress_note: '',
+      open_question_note: hasUnverifiedFeedback
+        ? '本章反馈含未锚定内容，需人工复核后再写入剧情线进度。'
+        : ''
+    };
+  }
+
+  return {
+    chapter_summary: chapterSummary,
+    story_progress: storyProgress,
+    next_chapter_focus: nextFocus,
+    open_hooks: openHooks,
+    progress_note: storyProgress || nextFocus || '',
+    open_question_note: !storyProgress && !nextFocus && !openHooks && hasUnverifiedFeedback
+      ? '本章反馈含未锚定内容，需人工复核后再写入剧情线进度。'
+      : ''
+  };
+}
+
 function normalizeChapterGoalPayload(payload = {}) {
   return {
     chapter_mission: payload.chapter_mission || payload.chapterMission || '',
@@ -85,8 +299,12 @@ function normalizeChapterOutlinePayload(payload = {}) {
 
 function buildChapterPlanStructuredContent(payload = {}, chapterGoal = {}, chapterOutline = {}) {
   const structuredContent = parseJsonObject(payload.structured_content || payload.structuredContent);
+  const roleExecution = normalizeRoleExecutionList(payload.role_execution || structuredContent.role_execution);
+  const outlineSource = normalizeText(payload.source || structuredContent.chapter_outline_source || 'manual') || 'manual';
   return {
     ...structuredContent,
+    chapter_outline_mode: structuredContent.chapter_outline_mode || 'single_latest',
+    chapter_outline_source: outlineSource,
     chapter_goal_snapshot: {
       chapter_mission: chapterGoal.chapter_mission || '',
       emotion_target: chapterGoal.emotion_target || '',
@@ -100,8 +318,17 @@ function buildChapterPlanStructuredContent(payload = {}, chapterGoal = {}, chapt
       outline_text: chapterOutline.outline_text || '',
       scene_outline: chapterOutline.scene_outline || [],
       ending_hook: chapterOutline.ending_hook || '',
-      character_notes: chapterOutline.character_notes || ''
-    }
+      character_notes: chapterOutline.character_notes || '',
+      source: outlineSource,
+      mode: 'single_latest'
+    },
+    role_execution: roleExecution.length > 0
+      ? roleExecution
+      : buildRoleExecutionFallback(
+          chapterGoal.appearing_roles,
+          chapterOutline.character_notes,
+          chapterGoal.chapter_mission
+        )
   };
 }
 
@@ -126,6 +353,11 @@ function syncStorylineProgressFromChapterPlan(db, {
     : [];
   const isFallbackContext = !!storylineContext.isFallback;
   const requiresStorylineReview = isFallbackContext || contextBeatIds.length === 0;
+  const sanitizedFeedback = sanitizeStorylineFeedbackForProgress(
+    feedback,
+    structuredContent,
+    requiresStorylineReview
+  );
 
   const storylineIds = [
     chapterGoal.main_storyline_id,
@@ -148,11 +380,11 @@ function syncStorylineProgressFromChapterPlan(db, {
     chapter_id: chapterId || '',
     chapter_number: Number(chapterNumber || 0),
     used_beat_ids: contextBeatIds,
-    chapter_summary: feedback.chapter_summary || '',
-    story_progress: feedback.story_progress || '',
-    next_chapter_focus: feedback.next_chapter_focus || '',
-    open_hooks: feedback.open_hooks || '',
-    progress_note: feedback.story_progress || feedback.next_chapter_focus || feedback.chapter_summary || '',
+    chapter_summary: sanitizedFeedback.chapter_summary,
+    story_progress: sanitizedFeedback.story_progress,
+    next_chapter_focus: sanitizedFeedback.next_chapter_focus,
+    open_hooks: sanitizedFeedback.open_hooks,
+    progress_note: sanitizedFeedback.progress_note,
     deviation_risk: requiresStorylineReview ? 'medium' : 'none',
     status: requiresStorylineReview ? 'touched' : 'touched',
     requires_review: requiresStorylineReview,
@@ -201,7 +433,10 @@ function syncStorylineProgressFromChapterPlan(db, {
     const existingOpenQuestions = Array.isArray(existingCurrentProgress.openQuestions)
       ? existingCurrentProgress.openQuestions
       : [];
-    const storylineSummary = feedback.story_progress || feedback.next_chapter_focus || feedback.chapter_summary || '';
+    const storylineSummary = sanitizedFeedback.open_question_note
+      || feedback.story_progress
+      || feedback.next_chapter_focus
+      || '';
     const nextOpenQuestions = requiresStorylineReview && storylineSummary
       ? [
         ...existingOpenQuestions.filter((item) => Number(item?.chapterNumber || 0) !== progressEntry.chapter_number),
@@ -1430,6 +1665,34 @@ class ChapterPlanService {
       chapterNumber,
       chapterGoal,
       structuredContent: normalizedStructuredContent
+    });
+
+    saveDatabase(db);
+    return this.getByBookAndChapterNumber(bookId, chapterNumber, userId);
+  }
+
+  async repairChapterPlanConsistency(bookId, chapterNumber, userId = '') {
+    const db = await dbPromise;
+    const existing = await this.getByBookAndChapterNumber(bookId, chapterNumber, userId);
+    if (!existing) return null;
+
+    const { chapterGoal, structuredContent } = buildChapterPlanRepairPayload(existing);
+
+    db.run(`
+      UPDATE chapter_plans
+      SET structured_content = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [
+      JSON.stringify(structuredContent),
+      existing.id
+    ]);
+
+    syncStorylineProgressFromChapterPlan(db, {
+      bookId,
+      chapterNumber,
+      chapterId: existing.chapter_id || '',
+      chapterGoal,
+      structuredContent
     });
 
     saveDatabase(db);

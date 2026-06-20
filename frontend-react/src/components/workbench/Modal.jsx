@@ -1,8 +1,13 @@
-export default function Modal({ title, description, children, onClose, actions }) {
+export default function Modal({ title, description, children, onClose, actions, closeOnBackdrop = true }) {
   const modalClassName = title.includes('正文校改') ? 'modal-panel modal-panel-revision' : 'modal-panel';
+  function handleBackdropClick(event) {
+    if (closeOnBackdrop && event.target === event.currentTarget) {
+      onClose();
+    }
+  }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onClick={handleBackdropClick}>
       <div className={modalClassName} onClick={(event) => event.stopPropagation()}>
         <div className="modal-head">
           <div>

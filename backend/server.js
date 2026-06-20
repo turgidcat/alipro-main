@@ -297,16 +297,16 @@ app.listen(PORT, () => {
     },
     { raw: '' },
     {
-      raw: '前端入口',
-      styled: colorize('前端入口', ANSI.bold, ANSI.magenta)
+      raw: '前端入口说明',
+      styled: colorize('前端入口说明', ANSI.bold, ANSI.magenta)
     },
     {
-      raw: '开发前端   http://localhost:5173',
-      styled: `${colorize('开发前端', ANSI.bold, ANSI.white)}   ${colorize('http://localhost:5173', ANSI.cyan)}`
+      raw: '开发入口(有热更新)   http://127.0.0.1:5173',
+      styled: `${colorize('开发入口(有热更新)', ANSI.bold, ANSI.white)}   ${colorize('http://127.0.0.1:5173', ANSI.cyan)}`
     },
     {
-      raw: `新前端入口 http://localhost:${PORT}/`,
-      styled: `${colorize('新前端入口', ANSI.bold, ANSI.white)} ${colorize(`http://localhost:${PORT}/`, ANSI.green)}`
+      raw: `托管入口(无热更新)   http://localhost:${PORT}/`,
+      styled: `${colorize('托管入口(无热更新)', ANSI.bold, ANSI.white)}   ${colorize(`http://localhost:${PORT}/`, ANSI.green)}`
     },
     { raw: '' },
     {

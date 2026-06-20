@@ -8,6 +8,7 @@ import {
   saveOutlineSummary,
   updateBook
 } from '../workbenchApi.js';
+import IndentedTextBlock from '../components/IndentedTextBlock.jsx';
 import '../styles.css';
 import '../app-shell.css';
 
@@ -162,6 +163,10 @@ const roleTierOptions = [
 ];
 const roleTierLabelMap = Object.fromEntries(roleTierOptions.map((item) => [item.value, item.label]));
 
+function joinClasses(...values) {
+  return values.filter(Boolean).join(' ');
+}
+
 function requestJson(path, options = {}) {
   const token = localStorage.getItem('auth_token') || '';
   return fetch(`${API_BASE}${path}`, {
@@ -225,6 +230,13 @@ function openBooksOutlinePage(bookId) {
     persistCurrentBookId(bookId);
   }
   window.location.href = '/books/outlines';
+}
+
+function openBooksStorylinePage(bookId) {
+  if (bookId) {
+    persistCurrentBookId(bookId);
+  }
+  window.location.href = '/books/storylines';
 }
 
 function openBooksCharacterPage(bookId) {
@@ -424,21 +436,6 @@ export default function BooksPage() {
     setPendingRouteBookId('');
     window.history.replaceState({}, '', currentPath);
   }, [loading, pendingRouteAction, pendingRouteBookId, currentBookId, detailBook]);
-
-  const storylineGroups = useMemo(() => {
-    const groups = new Map();
-    detailStorylines.forEach((item) => {
-      const volumeNumber = Number(item.volume_number || 1);
-      if (!groups.has(volumeNumber)) groups.set(volumeNumber, []);
-      groups.get(volumeNumber).push(item);
-    });
-    return Array.from(groups.entries())
-      .sort((left, right) => left[0] - right[0])
-      .map(([volumeNumber, items]) => ({
-        volumeNumber,
-        items: items.sort((left, right) => Number(left.storyline_number || 0) - Number(right.storyline_number || 0))
-      }));
-  }, [detailStorylines]);
 
   const chapterEntries = useMemo(() => {
     const chapterMap = new Map();
@@ -1079,30 +1076,36 @@ export default function BooksPage() {
   }
 
   return (
-    <div className="page-shell">
-      <header className="hero-section">
-        <div>
-          <span className="hero-eyebrow">Library</span>
-          <h1>{isOutlinePage ? '大纲链页面' : isCharacterPage ? '角色资料页' : isChapterPage ? '章节与正文页' : '资料库管理台'}</h1>
-          <p>
+    <div className="mx-auto w-[min(var(--layout-max-width),calc(100%-1.5rem))] pb-[var(--page-shell-pad-bottom)] pt-8">
+      <header className="grid gap-6 rounded-[36px] border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-strong)_92%,white)] px-6 py-7 shadow-[0_18px_52px_rgba(15,23,42,0.05)] xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] xl:px-8">
+        <div className="space-y-4">
+          <span className="inline-flex rounded-full border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_78%,white)] px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.16em] text-[color:var(--brand)]">
+            Library
+          </span>
+          <h1 className="font-serif text-[clamp(2.25rem,4vw,3.6rem)] font-black leading-[0.98] tracking-[-0.04em] text-[color:var(--text)]">
+            {isOutlinePage ? '大纲链页面' : isCharacterPage ? '角色资料页' : isChapterPage ? '章节与正文页' : '资料库管理台'}
+          </h1>
+          <p className="max-w-[60ch] text-[16px] leading-8 text-[color:var(--muted)]">
             {isOutlinePage
               ? `当前大纲链：${detailBook?.title || currentBook?.title || '未命名书籍'}`
               : isCharacterPage
               ? `当前角色档案：${detailBook?.title || currentBook?.title || '未命名书籍'}`
               : isChapterPage
               ? `当前章节与正文：${detailBook?.title || currentBook?.title || '未命名书籍'}`
-              : (view === 'list' ? '先把书管理好，再回到主工作台继续创作。' : `当前档案：${detailBook?.title || '未命名书籍'}`)}
+              : (view === 'list' ? '先整理书，再回创作台。' : `当前档案：${detailBook?.title || '未命名书籍'}`)}
           </p>
         </div>
-        <div className="hero-note-card hero-note-card-stack">
-          <div>
-            <strong>当前创作书籍</strong>
-            <p>{currentBook ? currentBook.title : '尚未选择'}</p>
+        <div className="flex flex-col justify-between gap-5 rounded-[30px] border border-[color:var(--line)] bg-[var(--panel)] p-6 shadow-[0_14px_38px_rgba(15,23,42,0.04)]">
+          <div className="space-y-2">
+            <strong className="block text-[12px] font-bold uppercase tracking-[0.14em] text-[color:var(--muted)]">当前创作书籍</strong>
+            <p className="font-serif text-[2rem] font-black leading-none tracking-[-0.03em] text-[color:var(--brand)]">
+              {currentBook ? currentBook.title : '尚未选择'}
+            </p>
           </div>
           {view === 'list' && !isSubPage ? (
             <span className="current-book-badge">列表模式</span>
           ) : isSubPage ? (
-            <div className="hero-note-card-actions">
+            <div className="flex flex-wrap gap-3">
               <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksSummaryPage(currentBookId)}>返回汇总页</button>
               <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(currentBookId)} disabled={!currentBookId}>进入创作台</button>
             </div>
@@ -1117,79 +1120,99 @@ export default function BooksPage() {
       {view === 'list' && !isCharacterPage ? (
         <>
           {stats ? (
-            <div className="stats-row">
+            <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
               {[
-                ['书籍总数', stats.totalBooks || 0, '#3b82f6'],
-                ['章节总数', stats.totalChapters || 0, '#10b981'],
-                ['累计字数', formatWords(stats.totalWords || 0), '#f59e0b'],
-                ['角色总数', stats.totalCharacters || 0, '#8b5cf6'],
-                ['7天内更新', stats.recent7Days || 0, '#ec4899']
-              ].map(([label, value, color]) => (
-                <div key={label} className="stats-card" style={{ '--stat-color': color }}>
-                  <strong>{value}</strong>
-                  <span>{label}</span>
+                ['书籍总数', stats.totalBooks || 0],
+                ['章节总数', stats.totalChapters || 0],
+                ['累计字数', formatWords(stats.totalWords || 0)],
+                ['角色总数', stats.totalCharacters || 0],
+                ['7天内更新', stats.recent7Days || 0]
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="rounded-[24px] border border-[color:var(--line)] bg-[var(--panel)] px-5 py-4 shadow-[0_10px_26px_rgba(15,23,42,0.04)]"
+                >
+                  <strong className="block text-[2rem] font-black leading-none tracking-[-0.03em] text-[color:var(--brand)]">{value}</strong>
+                  <span className="mt-2 block text-[12px] font-semibold text-[color:var(--muted)]">{label}</span>
                 </div>
               ))}
             </div>
           ) : null}
 
-          <div className="library-list-top-grid">
-            <div className="detail-panel library-action-panel">
-              <h3>列表快捷操作</h3>
-              <div className="detail-action-grid">
+          <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <div className="rounded-[28px] border border-[color:var(--line)] bg-[var(--panel)] px-5 py-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)]">
+              <h3 className="mb-4 font-serif text-[1.85rem] font-black leading-none tracking-[-0.03em] text-[color:var(--text)]">列表快捷操作</h3>
+              <div className="flex flex-wrap gap-3">
                 <button type="button" className="solid-btn" onClick={openCreateEditor}>新建书籍</button>
                 <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(currentBookId)} disabled={!currentBookId}>进入创作台</button>
               </div>
             </div>
 
-            <div className="detail-panel library-status-panel">
-              <h3>当前状态</h3>
-              <div className="detail-summary-row detail-summary-row-quad library-status-row">
-                <div>
-                  <strong>{filteredBooks.length}</strong>
-                  <span>当前显示</span>
+            <div className="rounded-[28px] border border-[color:var(--line)] bg-[var(--panel)] px-5 py-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)]">
+              <h3 className="mb-4 font-serif text-[1.85rem] font-black leading-none tracking-[-0.03em] text-[color:var(--text)]">当前状态</h3>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-[22px] border border-[color:color-mix(in_srgb,var(--line)_78%,transparent)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_74%,white)] px-4 py-4">
+                  <strong className="block text-[1.7rem] font-black leading-none tracking-[-0.03em] text-[color:var(--text)]">{filteredBooks.length}</strong>
+                  <span className="mt-2 block text-[12px] font-semibold text-[color:var(--muted)]">当前显示</span>
                 </div>
-                <div>
-                  <strong>{books.length}</strong>
-                  <span>书籍总数</span>
+                <div className="rounded-[22px] border border-[color:color-mix(in_srgb,var(--line)_78%,transparent)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_74%,white)] px-4 py-4">
+                  <strong className="block text-[1.7rem] font-black leading-none tracking-[-0.03em] text-[color:var(--text)]">{books.length}</strong>
+                  <span className="mt-2 block text-[12px] font-semibold text-[color:var(--muted)]">书籍总数</span>
                 </div>
-                <div>
-                  <strong>{selectedIds.size}</strong>
-                  <span>已选书籍</span>
+                <div className="rounded-[22px] border border-[color:color-mix(in_srgb,var(--line)_78%,transparent)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_74%,white)] px-4 py-4">
+                  <strong className="block text-[1.7rem] font-black leading-none tracking-[-0.03em] text-[color:var(--text)]">{selectedIds.size}</strong>
+                  <span className="mt-2 block text-[12px] font-semibold text-[color:var(--muted)]">已选书籍</span>
                 </div>
-                <div>
-                  <strong>{activeFilterCount}</strong>
-                  <span>启用筛选</span>
+                <div className="rounded-[22px] border border-[color:color-mix(in_srgb,var(--line)_78%,transparent)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_74%,white)] px-4 py-4">
+                  <strong className="block text-[1.7rem] font-black leading-none tracking-[-0.03em] text-[color:var(--text)]">{activeFilterCount}</strong>
+                  <span className="mt-2 block text-[12px] font-semibold text-[color:var(--muted)]">启用筛选</span>
                 </div>
               </div>
-              <div className="library-status-meta">
+              <div className="mt-4 text-[13px] font-semibold text-[color:var(--muted)]">
                 <span>当前书：{currentBook?.title || '尚未选择'}</span>
               </div>
             </div>
           </div>
 
-          <div className="filter-toolbar detail-panel">
-            <label className="field filter-field">
-              <span>搜索</span>
-              <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="按书名、作者、简介、题材搜索" />
+          <div className="mt-6 grid gap-4 rounded-[28px] border border-[color:var(--line)] bg-[var(--panel)] px-5 py-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)] md:grid-cols-2 xl:grid-cols-4">
+            <label className="block">
+              <span className="mb-2 block text-[13px] font-bold uppercase tracking-[0.14em] text-[color:var(--muted)]">搜索</span>
+              <input
+                className="min-h-12 w-full rounded-2xl border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_78%,white)] px-4 text-[16px] text-[color:var(--text)] outline-none transition focus:border-[color:var(--brand-soft-strong)] focus:bg-[var(--panel)]"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                placeholder="按书名、作者、简介、题材搜索"
+              />
             </label>
-            <label className="field filter-field">
-              <span>状态</span>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <label className="block">
+              <span className="mb-2 block text-[13px] font-bold uppercase tracking-[0.14em] text-[color:var(--muted)]">状态</span>
+              <select
+                className="min-h-12 w-full rounded-2xl border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_78%,white)] px-4 text-[16px] text-[color:var(--text)] outline-none transition focus:border-[color:var(--brand-soft-strong)] focus:bg-[var(--panel)]"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
                 <option value="all">全部状态</option>
                 {statusOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </label>
-            <label className="field filter-field">
-              <span>题材</span>
-              <select value={genreFilter} onChange={(e) => setGenreFilter(e.target.value)}>
+            <label className="block">
+              <span className="mb-2 block text-[13px] font-bold uppercase tracking-[0.14em] text-[color:var(--muted)]">题材</span>
+              <select
+                className="min-h-12 w-full rounded-2xl border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_78%,white)] px-4 text-[16px] text-[color:var(--text)] outline-none transition focus:border-[color:var(--brand-soft-strong)] focus:bg-[var(--panel)]"
+                value={genreFilter}
+                onChange={(e) => setGenreFilter(e.target.value)}
+              >
                 <option value="all">全部题材</option>
                 {genreOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </label>
-            <label className="field filter-field">
-              <span>排序</span>
-              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+            <label className="block">
+              <span className="mb-2 block text-[13px] font-bold uppercase tracking-[0.14em] text-[color:var(--muted)]">排序</span>
+              <select
+                className="min-h-12 w-full rounded-2xl border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_78%,white)] px-4 text-[16px] text-[color:var(--text)] outline-none transition focus:border-[color:var(--brand-soft-strong)] focus:bg-[var(--panel)]"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+              >
                 <option value="updated_desc">最近更新</option>
                 <option value="updated_asc">最早更新</option>
                 <option value="created_desc">最近创建</option>
@@ -1199,14 +1222,14 @@ export default function BooksPage() {
             </label>
           </div>
 
-          <div className="detail-panel list-tools-merged-panel">
-            <div className="detail-action-grid list-tools-inline-row">
+          <div className="mt-4 rounded-[28px] border border-[color:var(--line)] bg-[var(--panel)] px-5 py-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)]">
+            <div className="flex flex-wrap gap-3">
               <button type="button" className="ghost-btn" onClick={toggleSelectAll}>
                 {selectedIds.size === filteredBooks.length && filteredBooks.length > 0 ? '取消全选' : '全选当前'}
               </button>
-                  <button type="button" className="solid-btn danger-solid-btn" onClick={batchDelete} disabled={selectedIds.size === 0 || deleteLoading}>
-                    {deleteLoading ? '删除中...' : '批量删除'}
-                  </button>
+              <button type="button" className="solid-btn danger-solid-btn" onClick={batchDelete} disabled={selectedIds.size === 0 || deleteLoading}>
+                {deleteLoading ? '删除中...' : '批量删除'}
+              </button>
               <button type="button" className="ghost-btn action-btn" onClick={focusCurrentBook} disabled={!currentBookId}>定位当前书</button>
               <button type="button" className="ghost-btn action-btn" onClick={loadLibrary}>刷新列表</button>
               <button type="button" className="ghost-btn action-btn" onClick={() => {
@@ -1221,7 +1244,7 @@ export default function BooksPage() {
           {loading ? (
             <div className="global-banner">正在加载书籍列表...</div>
           ) : (
-            <div className="book-card-grid">
+            <div className="mt-6 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
               {filteredBooks.length === 0 ? (
                 <div className="global-banner">
                   {books.length === 0 ? '还没有书籍，先新建一本吧。' : '没有符合当前筛选条件的书籍。'}
@@ -1233,12 +1256,18 @@ export default function BooksPage() {
                     <div
                       key={book.id}
                       data-book-id={book.id}
-                      className={`book-card${selectedIds.has(book.id) ? ' is-selected' : ''}${isCurrent ? ' is-current' : ''}`}
+                      className={joinClasses(
+                        'grid grid-cols-[20px_minmax(0,1fr)] gap-4 rounded-[30px] border p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)] transition duration-150 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_color-mix(in_srgb,var(--brand)_12%,transparent)]',
+                        selectedIds.has(book.id)
+                          ? 'border-[color:color-mix(in_srgb,var(--brand)_24%,var(--line))] bg-[color:color-mix(in_srgb,var(--brand-soft)_58%,var(--panel-strong))]'
+                          : 'border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel)_90%,var(--panel-strong))]',
+                        isCurrent ? 'ring-1 ring-[color:color-mix(in_srgb,var(--brand)_18%,transparent)]' : ''
+                      )}
                       onClick={() => loadDetail(book.id)}
                     >
                       <input
                         type="checkbox"
-                        className="book-card-checkbox"
+                        className="mt-1 h-4 w-4 accent-[var(--brand)]"
                         checked={selectedIds.has(book.id)}
                         onChange={(e) => {
                           e.stopPropagation();
@@ -1251,49 +1280,53 @@ export default function BooksPage() {
                         }}
                         onClick={(e) => e.stopPropagation()}
                       />
-                      <div className="book-card-body">
-                        <div className="book-card-title-row">
-                          <h3>{book.title}</h3>
+                      <div className="flex min-w-0 flex-col gap-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <h3 className="font-serif text-[1.5rem] font-black leading-tight tracking-[-0.03em] text-[color:var(--text)]">{book.title}</h3>
                           {isCurrent ? <span className="current-book-badge">当前</span> : null}
                         </div>
-                        <div className="book-card-meta">
-                          <span className="book-card-genre">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[13px] text-[color:var(--muted)]">
                             {genreLabels[book.genre] || book.genre}
                             {book.subgenre ? ` · ${subgenreLabels[book.subgenre] || book.subgenre}` : ''}
                           </span>
-                          <span className="book-card-status">{statusLabels[book.status] || book.status}</span>
+                          <span className="inline-flex rounded-full bg-[var(--brand-soft)] px-3 py-1 text-[12px] font-semibold text-[color:var(--brand)]">
+                            {statusLabels[book.status] || book.status}
+                          </span>
                         </div>
-                        <div className="book-card-extra">
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-[color:var(--muted)]">
                           <span>{book.updated_at || book.created_at ? formatDate(book.updated_at || book.created_at) : '刚创建'}</span>
                           <span>{(book.word_count || 0) > 0 ? formatWords(book.word_count || 0) : '暂无字数'}</span>
                         </div>
-                        <span className="book-card-platform">{getPlatformLabel(book.platform)}</span>
-                      </div>
-                      <div className="book-card-actions">
-                        {!isCurrent ? (
+                        <span className="text-[12px] font-semibold text-[color:var(--muted)]">{getPlatformLabel(book.platform)}</span>
+                        <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-dashed border-[color:color-mix(in_srgb,var(--line)_80%,transparent)] pt-4">
+                          {!isCurrent ? (
+                            <button
+                              type="button"
+                              className="ghost-btn action-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCurrentBook(book.id);
+                              }}
+                            >
+                              设为当前
+                            </button>
+                          ) : (
+                            <span className="current-book-badge">
+                              主工作台使用中
+                            </span>
+                          )}
                           <button
                             type="button"
                             className="ghost-btn action-btn"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setCurrentBook(book.id);
+                              deleteBook(book.id);
                             }}
                           >
-                            设为当前
+                            删除
                           </button>
-                        ) : (
-                          <span className="book-card-current-note">主工作台使用中</span>
-                        )}
-                        <button
-                          type="button"
-                          className="ghost-btn action-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteBook(book.id);
-                          }}
-                        >
-                          删除
-                        </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -1305,7 +1338,7 @@ export default function BooksPage() {
       ) : null}
 
       {isCharacterPage && detailBook ? (
-        <section className="workbench-stage">
+        <section className="mt-8">
           <div className="detail-header">
             <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksSummaryPage(detailBook.id)}>返回汇总页</button>
             <div className="detail-header-main">
@@ -1590,6 +1623,7 @@ export default function BooksPage() {
                     <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>进入创作台</button>
                     <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksSummaryPage(detailBook.id)}>查看汇总页</button>
                     <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksOutlinePage(detailBook.id)}>大纲链页</button>
+                    <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksStorylinePage(detailBook.id)}>剧情线页</button>
                     <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksChapterPage(detailBook.id)}>章节与正文页</button>
                     {detailBook.id !== currentBookId ? (
                       <button type="button" className="ghost-btn action-btn" onClick={() => setCurrentBook(detailBook.id)}>设为当前</button>
@@ -1605,7 +1639,7 @@ export default function BooksPage() {
       ) : null}
 
       {view === 'detail' && detailBook && isOutlinePage ? (
-        <section className="workbench-stage">
+        <section className="mt-8">
           <div className="detail-header">
             <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksSummaryPage(detailBook.id)}>返回汇总页</button>
             <div className="detail-header-main">
@@ -1651,7 +1685,11 @@ export default function BooksPage() {
                           placeholder="写这本书整体在讲什么。"
                         />
                       ) : detailOutline?.main_outline ? (
-                        <pre className="detail-pre">{detailOutline.main_outline}</pre>
+                        <IndentedTextBlock
+                          text={detailOutline.main_outline}
+                          className="detail-pre"
+                          paragraphClassName="detail-pre-paragraph"
+                        />
                       ) : (
                         <p className="excerpt-text">暂无全书大纲。</p>
                       )}
@@ -1667,7 +1705,7 @@ export default function BooksPage() {
                           <button type="button" className="ghost-btn detail-inline-primary-action" onClick={handleGenerateVolumePlans} disabled={outlineSaving}>
                             {outlineSaving ? '处理中...' : '自动拆分分卷'}
                           </button>
-                          <span className="detail-inline-toolbar-hint">填 0 表示让模型自行判断分卷数量。</span>
+                          <span className="detail-inline-toolbar-hint">填 0 让模型自定卷数。</span>
                         </div>
                       </div>
                       {detailVolumePlans.length > 0 ? (
@@ -1768,7 +1806,11 @@ export default function BooksPage() {
                             })}
                         </div>
                       ) : detailOutline?.volume_outline ? (
-                        <pre className="detail-pre">{detailOutline.volume_outline}</pre>
+                        <IndentedTextBlock
+                          text={detailOutline.volume_outline}
+                          className="detail-pre"
+                          paragraphClassName="detail-pre-paragraph"
+                        />
                       ) : (
                         <p className="excerpt-text">暂无分卷大纲。</p>
                       )}
@@ -1786,32 +1828,19 @@ export default function BooksPage() {
                           placeholder="补充关键伏笔、限制条件、风格提醒等。"
                         />
                       ) : detailOutline?.detailed_outline ? (
-                        <pre className="detail-pre">{detailOutline.detailed_outline}</pre>
+                        <IndentedTextBlock
+                          text={detailOutline.detailed_outline}
+                          className="detail-pre"
+                          paragraphClassName="detail-pre-paragraph"
+                        />
                       ) : null}
                     </div>
                     <div className="detail-outline-section">
-                      <strong>剧情线大纲</strong>
-                      {storylineGroups.length > 0 ? (
-                        <div className="detail-volume-plan-list">
-                          {storylineGroups.map((group) => (
-                            <section key={`storyline-volume-${group.volumeNumber}`} className="detail-outline-volume">
-                              <strong>第 {group.volumeNumber} 卷剧情线</strong>
-                              <div className="detail-storyline-list">
-                                {group.items.map((storyline) => (
-                                  <div key={storyline.id} className="detail-storyline-item">
-                                    <p className="excerpt-text"><b>{storyline.storyline_name || '未命名剧情线'}</b>{storyline.storyline_type ? ` · ${storyline.storyline_type}` : ''}</p>
-                                    {storyline.core_conflict ? <p className="excerpt-text"><b>核心冲突：</b>{storyline.core_conflict}</p> : null}
-                                    {storyline.description ? <p className="excerpt-text"><b>说明：</b>{storyline.description}</p> : null}
-                                    <p className="excerpt-text">预计第 {Number(storyline.start_chapter || 1)} - {Number(storyline.end_chapter || 1)} 章</p>
-                                  </div>
-                                ))}
-                              </div>
-                            </section>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="excerpt-text">暂无剧情线大纲。</p>
-                      )}
+                      <div className="detail-section-head">
+                        <strong>剧情线管理</strong>
+                        <button type="button" className="ghost-btn" onClick={() => openBooksStorylinePage(detailBook.id)}>进入剧情线页</button>
+                      </div>
+                      <p className="excerpt-text">剧情线已从大纲链页拆分为独立页面，后续的剧情线集合生成、批量确认与分卷管理都放到剧情线页处理。</p>
                     </div>
                   </div>
                 </div>
@@ -1822,6 +1851,7 @@ export default function BooksPage() {
                   <h3>分页面入口</h3>
                   <div className="detail-action-grid">
                     <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksSummaryPage(detailBook.id)}>汇总页</button>
+                    <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksStorylinePage(detailBook.id)}>剧情线页</button>
                     <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksCharacterPage(detailBook.id)}>角色页</button>
                     <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksChapterPage(detailBook.id)}>章节与正文页</button>
                     <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>进入创作台</button>
@@ -1834,7 +1864,7 @@ export default function BooksPage() {
       ) : null}
 
       {view === 'detail' && detailBook && isChapterPage ? (
-        <section className="workbench-stage">
+        <section className="mt-8">
           <div className="detail-header">
             <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksSummaryPage(detailBook.id)}>返回汇总页</button>
             <div className="detail-header-main">
@@ -1869,8 +1899,20 @@ export default function BooksPage() {
                           </div>
                           {plan?.chapter_mission ? <p className="excerpt-text"><b>本章目标：</b>{plan.chapter_mission}</p> : null}
                           {plan?.summary ? <p className="excerpt-text"><b>章节摘要：</b>{plan.summary}</p> : null}
-                          {plan?.outline_text ? <pre className="detail-pre">{String(plan.outline_text).slice(0, 260)}{String(plan.outline_text).length > 260 ? '...' : ''}</pre> : null}
-                          {chapter?.content ? <pre className="detail-pre">{String(chapter.content).slice(0, 320)}{String(chapter.content).length > 320 ? '...' : ''}</pre> : <p className="excerpt-text">正文尚未生成。</p>}
+                          {plan?.outline_text ? (
+                            <IndentedTextBlock
+                              text={`${String(plan.outline_text).slice(0, 260)}${String(plan.outline_text).length > 260 ? '...' : ''}`}
+                              className="detail-pre"
+                              paragraphClassName="detail-pre-paragraph"
+                            />
+                          ) : null}
+                          {chapter?.content ? (
+                            <IndentedTextBlock
+                              text={`${String(chapter.content).slice(0, 320)}${String(chapter.content).length > 320 ? '...' : ''}`}
+                              className="detail-pre"
+                              paragraphClassName="detail-pre-paragraph"
+                            />
+                          ) : <p className="excerpt-text">正文尚未生成。</p>}
                         </article>
                       ))}
                     </div>
@@ -1886,6 +1928,7 @@ export default function BooksPage() {
                   <div className="detail-action-grid">
                     <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksSummaryPage(detailBook.id)}>汇总页</button>
                     <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksOutlinePage(detailBook.id)}>大纲链页</button>
+                    <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksStorylinePage(detailBook.id)}>剧情线页</button>
                     <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksCharacterPage(detailBook.id)}>角色页</button>
                     <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>进入创作台</button>
                   </div>
@@ -1897,7 +1940,7 @@ export default function BooksPage() {
       ) : null}
 
       {view === 'detail' && detailBook && !isSubPage ? (
-        <section className="workbench-stage">
+        <section className="mt-8">
           <div className="detail-header">
             <div className="detail-header-main">
               <h2>{detailBook.title}</h2>
@@ -1920,7 +1963,7 @@ export default function BooksPage() {
                 <div className="summary-overview-head">
                   <div>
                     <h3>全书汇总</h3>
-                    <p>先看整体结构，再进入具体分页面继续维护。</p>
+                    <p>先看整体，再进分页面。</p>
                   </div>
                 </div>
                 <div className="summary-metric-grid">
@@ -1949,8 +1992,14 @@ export default function BooksPage() {
                   <button type="button" className="summary-nav-card summary-nav-button summary-nav-card-outline" onClick={() => openBooksOutlinePage(detailBook.id)}>
                     <span className="summary-nav-kicker">Story Structure</span>
                     <strong>大纲链页</strong>
-                    <span>全书大纲、分卷大纲、剧情线大纲</span>
+                    <span>全书大纲、分卷大纲、细节补充</span>
                     <em>进入结构规划</em>
+                  </button>
+                  <button type="button" className="summary-nav-card summary-nav-button summary-nav-card-storyline" onClick={() => openBooksStorylinePage(detailBook.id)}>
+                    <span className="summary-nav-kicker">Storyline Board</span>
+                    <strong>剧情线页</strong>
+                    <span>按卷查看剧情线，后续承接 AI 剧情线管理</span>
+                    <em>进入剧情线管理</em>
                   </button>
                   <button type="button" className="summary-nav-card summary-nav-button summary-nav-card-character" onClick={() => openBooksCharacterPage(detailBook.id)}>
                     <span className="summary-nav-kicker">Character Core</span>
@@ -2135,9 +2184,6 @@ export default function BooksPage() {
       ) : null}
 
       <style>{`
-        .hero-note-card-stack { display: grid; gap: 12px; min-width: 260px; }
-        .hero-note-card-stack p { margin: 4px 0 0; color: var(--muted); }
-        .hero-note-card-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
         .danger-solid-btn {
           --btn-solid-bg: var(--btn-danger-solid-bg);
           --btn-solid-text: var(--btn-danger-solid-text);
@@ -2148,57 +2194,23 @@ export default function BooksPage() {
           min-height: 24px;
           padding: 0 10px;
           border-radius: 999px;
-          background: #ecfdf5;
-          color: #166534;
+          background: color-mix(in srgb, var(--brand-soft) 72%, var(--panel));
+          color: var(--brand-deep);
           font-size: 12px;
           font-weight: 700;
           white-space: nowrap;
         }
-        .stats-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
-        .stats-card { padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); display: grid; gap: 4px; }
-        .stats-card strong { font-size: 24px; color: var(--stat-color, var(--text)); }
-        .stats-card span { font-size: 12px; color: var(--muted); }
-        .library-list-top-grid {
-          display: grid;
-          grid-template-columns: minmax(320px, 1.05fr) minmax(280px, 0.95fr);
-          gap: 16px;
-          margin-bottom: 16px;
-          align-items: stretch;
-        }
         .library-action-panel,
         .library-status-panel { display: grid; gap: 14px; }
-        .library-action-panel {
-          align-content: start;
-          padding-bottom: 20px;
-        }
         .library-action-panel h3,
         .library-status-panel h3 {
           margin: 0;
-        }
-        .library-action-panel .detail-action-grid {
-          align-items: center;
-          justify-content: flex-start;
-          gap: 12px;
-          margin-top: 4px;
         }
         .library-action-panel .solid-btn,
         .library-action-panel .ghost-btn {
           min-height: 42px;
           padding-inline: 18px;
           font-size: 15px;
-        }
-        .library-status-row { margin-bottom: 0; }
-        .library-status-meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--muted); font-size: 13px; }
-        .filter-toolbar {
-          display: grid;
-          grid-template-columns: minmax(0, 2fr) repeat(3, minmax(180px, 1fr)) auto;
-          gap: 12px;
-          align-items: end;
-          margin-bottom: 16px;
-          padding: 16px;
-          border: 1px solid var(--line);
-          border-radius: 14px;
-          background: rgba(255, 252, 247, 0.88);
         }
         .filter-field { gap: 6px; }
         .filter-field span { font-size: 12px; color: var(--muted); }
@@ -2211,39 +2223,6 @@ export default function BooksPage() {
           color: var(--text);
           font: inherit;
         }
-        .batch-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 252, 247, 0.9); }
-        .batch-toolbar-info { display: flex; gap: 10px; align-items: center; }
-        .batch-toolbar-info strong { font-size: 14px; }
-        .batch-toolbar-info span { color: var(--muted); font-size: 13px; }
-        .batch-toolbar-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-        .list-tools-merged-panel {
-          display: flex;
-          align-items: center;
-          margin-bottom: 16px;
-        }
-        .list-tools-inline-row {
-          width: 100%;
-          align-items: center;
-          justify-content: flex-start;
-          flex-wrap: wrap;
-        }
-        .book-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
-        .book-card { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px; align-items: start; padding: 18px; border: 1px solid rgba(217, 181, 142, 0.2); border-radius: 18px; background: linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(255, 246, 232, 0.88)); box-shadow: 0 10px 28px rgba(15, 23, 42, 0.04); cursor: pointer; transition: border-color 140ms ease, background 140ms ease, transform 140ms ease, box-shadow 140ms ease; }
-        .book-card:hover { border-color: rgba(194, 120, 48, 0.34); transform: translateY(-2px); box-shadow: 0 14px 30px rgba(194, 120, 48, 0.08); }
-        .book-card.is-selected { border-color: rgba(59, 130, 246, 0.36); background: linear-gradient(180deg, rgba(239, 246, 255, 0.92), rgba(230, 242, 255, 0.82)); }
-        .book-card.is-current { box-shadow: inset 0 0 0 1px rgba(30, 64, 175, 0.08), 0 12px 30px rgba(15, 23, 42, 0.05); }
-        .book-card-checkbox { width: 16px; height: 16px; margin-top: 4px; accent-color: var(--brand); }
-        .book-card-body { min-width: 0; display: flex; flex-direction: column; gap: 8px; min-height: 100%; }
-        .book-card-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-        .book-card-body h3 { margin: 0; font-size: 16px; line-height: 1.4; word-break: break-word; }
-        .book-card-meta { display: flex; gap: 8px; flex-wrap: wrap; }
-        .book-card-genre { font-size: 12px; color: var(--muted); }
-        .book-card-status { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--brand-soft); color: var(--brand); font-weight: 600; }
-        .book-card-extra { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
-        .book-card-platform { font-size: 12px; color: var(--muted); }
-        .book-card-actions { display: flex; align-items: center; justify-content: flex-start; gap: 8px; flex-wrap: nowrap; margin-top: auto; padding-top: 12px; border-top: 1px dashed rgba(217, 181, 142, 0.28); }
-        .book-card-actions .ghost-btn { flex: 0 0 auto; white-space: nowrap; min-width: 0; }
-        .book-card-current-note { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border-radius: 999px; background: #ecfdf5; color: #166534; font-size: 12px; font-weight: 600; white-space: nowrap; flex: 0 0 auto; }
         .detail-header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 20px; }
         .detail-header-main { min-width: 0; }
         .detail-header h2 { margin: 0 0 8px; }
@@ -2258,12 +2237,12 @@ export default function BooksPage() {
         .summary-overview-head h3 { margin: 0 0 6px; }
         .summary-overview-head p { margin: 0; color: var(--muted); line-height: 1.6; }
         .summary-metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-        .summary-metric-card { padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-panel-sm); background: color-mix(in srgb, var(--panel-strong) 84%, transparent); }
+        .summary-metric-card { padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--panel-strong) 88%, white); box-shadow: none; }
         .summary-metric-card strong { display: block; font-size: var(--font-size-section-title); line-height: 1; color: var(--text); }
         .summary-metric-card span { display: block; margin-top: 8px; font-size: 13px; color: var(--muted); }
         .summary-bottom-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.9fr); gap: 16px; }
-        .detail-panel { box-shadow: var(--shadow); }
-        .detail-panel { padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-panel-sm); background: var(--panel); }
+        .detail-panel { box-shadow: none; }
+        .detail-panel { padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--panel) 92%, white); }
         .detail-panel h3 { margin: 0 0 12px; font-size: var(--font-size-panel-title); }
         .detail-cover-preview {
           display: flex;
@@ -2302,27 +2281,27 @@ export default function BooksPage() {
         }
         .detail-summary-stack { display: grid; gap: 12px; }
         .summary-nav-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-        .summary-nav-grid-hub { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .summary-nav-grid-hub { grid-template-columns: repeat(4, minmax(0, 1fr)); }
         .summary-nav-card {
           position: relative;
           display: grid;
           align-content: start;
           gap: 10px;
-          min-height: 220px;
-          padding: 22px 22px 20px;
-          border: 1px solid var(--line-strong);
-          border-radius: var(--radius-panel-lg);
+          min-height: 182px;
+          padding: 20px 20px 18px;
+          border: 1px solid var(--line);
+          border-radius: 18px;
           overflow: hidden;
-          background: linear-gradient(180deg, color-mix(in srgb, var(--panel-card-bg) 92%, white), color-mix(in srgb, var(--panel-card-bg) 92%, var(--brand-soft)));
+          background: color-mix(in srgb, var(--panel-strong) 90%, white);
         }
         .summary-nav-card::after {
           content: '';
           position: absolute;
-          inset: auto 20px 0 auto;
-          width: 120px;
-          height: 120px;
+          inset: 0 auto 0 0;
+          width: 4px;
+          height: 100%;
           border-radius: 999px;
-          background: radial-gradient(circle, var(--brand-soft-strong), rgba(194, 120, 48, 0));
+          background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 68%, white), color-mix(in srgb, var(--brand-deep) 78%, white));
           pointer-events: none;
         }
         .summary-nav-kicker {
@@ -2356,22 +2335,16 @@ export default function BooksPage() {
         .summary-nav-button {
           text-align: left;
           cursor: pointer;
-          transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+          transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
         }
         .summary-nav-button:hover {
-          transform: translateY(-3px);
+          transform: translateY(-2px);
           border-color: var(--badge-border);
-          box-shadow: 0 18px 34px color-mix(in srgb, var(--brand) 16%, transparent);
         }
-        .summary-nav-card-outline {
-          background: linear-gradient(180deg, color-mix(in srgb, var(--panel-card-bg) 90%, white), color-mix(in srgb, var(--panel-card-bg) 84%, var(--brand-soft)));
-        }
-        .summary-nav-card-character {
-          background: linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(245, 238, 227, 0.94));
-        }
-        .summary-nav-card-chapter {
-          background: linear-gradient(180deg, rgba(255, 249, 241, 0.98), rgba(255, 234, 214, 0.92));
-        }
+        .summary-nav-card-outline,
+        .summary-nav-card-storyline,
+        .summary-nav-card-character,
+        .summary-nav-card-chapter { background: color-mix(in srgb, var(--panel-strong) 90%, white); }
         .detail-outline-grid { display: grid; gap: 14px; }
         .detail-outline-section { display: grid; gap: 8px; }
         .detail-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -2384,7 +2357,7 @@ export default function BooksPage() {
           border: 1px solid var(--line);
           border-radius: 10px;
           padding: 9px 12px;
-          background: #fff;
+          background: color-mix(in srgb, var(--panel-strong) 90%, white);
           color: var(--text);
           font: inherit;
           transform: translateY(-3px);
@@ -2396,7 +2369,7 @@ export default function BooksPage() {
           border: 1px solid var(--line);
           border-radius: 12px;
           padding: 12px 14px;
-          background: #fff;
+          background: color-mix(in srgb, var(--panel-strong) 90%, white);
           color: var(--text);
           font: inherit;
           line-height: 1.7;
@@ -2411,7 +2384,7 @@ export default function BooksPage() {
           border: 1px solid var(--line);
           border-radius: 10px;
           padding: 10px 12px;
-          background: #fff;
+          background: color-mix(in srgb, var(--panel-strong) 90%, white);
           color: var(--text);
           font: inherit;
           line-height: 1.6;
@@ -2420,49 +2393,56 @@ export default function BooksPage() {
         .detail-inline-field em { font-size: 12px; color: var(--muted); font-style: normal; }
         .detail-inline-editor { display: grid; gap: 10px; margin-top: 6px; }
         .detail-inline-display { display: grid; gap: 4px; }
-        .detail-character-ai-box { margin-bottom: 14px; padding: 14px; border: 1px solid rgba(217, 181, 142, 0.22); border-radius: 12px; background: rgba(255, 248, 240, 0.66); }
+        .detail-character-ai-box { margin-bottom: 14px; padding: 14px; border: 1px solid color-mix(in srgb, var(--brand) 14%, var(--line)); border-radius: 12px; background: color-mix(in srgb, var(--brand-soft) 42%, var(--panel)); }
         .detail-character-role-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
-        .detail-role-count-field.is-warning input { border-color: #d68d21; background: rgba(255, 247, 230, 0.9); }
+        .detail-role-count-field.is-warning input { border-color: color-mix(in srgb, var(--brand) 32%, var(--line)); background: color-mix(in srgb, var(--brand-soft) 46%, var(--panel)); }
         .detail-character-metric-strip { display: flex; flex-wrap: wrap; gap: 8px; }
-        .detail-character-metric-strip span { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.82); color: var(--brand); font-size: 12px; font-weight: 600; }
+        .detail-character-metric-strip span { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border-radius: 999px; background: color-mix(in srgb, var(--panel-strong) 90%, white); color: var(--brand); font-size: 12px; font-weight: 600; }
         .detail-character-metric-list { display: grid; gap: 6px; margin-top: 6px; }
         .detail-volume-plan-list { display: grid; gap: 10px; }
-        .detail-outline-volume { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 252, 247, 0.7); }
+        .detail-outline-volume { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel) 88%, var(--panel-note-bg)); }
         .detail-outline-volume strong { display: block; margin-bottom: 6px; color: var(--brand); }
         .detail-storyline-list { display: grid; gap: 8px; }
-        .detail-storyline-item { padding-top: 8px; border-top: 1px dashed rgba(148, 163, 184, 0.28); }
+        .detail-storyline-item { padding-top: 8px; border-top: 1px dashed color-mix(in srgb, var(--line-strong) 72%, transparent); }
         .detail-storyline-item:first-child { padding-top: 0; border-top: 0; }
-        .detail-pre { margin: 0; padding: 10px 12px; border-radius: 10px; background: rgba(255, 248, 240, 0.7); white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 14px; line-height: 1.7; color: var(--text); }
+        .detail-pre { margin: 0; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--panel-note-bg) 72%, var(--panel)); display: grid; gap: 10px; }
+        .detail-pre-paragraph { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 14px; line-height: 1.7; color: var(--text); text-indent: 2em; }
         .detail-chapter-list, .detail-character-list { display: grid; gap: 8px; }
         .chapter-entry-list { display: grid; gap: 12px; }
-        .chapter-entry-card { padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 252, 247, 0.72); display: grid; gap: 8px; }
-        .detail-chapter-item, .detail-character-item { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 252, 247, 0.6); }
-        .detail-character-item-editing { margin-bottom: 12px; background: rgba(255, 248, 240, 0.72); }
+        .chapter-entry-card { padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--panel-strong) 90%, white); display: grid; gap: 8px; }
+        .detail-chapter-item, .detail-character-item { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel) 82%, var(--panel-note-bg)); }
+        .detail-character-item-editing { margin-bottom: 12px; background: color-mix(in srgb, var(--brand-soft) 26%, var(--panel)); }
         .detail-character-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .detail-role-tier-badge { display: inline-flex; align-items: center; min-height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
-        .detail-role-tier-badge-protagonist { background: rgba(191, 90, 36, 0.16); color: #9a4f17; }
-        .detail-role-tier-badge-supporting_major { background: rgba(42, 106, 179, 0.14); color: #1f5d9c; }
-        .detail-role-tier-badge-supporting_minor { background: rgba(92, 121, 74, 0.16); color: #52703a; }
-        .detail-role-tier-badge-antagonist_major { background: rgba(150, 46, 46, 0.16); color: #922f2f; }
-        .detail-role-tier-badge-antagonist_minor { background: rgba(104, 69, 138, 0.14); color: #68458a; }
-        .detail-character-item-protagonist { background: linear-gradient(180deg, rgba(255, 246, 235, 0.92), rgba(255, 240, 222, 0.82)); border-color: rgba(191, 90, 36, 0.18); }
-        .detail-character-item-supporting_major { background: linear-gradient(180deg, rgba(241, 247, 255, 0.92), rgba(233, 241, 253, 0.82)); border-color: rgba(42, 106, 179, 0.16); }
-        .detail-character-item-supporting_minor { background: linear-gradient(180deg, rgba(245, 250, 241, 0.92), rgba(236, 245, 231, 0.82)); border-color: rgba(92, 121, 74, 0.16); }
-        .detail-character-item-antagonist_major { background: linear-gradient(180deg, rgba(255, 241, 241, 0.92), rgba(250, 232, 232, 0.82)); border-color: rgba(150, 46, 46, 0.16); }
-        .detail-character-item-antagonist_minor { background: linear-gradient(180deg, rgba(247, 241, 252, 0.92), rgba(239, 232, 247, 0.82)); border-color: rgba(104, 69, 138, 0.16); }
+        .detail-role-tier-badge-protagonist,
+        .detail-role-tier-badge-supporting_major,
+        .detail-role-tier-badge-supporting_minor,
+        .detail-role-tier-badge-antagonist_major,
+        .detail-role-tier-badge-antagonist_minor {
+          background: color-mix(in srgb, var(--brand-soft) 68%, var(--panel));
+          color: var(--brand-deep);
+        }
+        .detail-character-item-protagonist,
+        .detail-character-item-supporting_major,
+        .detail-character-item-supporting_minor,
+        .detail-character-item-antagonist_major,
+        .detail-character-item-antagonist_minor {
+          background: color-mix(in srgb, var(--panel) 82%, var(--panel-note-bg));
+          border-color: color-mix(in srgb, var(--brand) 10%, var(--line));
+        }
         .detail-character-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .detail-character-avatar {
           width: 56px;
           height: 56px;
           object-fit: cover;
           border-radius: 16px;
-          border: 1px solid rgba(217, 181, 142, 0.22);
-          background: rgba(255, 252, 247, 0.82);
-          box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+          border: 1px solid color-mix(in srgb, var(--brand) 10%, var(--line));
+          background: color-mix(in srgb, var(--panel-strong) 90%, white);
+          box-shadow: 0 6px 18px color-mix(in srgb, var(--text) 8%, transparent);
           flex: 0 0 auto;
         }
         .avatar-crop-modal { width: min(560px, calc(100vw - 48px)); max-height: calc(100vh - 48px); border-radius: 20px; overflow: hidden; }
-        .avatar-crop-body { padding: 24px 24px 12px; background: rgba(255, 252, 247, 0.9); }
+        .avatar-crop-body { padding: 24px 24px 12px; background: color-mix(in srgb, var(--panel) 94%, white); }
         .avatar-crop-stage {
           position: relative;
           width: 320px;
@@ -2471,8 +2451,8 @@ export default function BooksPage() {
           overflow: hidden;
           border-radius: 24px;
           background:
-            linear-gradient(45deg, rgba(217, 181, 142, 0.14) 25%, transparent 25%, transparent 75%, rgba(217, 181, 142, 0.14) 75%),
-            linear-gradient(45deg, rgba(217, 181, 142, 0.14) 25%, transparent 25%, transparent 75%, rgba(217, 181, 142, 0.14) 75%);
+            linear-gradient(45deg, color-mix(in srgb, var(--brand-soft) 36%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, var(--brand-soft) 36%, transparent) 75%),
+            linear-gradient(45deg, color-mix(in srgb, var(--brand-soft) 36%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, var(--brand-soft) 36%, transparent) 75%);
           background-size: 24px 24px;
           background-position: 0 0, 12px 12px;
           touch-action: none;
@@ -2492,41 +2472,38 @@ export default function BooksPage() {
         .avatar-crop-mask {
           position: absolute;
           inset: 0;
-          box-shadow: inset 0 0 0 999px rgba(15, 23, 42, 0.18);
+          box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--text) 18%, transparent);
           pointer-events: none;
         }
         .avatar-crop-frame {
           position: absolute;
           inset: 0;
-          border: 2px solid rgba(255, 255, 255, 0.92);
+          border: 2px solid color-mix(in srgb, white 92%, var(--panel));
           border-radius: 24px;
-          box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12);
+          box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent);
           pointer-events: none;
         }
-        .avatar-crop-actions { padding-inline: 24px; padding-bottom: 20px; background: rgba(255, 252, 247, 0.96); }
+        .avatar-crop-actions { padding-inline: 24px; padding-bottom: 20px; background: color-mix(in srgb, var(--panel) 96%, white); }
         .detail-chapter-item strong, .detail-character-item strong { display: block; margin-bottom: 4px; }
         .detail-chapter-meta { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; }
         .detail-entry-meta { font-size: 12px; color: var(--muted); white-space: nowrap; }
-        .modal-backdrop { position: fixed; inset: 0; z-index: 40; display: flex; align-items: flex-start; justify-content: center; padding: 40px; background: rgba(15, 23, 42, 0.34); overflow: auto; }
-        .book-editor-modal { width: min(580px, calc(100vw - 80px)); max-height: calc(100vh - 80px); margin: 0 auto; border-radius: var(--radius-panel-md); box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16); overflow: hidden; display: flex; flex-direction: column; }
-        .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 0; padding: 18px 28px 14px; border-bottom: 1px solid var(--line); background: rgba(255, 250, 242, 0.86); }
+        .modal-backdrop { position: fixed; inset: 0; z-index: 40; display: flex; align-items: flex-start; justify-content: center; padding: 40px; background: color-mix(in srgb, var(--text) 34%, transparent); overflow: auto; }
+        .book-editor-modal { width: min(580px, calc(100vw - 80px)); max-height: calc(100vh - 80px); margin: 0 auto; border-radius: var(--radius-panel-md); box-shadow: 0 18px 40px color-mix(in srgb, var(--text) 16%, transparent); overflow: hidden; display: flex; flex-direction: column; }
+        .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 0; padding: 18px 28px 14px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--panel-note-bg) 72%, var(--panel)); }
         .modal-head-text { display: grid; gap: 2px; }
         .modal-head h3 { margin: 0; font-size: 16px; }
         .modal-head p { margin: 0; color: var(--muted); line-height: 1.35; font-size: 12px; }
-        .book-editor-form { display: grid; gap: 10px; padding: 16px 28px 22px; background: rgba(255, 252, 247, 0.72); overflow: auto; }
+        .book-editor-form { display: grid; gap: 10px; padding: 16px 28px 22px; background: color-mix(in srgb, var(--panel) 90%, white); overflow: auto; }
         .field { display: grid; gap: 6px; }
         .field-full { grid-column: 1 / -1; }
         .field span { font-size: 13px; font-weight: 600; color: var(--text); }
-        .field input, .field select, .field textarea { width: 100%; border: 1px solid var(--line); border-radius: 11px; padding: 11px 13px; background: #fff; color: var(--text); font: inherit; }
+        .field input, .field select, .field textarea { width: 100%; border: 1px solid var(--line); border-radius: 11px; padding: 11px 13px; background: color-mix(in srgb, var(--panel-strong) 92%, white); color: var(--text); font: inherit; }
         .field textarea { resize: vertical; min-height: 108px; }
         .form-grid-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; position: sticky; bottom: 0; background: rgba(255, 252, 247, 0.96); }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; position: sticky; bottom: 0; background: color-mix(in srgb, var(--panel) 96%, white); }
         @media (max-width: 900px) {
-          .stats-row, .library-list-top-grid, .filter-toolbar, .form-grid-two, .detail-grid, .detail-summary-row, .detail-summary-row-quad, .summary-nav-grid, .summary-metric-grid, .summary-bottom-grid, .detail-character-role-grid { grid-template-columns: 1fr; }
-          .batch-toolbar { align-items: flex-start; flex-direction: column; }
-          .batch-toolbar, .detail-header, .modal-head, .summary-overview-head { align-items: stretch; flex-direction: column; }
-          .book-card-grid { grid-template-columns: 1fr; }
-          .hero-note-card-stack { min-width: 0; width: 100%; }
+          .form-grid-two, .detail-grid, .detail-summary-row, .detail-summary-row-quad, .summary-nav-grid, .summary-metric-grid, .summary-bottom-grid, .detail-character-role-grid { grid-template-columns: 1fr; }
+          .detail-header, .modal-head, .summary-overview-head { align-items: stretch; flex-direction: column; }
         }
       `}</style>
     </div>

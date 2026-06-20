@@ -52,7 +52,8 @@ start "alipro-backend" cmd /k "cd /d %~dp0 && npm start"
 timeout /t 3 /nobreak >nul
 
 echo Frontend dev server is now managed in frontend-react.
-echo If you are doing local development, start frontend-react and open http://127.0.0.1:5173/
+echo Local development entry with hot reload: http://127.0.0.1:5173/
+echo Backend hosted entry without hot reload: http://localhost:3000/
 start http://127.0.0.1:5173/
 
 exit

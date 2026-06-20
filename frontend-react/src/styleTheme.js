@@ -1,90 +1,111 @@
-const STORAGE_KEY = 'alipro-style-theme-v2';
-const LEGACY_STORAGE_KEY = 'alipro-style-theme-v1';
-const CUSTOM_THEME_STORAGE_KEY = 'alipro-style-theme-library-v1';
-const ACTIVE_THEME_ID_STORAGE_KEY = 'alipro-style-theme-active-id-v1';
+const STORAGE_KEY = 'alipro-style-theme-v3';
+const LEGACY_STORAGE_KEYS = ['alipro-style-theme-v2', 'alipro-style-theme-v1'];
+const ACTIVE_THEME_ID_STORAGE_KEY = 'alipro-style-theme-active-id-v2';
 
-export const PAGE_THEME_OPTIONS = [
-  { value: 'paper', label: '纸页留白' },
-  { value: 'clear', label: '冷光留白' },
-  { value: 'graphite', label: '石墨深幕' },
-  { value: 'aurora', label: '极光渐层' }
+export const STYLE_ATMOSPHERE_OPTIONS = [
+  {
+    value: 'paper',
+    label: '中性浅色·暖白',
+    shortLabel: '暖白',
+    description: '大众化暖白文档感，适合长时间阅读和写作。'
+  },
+  {
+    value: 'cool',
+    label: '中性浅色·冷白',
+    shortLabel: '冷白',
+    description: '大众化冷白工具感，适合规划、编辑和资料整理。'
+  },
+  {
+    value: 'deep',
+    label: '常规产品·深灰',
+    shortLabel: '深灰',
+    description: '接近常见产品后台的深色版本，稳重、不跳。'
+  },
+  {
+    value: 'signal',
+    label: '常规产品·灰蓝',
+    shortLabel: '灰蓝',
+    description: '比纯中性多一点产品层次，但不过度发亮或发紫。'
+  }
 ];
 
-export const BRAND_THEME_OPTIONS = [
-  { value: 'amber', label: '琥珀橙' },
-  { value: 'slate', label: '石墨灰' },
-  { value: 'cobalt', label: '钴蓝' },
-  { value: 'orchid', label: '电紫' },
-  { value: 'mint', label: '薄荷青' }
-];
-
-export const NAV_THEME_OPTIONS = [
-  { value: 'neutral', label: '系统导航' },
-  { value: 'outline', label: '线框导航' },
-  { value: 'warm', label: '品牌导航' }
-];
-
-export const ACTION_THEME_OPTIONS = [
-  { value: 'neutral', label: '系统操作' },
-  { value: 'outline', label: '线框操作' },
-  { value: 'warm', label: '品牌操作' }
-];
-
-export const PANEL_THEME_OPTIONS = [
-  { value: 'paper', label: '留白面板' },
-  { value: 'frost', label: '透雾面板' },
-  { value: 'frame', label: '线框面板' },
-  { value: 'graphite', label: '深幕面板' },
-  { value: 'contrast', label: '高对比面板' }
-];
-
-export const RADIUS_THEME_OPTIONS = [
-  { value: 'soft', label: '柔和圆角' },
-  { value: 'balanced', label: '平衡圆角' },
-  { value: 'crisp', label: '利落圆角' }
-];
-
-export const DENSITY_THEME_OPTIONS = [
-  { value: 'relaxed', label: '舒展密度' },
-  { value: 'balanced', label: '平衡密度' },
-  { value: 'compact', label: '紧凑密度' }
-];
-
-export const TITLE_THEME_OPTIONS = [
-  { value: 'grand', label: '舒展标题' },
-  { value: 'balanced', label: '平衡标题' },
-  { value: 'compact', label: '紧凑标题' }
-];
-
-export const STATUS_THEME_OPTIONS = [
-  { value: 'soft', label: '柔和提示' },
-  { value: 'balanced', label: '平衡提示' },
-  { value: 'strong', label: '强强调提示' }
+export const STYLE_TONE_OPTIONS = [
+  {
+    value: 'light',
+    label: '浅',
+    description: '留白更足，适合白天和资料整理。'
+  },
+  {
+    value: 'dark',
+    label: '深',
+    description: '对比更稳，适合夜间和长时间写作。'
+  }
 ];
 
 export const DEFAULT_STYLE_THEME = {
-  pageTheme: 'clear',
-  brandTheme: 'slate',
-  navTheme: 'neutral',
-  actionTheme: 'neutral',
-  panelTheme: 'frost',
-  radiusTheme: 'crisp',
-  densityTheme: 'compact',
-  titleTheme: 'compact',
-  statusTheme: 'soft',
-  colorStrength: 90,
-  backgroundGlow: 85,
-  spacingScale: 95,
-  controlScale: 95
+  atmosphere: 'paper',
+  tone: 'light'
 };
 
-export const STYLE_THEME_PRESETS = [
-  {
-    id: 'default',
-    label: '系统冷光',
-    summary: '参考 Linear / Vercel 的冷静产品页语气。',
-    theme: {
+export const STYLE_THEME_PRESETS = STYLE_ATMOSPHERE_OPTIONS.map((option) => ({
+  id: option.value,
+  label: option.label,
+  shortLabel: option.shortLabel,
+  summary: option.description,
+  theme: { atmosphere: option.value, tone: 'light' }
+}));
+
+const THEME_RECIPES = {
+  paper: {
+    light: {
+      pageTheme: 'paper',
+      brandTheme: 'amber',
+      navTheme: 'neutral',
+      actionTheme: 'neutral',
+      panelTheme: 'paper',
+      radiusTheme: 'crisp',
+      densityTheme: 'balanced',
+      titleTheme: 'balanced',
+      statusTheme: 'soft',
+      colorStrength: 84,
+      backgroundGlow: 74,
+      spacingScale: 100,
+      controlScale: 96
+    },
+    dark: {
+      pageTheme: 'graphite',
+      brandTheme: 'amber',
+      navTheme: 'neutral',
+      actionTheme: 'neutral',
+      panelTheme: 'frost',
+      radiusTheme: 'crisp',
+      densityTheme: 'balanced',
+      titleTheme: 'balanced',
+      statusTheme: 'soft',
+      colorStrength: 86,
+      backgroundGlow: 70,
+      spacingScale: 100,
+      controlScale: 96
+    }
+  },
+  cool: {
+    light: {
       pageTheme: 'clear',
+      brandTheme: 'slate',
+      navTheme: 'neutral',
+      actionTheme: 'neutral',
+      panelTheme: 'paper',
+      radiusTheme: 'crisp',
+      densityTheme: 'compact',
+      titleTheme: 'compact',
+      statusTheme: 'soft',
+      colorStrength: 84,
+      backgroundGlow: 70,
+      spacingScale: 95,
+      controlScale: 95
+    },
+    dark: {
+      pageTheme: 'graphite',
       brandTheme: 'slate',
       navTheme: 'neutral',
       actionTheme: 'neutral',
@@ -93,151 +114,96 @@ export const STYLE_THEME_PRESETS = [
       densityTheme: 'compact',
       titleTheme: 'compact',
       statusTheme: 'soft',
-      colorStrength: 90,
-      backgroundGlow: 85,
+      colorStrength: 84,
+      backgroundGlow: 68,
       spacingScale: 95,
       controlScale: 95
     }
   },
-  {
-    id: 'quiet',
-    label: '纸页留白',
-    summary: '唯一保留的暖纸风，适合书稿与说明页。',
-    theme: {
-      pageTheme: 'paper',
-      brandTheme: 'amber',
-      navTheme: 'neutral',
+  deep: {
+    light: {
+      pageTheme: 'clear',
+      brandTheme: 'slate',
+      navTheme: 'outline',
       actionTheme: 'neutral',
-      panelTheme: 'paper',
-      radiusTheme: 'soft',
-      densityTheme: 'balanced',
+      panelTheme: 'frost',
+      radiusTheme: 'crisp',
+      densityTheme: 'compact',
       titleTheme: 'balanced',
       statusTheme: 'soft',
-      colorStrength: 95,
-      backgroundGlow: 88,
-      spacingScale: 100,
-      controlScale: 98
+      colorStrength: 86,
+      backgroundGlow: 72,
+      spacingScale: 95,
+      controlScale: 95
+    },
+    dark: {
+      pageTheme: 'graphite',
+      brandTheme: 'slate',
+      navTheme: 'outline',
+      actionTheme: 'neutral',
+      panelTheme: 'frost',
+      radiusTheme: 'crisp',
+      densityTheme: 'compact',
+      titleTheme: 'balanced',
+      statusTheme: 'soft',
+      colorStrength: 86,
+      backgroundGlow: 70,
+      spacingScale: 95,
+      controlScale: 95
     }
   },
-  {
-    id: 'structured',
-    label: '深幕石墨',
-    summary: '参考 Vercel 的深色产品展示，适合做强对比工作台。',
-    theme: {
+  signal: {
+    light: {
+      pageTheme: 'clear',
+      brandTheme: 'cobalt',
+      navTheme: 'neutral',
+      actionTheme: 'neutral',
+      panelTheme: 'frost',
+      radiusTheme: 'crisp',
+      densityTheme: 'balanced',
+      titleTheme: 'compact',
+      statusTheme: 'balanced',
+      colorStrength: 90,
+      backgroundGlow: 74,
+      spacingScale: 98,
+      controlScale: 96
+    },
+    dark: {
       pageTheme: 'graphite',
       brandTheme: 'cobalt',
       navTheme: 'neutral',
-      actionTheme: 'outline',
-      panelTheme: 'graphite',
-      radiusTheme: 'crisp',
-      densityTheme: 'compact',
-      titleTheme: 'grand',
-      statusTheme: 'balanced',
-      colorStrength: 100,
-      backgroundGlow: 95,
-      spacingScale: 94,
-      controlScale: 96
-    }
-  },
-  {
-    id: 'dramatic',
-    label: '极光效率',
-    summary: '参考 Raycast 的高效率工具感，冷色里带一点霓虹。',
-    theme: {
-      pageTheme: 'aurora',
-      brandTheme: 'orchid',
-      navTheme: 'outline',
-      actionTheme: 'outline',
+      actionTheme: 'neutral',
       panelTheme: 'frost',
-      radiusTheme: 'balanced',
-      densityTheme: 'compact',
-      titleTheme: 'compact',
-      statusTheme: 'strong',
-      colorStrength: 112,
-      backgroundGlow: 118,
-      spacingScale: 94,
-      controlScale: 96
-    }
-  },
-  {
-    id: 'signal',
-    label: '钴蓝展台',
-    summary: '参考 Framer 的品牌站气质，颜色更鲜明、更有展示感。',
-    theme: {
-      pageTheme: 'clear',
-      brandTheme: 'cobalt',
-      navTheme: 'warm',
-      actionTheme: 'warm',
-      panelTheme: 'contrast',
-      radiusTheme: 'balanced',
-      densityTheme: 'balanced',
-      titleTheme: 'grand',
-      statusTheme: 'strong',
-      colorStrength: 118,
-      backgroundGlow: 102,
-      spacingScale: 102,
-      controlScale: 102
-    }
-  },
-  {
-    id: 'mint-lab',
-    label: '薄荷实验室',
-    summary: '偏清爽、偏科技，适合资料页和操作页。',
-    theme: {
-      pageTheme: 'clear',
-      brandTheme: 'mint',
-      navTheme: 'neutral',
-      actionTheme: 'outline',
-      panelTheme: 'frame',
       radiusTheme: 'crisp',
       densityTheme: 'balanced',
       titleTheme: 'compact',
-      statusTheme: 'soft',
-      colorStrength: 102,
-      backgroundGlow: 96,
+      statusTheme: 'balanced',
+      colorStrength: 90,
+      backgroundGlow: 70,
       spacingScale: 98,
-      controlScale: 98
+      controlScale: 96
     }
   }
-];
-
-function createBuiltInThemeRecord(preset) {
-  return {
-    id: preset.id,
-    label: preset.label,
-    summary: preset.summary || '',
-    theme: resolveStyleTheme(preset.theme),
-    builtIn: true
-  };
-}
+};
 
 const PAGE_THEME_TOKENS = {
-  warm: {
-    '--bg': '#f5efe6',
-    '--bg-radial': 'radial-gradient(circle at top left, rgba(255, 214, 170, 0.55), transparent 28%)',
-    '--bg-gradient': 'linear-gradient(180deg, #f8f2ea 0%, #f3ebdf 100%)',
-    '--nav-surface': 'rgba(255, 250, 244, 0.92)',
-    '--panel-backdrop-blur': '12px',
-    '--text': '#2f2419',
-    '--muted': '#7a6754'
-  },
   paper: {
-    '--bg': '#f4f1ea',
-    '--bg-radial': 'radial-gradient(circle at top left, rgba(221, 204, 177, 0.28), transparent 30%)',
-    '--bg-gradient': 'linear-gradient(180deg, #f8f5ef 0%, #f1ece4 100%)',
-    '--nav-surface': 'rgba(252, 249, 243, 0.94)',
-    '--panel-backdrop-blur': '10px',
-    '--text': '#2f2419',
-    '--muted': '#746659'
+    '--bg': '#fbf8f1',
+    '--bg-radial': 'radial-gradient(circle at 18% 20%, rgba(224, 120, 86, 0.09), transparent 28%), radial-gradient(circle at 82% 72%, rgba(122, 158, 126, 0.08), transparent 32%)',
+    '--bg-gradient': 'linear-gradient(180deg, #fbf8f1 0%, #f4eee2 100%)',
+    '--nav-surface': 'rgba(251, 248, 241, 0.86)',
+    '--panel-backdrop-blur': '14px',
+    '--text': '#3d3530',
+    '--muted': '#6b6157'
   },
   clear: {
-    '--bg': '#edf1f3',
-    '--bg-radial': 'radial-gradient(circle at top left, rgba(189, 208, 227, 0.34), transparent 30%)',
-    '--bg-gradient': 'linear-gradient(180deg, #f6f8fb 0%, #e9eef2 100%)',
-    '--nav-surface': 'rgba(250, 252, 255, 0.82)',
-    '--panel-backdrop-blur': '18px',
-    '--text': '#243142',
-    '--muted': '#697688'
+    '--bg': '#f8f6f0',
+    '--bg-radial': 'radial-gradient(circle at 14% 18%, rgba(224, 120, 86, 0.07), transparent 26%), radial-gradient(circle at 84% 24%, rgba(122, 158, 126, 0.06), transparent 28%)',
+    '--bg-gradient': 'linear-gradient(180deg, #fbfaf6 0%, #f1ede5 100%)',
+    '--nav-surface': 'rgba(252, 249, 243, 0.84)',
+    '--panel-backdrop-blur': '14px',
+    '--text': '#39414a',
+    '--muted': '#68707a'
   },
   graphite: {
     '--bg': '#0f1218',
@@ -249,22 +215,13 @@ const PAGE_THEME_TOKENS = {
     '--muted': '#9aa6ba'
   },
   aurora: {
-    '--bg': '#edf3ff',
-    '--bg-radial': 'radial-gradient(circle at top left, rgba(148, 119, 255, 0.24), transparent 26%), radial-gradient(circle at top right, rgba(84, 189, 255, 0.18), transparent 28%)',
-    '--bg-gradient': 'linear-gradient(180deg, #f4f7ff 0%, #e9f0ff 46%, #edf8ff 100%)',
-    '--nav-surface': 'rgba(250, 252, 255, 0.74)',
-    '--panel-backdrop-blur': '20px',
-    '--text': '#22314a',
-    '--muted': '#667796'
-  },
-  dusk: {
-    '--bg': '#ede6df',
-    '--bg-radial': 'radial-gradient(circle at top left, rgba(212, 150, 122, 0.28), transparent 30%)',
-    '--bg-gradient': 'linear-gradient(180deg, #f4eee8 0%, #e7ddd3 100%)',
-    '--nav-surface': 'rgba(250, 243, 236, 0.9)',
+    '--bg': '#faf6fb',
+    '--bg-radial': 'radial-gradient(circle at top left, rgba(193, 151, 235, 0.14), transparent 26%), radial-gradient(circle at top right, rgba(224, 120, 86, 0.08), transparent 28%)',
+    '--bg-gradient': 'linear-gradient(180deg, #fcf9fc 0%, #f5eef5 52%, #f4eef2 100%)',
+    '--nav-surface': 'rgba(252, 249, 252, 0.82)',
     '--panel-backdrop-blur': '14px',
-    '--text': '#2f2419',
-    '--muted': '#7b695a'
+    '--text': '#41384a',
+    '--muted': '#746a82'
   }
 };
 
@@ -275,20 +232,6 @@ const BRAND_THEME_TOKENS = {
     '--brand-deep': '#8a4e1f',
     '--brand-soft': 'rgba(191, 106, 42, 0.14)',
     '--brand-soft-strong': 'rgba(191, 106, 42, 0.22)'
-  },
-  cinnabar: {
-    '--brand': '#b85c43',
-    '--brand-rgb': '184, 92, 67',
-    '--brand-deep': '#8e3f2b',
-    '--brand-soft': 'rgba(184, 92, 67, 0.14)',
-    '--brand-soft-strong': 'rgba(184, 92, 67, 0.22)'
-  },
-  moss: {
-    '--brand': '#6e8b58',
-    '--brand-rgb': '110, 139, 88',
-    '--brand-deep': '#4f6840',
-    '--brand-soft': 'rgba(110, 139, 88, 0.16)',
-    '--brand-soft-strong': 'rgba(110, 139, 88, 0.24)'
   },
   slate: {
     '--brand': '#5c6473',
@@ -310,13 +253,6 @@ const BRAND_THEME_TOKENS = {
     '--brand-deep': '#6d43cf',
     '--brand-soft': 'rgba(143, 92, 255, 0.14)',
     '--brand-soft-strong': 'rgba(143, 92, 255, 0.22)'
-  },
-  mint: {
-    '--brand': '#20b29e',
-    '--brand-rgb': '32, 178, 158',
-    '--brand-deep': '#148471',
-    '--brand-soft': 'rgba(32, 178, 158, 0.14)',
-    '--brand-soft-strong': 'rgba(32, 178, 158, 0.22)'
   }
 };
 
@@ -370,16 +306,6 @@ const ACTION_THEME_TOKENS = {
     '--btn-action-solid-border': 'rgba(88, 102, 126, 0.34)',
     '--btn-action-solid-shadow': '0 10px 22px rgba(68, 82, 108, 0.18)'
   },
-  warm: {
-    '--btn-action-bg': 'rgba(var(--brand-rgb), 0.08)',
-    '--btn-action-border': 'rgba(var(--brand-rgb), 0.2)',
-    '--btn-action-text': 'var(--brand-deep)',
-    '--btn-action-shadow': 'inset 0 0 0 1px rgba(255,255,255,0.22)',
-    '--btn-action-solid-bg': 'linear-gradient(180deg, color-mix(in srgb, var(--brand) 78%, white), var(--brand))',
-    '--btn-action-solid-text': '#fffaf4',
-    '--btn-action-solid-border': 'transparent',
-    '--btn-action-solid-shadow': '0 10px 22px rgba(var(--brand-rgb), 0.2)'
-  },
   outline: {
     '--btn-action-bg': 'transparent',
     '--btn-action-border': 'var(--line-strong)',
@@ -392,42 +318,33 @@ const ACTION_THEME_TOKENS = {
   }
 };
 
-const PANEL_THEME_TOKENS = {
-  paper: { mode: 'paper' },
-  frost: { mode: 'frost' },
-  frame: { mode: 'frame' },
-  graphite: { mode: 'graphite' },
-  contrast: { mode: 'contrast' },
-  warm: { mode: 'paper' }
-};
-
 const PANEL_SURFACE_BASES = {
   paper: {
-    panel: 'linear-gradient(180deg, rgba(255, 255, 253, 0.98), rgba(246, 242, 236, 0.94))',
-    strong: '#fffefb',
-    card: 'linear-gradient(180deg, rgba(255, 255, 252, 0.99), rgba(244, 240, 233, 0.95))',
-    note: 'linear-gradient(180deg, rgba(253, 251, 247, 0.98), rgba(245, 239, 231, 0.94))',
-    line: 'rgba(123, 108, 87, 0.16)',
-    lineStrong: 'rgba(123, 108, 87, 0.24)',
-    shadow: '0 18px 40px rgba(104, 87, 67, 0.08)'
+    panel: 'linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(246, 241, 233, 0.92))',
+    strong: '#fffdf8',
+    card: 'linear-gradient(180deg, rgba(255, 253, 248, 0.98), rgba(247, 242, 234, 0.94))',
+    note: 'linear-gradient(180deg, rgba(248, 242, 232, 0.94), rgba(243, 236, 226, 0.9))',
+    line: 'rgba(61, 53, 48, 0.12)',
+    lineStrong: 'rgba(61, 53, 48, 0.22)',
+    shadow: '0 8px 24px -8px rgba(61, 53, 48, 0.12), 0 2px 6px rgba(61, 53, 48, 0.07)'
   },
   clear: {
-    panel: 'linear-gradient(180deg, rgba(251, 253, 255, 0.96), rgba(236, 242, 248, 0.94))',
-    strong: '#ffffff',
-    card: 'linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(239, 245, 252, 0.94))',
-    note: 'linear-gradient(180deg, rgba(251, 254, 255, 0.97), rgba(233, 240, 248, 0.94))',
-    line: 'rgba(96, 112, 136, 0.18)',
-    lineStrong: 'rgba(96, 112, 136, 0.28)',
-    shadow: '0 18px 42px rgba(78, 95, 118, 0.1)'
+    panel: 'linear-gradient(180deg, rgba(255, 253, 249, 0.95), rgba(245, 241, 235, 0.92))',
+    strong: '#fffdfa',
+    card: 'linear-gradient(180deg, rgba(255, 255, 252, 0.98), rgba(245, 241, 235, 0.94))',
+    note: 'linear-gradient(180deg, rgba(250, 247, 241, 0.96), rgba(242, 237, 230, 0.92))',
+    line: 'rgba(74, 79, 88, 0.12)',
+    lineStrong: 'rgba(74, 79, 88, 0.22)',
+    shadow: '0 8px 24px -8px rgba(61, 53, 48, 0.1), 0 2px 6px rgba(61, 53, 48, 0.06)'
   },
   aurora: {
-    panel: 'linear-gradient(180deg, rgba(252, 252, 255, 0.96), rgba(236, 243, 255, 0.94))',
-    strong: '#ffffff',
-    card: 'linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(235, 242, 255, 0.94))',
-    note: 'linear-gradient(180deg, rgba(252, 252, 255, 0.98), rgba(233, 239, 255, 0.94))',
-    line: 'rgba(105, 117, 170, 0.18)',
-    lineStrong: 'rgba(105, 117, 170, 0.3)',
-    shadow: '0 18px 46px rgba(95, 108, 168, 0.12)'
+    panel: 'linear-gradient(180deg, rgba(255, 252, 250, 0.96), rgba(247, 240, 247, 0.92))',
+    strong: '#fffdfa',
+    card: 'linear-gradient(180deg, rgba(255, 255, 252, 0.98), rgba(246, 239, 247, 0.94))',
+    note: 'linear-gradient(180deg, rgba(252, 248, 252, 0.98), rgba(244, 237, 247, 0.94))',
+    line: 'rgba(115, 101, 132, 0.16)',
+    lineStrong: 'rgba(115, 101, 132, 0.24)',
+    shadow: '0 8px 24px -8px rgba(84, 72, 101, 0.12), 0 2px 6px rgba(84, 72, 101, 0.06)'
   },
   graphite: {
     panel: 'linear-gradient(180deg, rgba(19, 24, 33, 0.96), rgba(14, 18, 24, 0.94))',
@@ -437,69 +354,31 @@ const PANEL_SURFACE_BASES = {
     line: 'rgba(233, 239, 255, 0.1)',
     lineStrong: 'rgba(233, 239, 255, 0.18)',
     shadow: '0 22px 54px rgba(0, 0, 0, 0.38)'
-  },
-  warm: {
-    panel: 'linear-gradient(180deg, rgba(255, 252, 247, 0.96), rgba(248, 237, 221, 0.92))',
-    strong: '#fff8ef',
-    card: 'linear-gradient(180deg, rgba(255, 250, 242, 0.98), rgba(247, 236, 220, 0.92))',
-    note: 'linear-gradient(180deg, rgba(255, 247, 236, 0.98), rgba(250, 233, 210, 0.9))',
-    line: 'rgba(113, 74, 33, 0.16)',
-    lineStrong: 'rgba(113, 74, 33, 0.28)',
-    shadow: '0 20px 50px rgba(80, 50, 20, 0.12)'
-  },
-  dusk: {
-    panel: 'linear-gradient(180deg, rgba(250, 244, 239, 0.96), rgba(236, 225, 216, 0.94))',
-    strong: '#fff7f2',
-    card: 'linear-gradient(180deg, rgba(255, 248, 242, 0.98), rgba(238, 226, 217, 0.94))',
-    note: 'linear-gradient(180deg, rgba(253, 244, 239, 0.98), rgba(239, 225, 214, 0.94))',
-    line: 'rgba(123, 91, 67, 0.18)',
-    lineStrong: 'rgba(123, 91, 67, 0.28)',
-    shadow: '0 18px 42px rgba(93, 63, 44, 0.12)'
   }
 };
 
 const RADIUS_THEME_TOKENS = {
-  soft: {
-    '--radius-panel-xl': '32px',
-    '--radius-panel-lg': '26px',
-    '--radius-panel-md': '20px',
-    '--radius-panel-sm': '16px',
-    '--radius-panel-xs': '14px',
-    '--radius-button': '999px',
-    '--radius-control': '16px'
-  },
   balanced: {
-    '--radius-panel-xl': '28px',
-    '--radius-panel-lg': '22px',
-    '--radius-panel-md': '18px',
-    '--radius-panel-sm': '14px',
-    '--radius-panel-xs': '12px',
-    '--radius-button': '999px',
-    '--radius-control': '14px'
+    '--radius-panel-xl': '18px',
+    '--radius-panel-lg': '14px',
+    '--radius-panel-md': '10px',
+    '--radius-panel-sm': '8px',
+    '--radius-panel-xs': '8px',
+    '--radius-button': '12px',
+    '--radius-control': '10px'
   },
   crisp: {
-    '--radius-panel-xl': '22px',
-    '--radius-panel-lg': '18px',
-    '--radius-panel-md': '14px',
-    '--radius-panel-sm': '12px',
-    '--radius-panel-xs': '10px',
+    '--radius-panel-xl': '18px',
+    '--radius-panel-lg': '14px',
+    '--radius-panel-md': '10px',
+    '--radius-panel-sm': '8px',
+    '--radius-panel-xs': '8px',
     '--radius-button': '12px',
-    '--radius-control': '12px'
+    '--radius-control': '10px'
   }
 };
 
 const DENSITY_THEME_TOKENS = {
-  relaxed: {
-    '--page-shell-pad-top': '48px',
-    '--page-shell-pad-bottom': '62px',
-    '--section-gap': '20px',
-    '--card-gap': '18px',
-    '--control-gap': '12px',
-    '--panel-padding': '24px',
-    '--panel-padding-lg': '28px',
-    '--button-height': '46px',
-    '--button-padding-x': '18px'
-  },
   balanced: {
     '--page-shell-pad-top': '40px',
     '--page-shell-pad-bottom': '56px',
@@ -508,46 +387,46 @@ const DENSITY_THEME_TOKENS = {
     '--control-gap': '10px',
     '--panel-padding': '22px',
     '--panel-padding-lg': '26px',
-    '--button-height': '42px',
+    '--button-height': '40px',
     '--button-padding-x': '16px'
   },
   compact: {
     '--page-shell-pad-top': '32px',
-    '--page-shell-pad-bottom': '42px',
+    '--page-shell-pad-bottom': '44px',
     '--section-gap': '12px',
     '--card-gap': '10px',
     '--control-gap': '8px',
     '--panel-padding': '18px',
     '--panel-padding-lg': '20px',
-    '--button-height': '38px',
+    '--button-height': '36px',
     '--button-padding-x': '14px'
   }
 };
 
 const TITLE_THEME_TOKENS = {
   grand: {
-    '--font-size-hero': 'clamp(34px, 4.4vw, 52px)',
-    '--font-size-display': 'clamp(36px, 3.8vw, 50px)',
-    '--font-size-card-title': '36px',
-    '--font-size-section-title': '30px',
-    '--font-size-panel-title': '18px',
-    '--font-size-metric': 'clamp(32px, 3.4vw, 46px)'
-  },
-  balanced: {
-    '--font-size-hero': 'clamp(30px, 4vw, 46px)',
-    '--font-size-display': 'clamp(34px, 3.4vw, 46px)',
-    '--font-size-card-title': '34px',
+    '--font-size-hero': 'clamp(30px, 4vw, 48px)',
+    '--font-size-display': 'clamp(32px, 3.4vw, 44px)',
+    '--font-size-card-title': '32px',
     '--font-size-section-title': '28px',
     '--font-size-panel-title': '16px',
-    '--font-size-metric': 'clamp(30px, 3.2vw, 42px)'
+    '--font-size-metric': 'clamp(30px, 3vw, 40px)'
   },
-  compact: {
-    '--font-size-hero': 'clamp(28px, 3.4vw, 40px)',
-    '--font-size-display': 'clamp(30px, 3vw, 40px)',
-    '--font-size-card-title': '28px',
+  balanced: {
+    '--font-size-hero': 'clamp(28px, 3.8vw, 42px)',
+    '--font-size-display': 'clamp(30px, 3.2vw, 40px)',
+    '--font-size-card-title': '30px',
     '--font-size-section-title': '24px',
     '--font-size-panel-title': '15px',
-    '--font-size-metric': 'clamp(26px, 2.8vw, 34px)'
+    '--font-size-metric': 'clamp(28px, 2.8vw, 36px)'
+  },
+  compact: {
+    '--font-size-hero': 'clamp(26px, 3.4vw, 38px)',
+    '--font-size-display': 'clamp(28px, 3vw, 36px)',
+    '--font-size-card-title': '28px',
+    '--font-size-section-title': '22px',
+    '--font-size-panel-title': '15px',
+    '--font-size-metric': 'clamp(24px, 2.4vw, 32px)'
   }
 };
 
@@ -561,7 +440,8 @@ const STATUS_THEME_TOKENS = {
     '--status-success-bg': 'rgba(240, 250, 241, 0.78)',
     '--status-success-border': 'rgba(77, 143, 88, 0.18)',
     '--status-error-bg': 'rgba(255, 238, 238, 0.76)',
-    '--status-error-border': 'rgba(185, 52, 52, 0.18)'
+    '--status-error-border': 'rgba(185, 52, 52, 0.18)',
+    '--status-error-text': '#8d3035'
   },
   balanced: {
     '--badge-bg': 'rgba(var(--brand-rgb), 0.12)',
@@ -572,7 +452,8 @@ const STATUS_THEME_TOKENS = {
     '--status-success-bg': 'rgba(240, 250, 241, 0.9)',
     '--status-success-border': 'rgba(77, 143, 88, 0.22)',
     '--status-error-bg': 'rgba(255, 238, 238, 0.9)',
-    '--status-error-border': 'rgba(185, 52, 52, 0.22)'
+    '--status-error-border': 'rgba(185, 52, 52, 0.22)',
+    '--status-error-text': '#8d3035'
   },
   strong: {
     '--badge-bg': 'rgba(var(--brand-rgb), 0.18)',
@@ -583,20 +464,21 @@ const STATUS_THEME_TOKENS = {
     '--status-success-bg': 'rgba(232, 247, 234, 0.96)',
     '--status-success-border': 'rgba(77, 143, 88, 0.34)',
     '--status-error-bg': 'rgba(255, 229, 229, 0.96)',
-    '--status-error-border': 'rgba(185, 52, 52, 0.34)'
+    '--status-error-border': 'rgba(185, 52, 52, 0.34)',
+    '--status-error-text': '#7c232a'
   }
 };
 
-function resolveThemeValue(theme, field, tokenMap) {
-  const value = theme?.[field];
-  return tokenMap[value] ? value : DEFAULT_STYLE_THEME[field];
-}
+const DARK_BRAND_DEEP_TOKENS = {
+  amber: '#ffd5ae',
+  slate: '#dbe4f0',
+  cobalt: '#c8d6ff',
+  orchid: '#e2d3ff'
+};
 
-function clampThemeNumber(value, fallback, min, max, step = 1) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return fallback;
-  const clamped = Math.min(max, Math.max(min, numeric));
-  return Math.round(clamped / step) * step;
+function rgba(rgb, alpha) {
+  const safeAlpha = Math.max(0, Math.min(1, Number(alpha) || 0));
+  return `rgba(${rgb}, ${safeAlpha.toFixed(3)})`;
 }
 
 function scalePx(value, factor) {
@@ -605,61 +487,126 @@ function scalePx(value, factor) {
   return `${Math.round(Number(matched[1]) * factor)}px`;
 }
 
-function rgba(rgb, alpha) {
-  const safeAlpha = Math.max(0, Math.min(1, Number(alpha) || 0));
-  return `rgba(${rgb}, ${safeAlpha.toFixed(3)})`;
+function normalizeAtmosphere(value) {
+  return STYLE_ATMOSPHERE_OPTIONS.some((option) => option.value === value)
+    ? value
+    : DEFAULT_STYLE_THEME.atmosphere;
 }
 
-function buildBackgroundTokens(pageTheme, glowScale) {
-  const glow = Math.max(0.68, Math.min(1.38, glowScale));
-  if (pageTheme === 'paper') {
+function normalizeTone(value) {
+  return STYLE_TONE_OPTIONS.some((option) => option.value === value)
+    ? value
+    : DEFAULT_STYLE_THEME.tone;
+}
+
+function migrateLegacyTheme(theme) {
+  const legacy = theme || {};
+  const tone = legacy.pageTheme === 'graphite' ? 'dark' : 'light';
+
+  if (legacy.pageTheme === 'aurora' || legacy.brandTheme === 'orchid') {
+    return { atmosphere: 'signal', tone };
+  }
+
+  if (legacy.brandTheme === 'slate') {
+    return { atmosphere: 'cool', tone };
+  }
+
+  if (legacy.brandTheme === 'amber' || legacy.pageTheme === 'paper' || legacy.panelTheme === 'paper') {
+    return { atmosphere: 'paper', tone };
+  }
+
+  if (legacy.brandTheme === 'cobalt' || legacy.panelTheme === 'contrast' || legacy.panelTheme === 'graphite') {
+    return { atmosphere: 'deep', tone };
+  }
+
+  return DEFAULT_STYLE_THEME;
+}
+
+export function resolveStyleTheme(theme) {
+  if (theme && typeof theme === 'object' && ('atmosphere' in theme || 'tone' in theme)) {
     return {
-      '--bg-radial': `radial-gradient(circle at top left, ${rgba('221, 204, 177', 0.28 * glow)}, transparent 30%)`
+      atmosphere: normalizeAtmosphere(theme.atmosphere),
+      tone: normalizeTone(theme.tone)
     };
   }
-  if (pageTheme === 'clear') {
-    return {
-      '--bg-radial': `radial-gradient(circle at top left, ${rgba('189, 208, 227', 0.34 * glow)}, transparent 30%)`
-    };
-  }
-  if (pageTheme === 'graphite') {
-    return {
-      '--bg-radial': `radial-gradient(circle at top left, ${rgba('85, 112, 178', 0.34 * glow)}, transparent 28%)`
-    };
-  }
-  if (pageTheme === 'aurora') {
-    return {
-      '--bg-radial': `radial-gradient(circle at top left, ${rgba('148, 119, 255', 0.24 * glow)}, transparent 26%), radial-gradient(circle at top right, ${rgba('84, 189, 255', 0.18 * glow)}, transparent 28%)`
-    };
-  }
-  if (pageTheme === 'dusk') {
-    return {
-      '--bg-radial': `radial-gradient(circle at top left, ${rgba('212, 150, 122', 0.28 * glow)}, transparent 30%)`
-    };
-  }
+
+  return migrateLegacyTheme(theme);
+}
+
+function buildEffectiveTheme(theme) {
+  const safeTheme = resolveStyleTheme(theme);
+  return THEME_RECIPES[safeTheme.atmosphere]?.[safeTheme.tone] || THEME_RECIPES.paper.light;
+}
+
+function resolveThemeRecord(record) {
+  const safeTheme = resolveStyleTheme(record?.theme || record);
+  const preset = STYLE_THEME_PRESETS.find((item) => item.id === safeTheme.atmosphere);
   return {
-    '--bg-radial': `radial-gradient(circle at top left, ${rgba('255, 214, 170', 0.55 * glow)}, transparent 28%)`
+    id: String(record?.id || safeTheme.atmosphere || '').trim() || safeTheme.atmosphere,
+    label: String(record?.label || preset?.label || '未命名主题').trim(),
+    summary: String(record?.summary || preset?.summary || '').trim(),
+    theme: safeTheme,
+    builtIn: record?.builtIn !== false
   };
 }
 
-function buildPanelTokens(theme) {
-  const base = PANEL_SURFACE_BASES[theme.pageTheme] || PANEL_SURFACE_BASES.clear;
-  const isDarkPage = theme.pageTheme === 'graphite';
-  const baseVars = {
-    '--panel': base.panel,
-    '--panel-strong': base.strong,
-    '--panel-card-bg': base.card,
-    '--panel-note-bg': base.note,
-    '--line': base.line,
-    '--line-strong': base.lineStrong,
-    '--shadow': base.shadow
-  };
+function getStoredThemeFromKeys(keys) {
+  if (typeof window === 'undefined') return null;
+  for (const key of keys) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+      return resolveStyleTheme(JSON.parse(raw));
+    } catch {
+      // Ignore malformed payloads and keep scanning.
+    }
+  }
+  return null;
+}
 
-  if (theme.panelTheme === 'paper') {
-    return baseVars;
+function buildBackgroundTokens(recipe) {
+  const glowScale = Math.max(0.76, Math.min(1.18, recipe.backgroundGlow / 100));
+
+  if (recipe.pageTheme === 'paper') {
+    return {
+      '--bg-radial': `radial-gradient(circle at 18% 20%, ${rgba('224, 120, 86', 0.09 * glowScale)}, transparent 28%), radial-gradient(circle at 82% 72%, ${rgba('122, 158, 126', 0.08 * glowScale)}, transparent 32%)`
+    };
   }
 
-  if (theme.panelTheme === 'frost') {
+  if (recipe.pageTheme === 'clear') {
+    return {
+      '--bg-radial': `radial-gradient(circle at 14% 18%, ${rgba('224, 120, 86', 0.07 * glowScale)}, transparent 26%), radial-gradient(circle at 84% 24%, ${rgba('122, 158, 126', 0.06 * glowScale)}, transparent 28%)`
+    };
+  }
+
+  if (recipe.pageTheme === 'graphite') {
+    return {
+      '--bg-radial': `radial-gradient(circle at top left, ${rgba('85, 112, 178', 0.34 * glowScale)}, transparent 28%)`
+    };
+  }
+
+  return {
+    '--bg-radial': `radial-gradient(circle at top left, ${rgba('193, 151, 235', 0.14 * glowScale)}, transparent 26%), radial-gradient(circle at top right, ${rgba('224, 120, 86', 0.08 * glowScale)}, transparent 28%)`
+  };
+}
+
+function buildPanelTokens(recipe) {
+  const base = PANEL_SURFACE_BASES[recipe.pageTheme] || PANEL_SURFACE_BASES.clear;
+  const isDarkPage = recipe.pageTheme === 'graphite';
+
+  if (recipe.panelTheme === 'paper') {
+    return {
+      '--panel': base.panel,
+      '--panel-strong': base.strong,
+      '--panel-card-bg': base.card,
+      '--panel-note-bg': base.note,
+      '--line': base.line,
+      '--line-strong': base.lineStrong,
+      '--shadow': base.shadow
+    };
+  }
+
+  if (recipe.panelTheme === 'frost') {
     return isDarkPage
       ? {
           '--panel': 'linear-gradient(180deg, rgba(23, 29, 40, 0.88), rgba(15, 20, 28, 0.78))',
@@ -671,87 +618,48 @@ function buildPanelTokens(theme) {
           '--shadow': '0 20px 48px rgba(0, 0, 0, 0.3)'
         }
       : {
-          '--panel': 'linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(241, 245, 250, 0.74))',
-          '--panel-strong': '#ffffff',
-          '--panel-card-bg': 'linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(239, 244, 250, 0.8))',
-          '--panel-note-bg': 'linear-gradient(180deg, rgba(252, 254, 255, 0.92), rgba(236, 242, 249, 0.8))',
+          '--panel': 'linear-gradient(180deg, rgba(255, 253, 249, 0.84), rgba(246, 241, 234, 0.76))',
+          '--panel-strong': '#fffdfa',
+          '--panel-card-bg': 'linear-gradient(180deg, rgba(255, 255, 252, 0.94), rgba(245, 241, 235, 0.82))',
+          '--panel-note-bg': 'linear-gradient(180deg, rgba(250, 247, 241, 0.94), rgba(242, 237, 230, 0.84))',
           '--line': base.line,
           '--line-strong': base.lineStrong,
-          '--shadow': '0 18px 42px rgba(78, 95, 118, 0.14)'
+          '--shadow': '0 8px 24px -8px rgba(61, 53, 48, 0.1), 0 2px 6px rgba(61, 53, 48, 0.06)'
         };
   }
 
-  if (theme.panelTheme === 'frame') {
-    return {
-      '--panel': base.panel,
-      '--panel-strong': base.strong,
-      '--panel-card-bg': isDarkPage ? 'rgba(19, 24, 33, 0.98)' : 'rgba(255, 255, 255, 0.98)',
-      '--panel-note-bg': isDarkPage ? 'rgba(23, 29, 40, 0.98)' : 'rgba(251, 253, 255, 0.98)',
-      '--line': isDarkPage ? 'rgba(233, 239, 255, 0.16)' : 'rgba(96, 112, 136, 0.22)',
-      '--line-strong': isDarkPage ? 'rgba(233, 239, 255, 0.28)' : 'rgba(96, 112, 136, 0.38)',
-      '--shadow': isDarkPage ? '0 10px 24px rgba(0, 0, 0, 0.24)' : '0 10px 24px rgba(78, 95, 118, 0.08)'
-    };
-  }
-
-  if (theme.panelTheme === 'contrast') {
-    return isDarkPage
-      ? {
-          '--panel': 'linear-gradient(180deg, rgba(20, 26, 36, 0.98), rgba(14, 18, 24, 0.96))',
-          '--panel-strong': '#171d28',
-          '--panel-card-bg': 'linear-gradient(180deg, rgba(31, 39, 53, 0.99), rgba(21, 29, 41, 0.97))',
-          '--panel-note-bg': 'linear-gradient(180deg, rgba(35, 43, 58, 0.99), rgba(23, 30, 43, 0.97))',
-          '--line': 'rgba(233, 239, 255, 0.16)',
-          '--line-strong': 'rgba(233, 239, 255, 0.28)',
-          '--shadow': '0 24px 56px rgba(0, 0, 0, 0.42)'
-        }
-      : {
-          '--panel': 'linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(239, 244, 250, 0.96))',
-          '--panel-strong': '#ffffff',
-          '--panel-card-bg': 'linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(233, 240, 248, 0.96))',
-          '--panel-note-bg': 'linear-gradient(180deg, rgba(252, 254, 255, 0.99), rgba(229, 237, 247, 0.94))',
-          '--line': 'rgba(41, 56, 78, 0.22)',
-          '--line-strong': 'rgba(41, 56, 78, 0.38)',
-          '--shadow': '0 24px 56px rgba(32, 44, 63, 0.16)'
-        };
-  }
-
-  if (theme.panelTheme === 'graphite') {
-    return isDarkPage
-      ? baseVars
-      : {
-          '--panel': 'linear-gradient(180deg, rgba(245, 248, 252, 0.98), rgba(229, 236, 245, 0.96))',
-          '--panel-strong': '#f5f8fd',
-          '--panel-card-bg': 'linear-gradient(180deg, rgba(250, 252, 255, 0.99), rgba(226, 234, 244, 0.96))',
-          '--panel-note-bg': 'linear-gradient(180deg, rgba(246, 250, 255, 0.99), rgba(223, 232, 243, 0.96))',
-          '--line': 'rgba(63, 79, 104, 0.18)',
-          '--line-strong': 'rgba(63, 79, 104, 0.32)',
-          '--shadow': '0 18px 44px rgba(56, 70, 90, 0.14)'
-        };
-  }
-
-  return baseVars;
+  return isDarkPage
+    ? {
+        '--panel': 'linear-gradient(180deg, rgba(20, 26, 36, 0.98), rgba(14, 18, 24, 0.96))',
+        '--panel-strong': '#171d28',
+        '--panel-card-bg': 'linear-gradient(180deg, rgba(31, 39, 53, 0.99), rgba(21, 29, 41, 0.97))',
+        '--panel-note-bg': 'linear-gradient(180deg, rgba(35, 43, 58, 0.99), rgba(23, 30, 43, 0.97))',
+        '--line': 'rgba(233, 239, 255, 0.16)',
+        '--line-strong': 'rgba(233, 239, 255, 0.28)',
+        '--shadow': '0 24px 56px rgba(0, 0, 0, 0.42)'
+      }
+    : {
+        '--panel': 'linear-gradient(180deg, rgba(255, 253, 249, 0.98), rgba(246, 241, 234, 0.96))',
+        '--panel-strong': '#fffdfa',
+        '--panel-card-bg': 'linear-gradient(180deg, rgba(255, 255, 252, 0.98), rgba(245, 241, 235, 0.96))',
+        '--panel-note-bg': 'linear-gradient(180deg, rgba(250, 247, 241, 0.98), rgba(242, 237, 230, 0.94))',
+        '--line': 'rgba(74, 79, 88, 0.18)',
+        '--line-strong': 'rgba(74, 79, 88, 0.3)',
+        '--shadow': '0 8px 24px -8px rgba(61, 53, 48, 0.12), 0 2px 6px rgba(61, 53, 48, 0.06)'
+      };
 }
 
-function buildFineTuneTokens(theme) {
-  const brandRgb = BRAND_THEME_TOKENS[theme.brandTheme]['--brand-rgb'];
-  const densityTokens = DENSITY_THEME_TOKENS[theme.densityTheme];
-  const colorScale = Math.max(0.7, Math.min(1.4, theme.colorStrength / 100));
-  const glowScale = Math.max(0.68, Math.min(1.38, theme.backgroundGlow / 100));
-  const spacingFactor = Math.max(0.85, Math.min(1.2, theme.spacingScale / 100));
-  const controlFactor = Math.max(0.9, Math.min(1.2, theme.controlScale / 100));
-  const statusBase =
-    theme.statusTheme === 'soft'
-      ? { badgeBg: 0.08, badgeBorder: 0.14 }
-      : theme.statusTheme === 'strong'
-        ? { badgeBg: 0.18, badgeBorder: 0.34 }
-        : { badgeBg: 0.12, badgeBorder: 0.2 };
+function buildFineTuneTokens(recipe) {
+  const brandRgb = BRAND_THEME_TOKENS[recipe.brandTheme]['--brand-rgb'];
+  const densityTokens = DENSITY_THEME_TOKENS[recipe.densityTheme];
+  const colorScale = Math.max(0.84, Math.min(1.18, recipe.colorStrength / 100));
+  const spacingFactor = Math.max(0.9, Math.min(1.08, recipe.spacingScale / 100));
+  const controlFactor = Math.max(0.92, Math.min(1.08, recipe.controlScale / 100));
 
-  const nextTokens = {
-    ...buildBackgroundTokens(theme.pageTheme, glowScale),
+  return {
+    ...buildBackgroundTokens(recipe),
     '--brand-soft': rgba(brandRgb, 0.14 * colorScale),
     '--brand-soft-strong': rgba(brandRgb, 0.22 * colorScale),
-    '--badge-bg': rgba(brandRgb, statusBase.badgeBg * colorScale),
-    '--badge-border': rgba(brandRgb, statusBase.badgeBorder * colorScale),
     '--page-shell-pad-top': scalePx(densityTokens['--page-shell-pad-top'], spacingFactor),
     '--page-shell-pad-bottom': scalePx(densityTokens['--page-shell-pad-bottom'], spacingFactor),
     '--section-gap': scalePx(densityTokens['--section-gap'], spacingFactor),
@@ -762,137 +670,68 @@ function buildFineTuneTokens(theme) {
     '--button-height': scalePx(densityTokens['--button-height'], controlFactor),
     '--button-padding-x': scalePx(densityTokens['--button-padding-x'], controlFactor)
   };
-
-  if (theme.navTheme === 'warm') {
-    nextTokens['--btn-nav-bg'] = rgba(brandRgb, 0.1 * colorScale);
-    nextTokens['--btn-nav-border'] = rgba(brandRgb, 0.24 * colorScale);
-    nextTokens['--btn-nav-hover-bg'] = rgba(brandRgb, 0.16 * colorScale);
-    nextTokens['--btn-nav-hover-border'] = rgba(brandRgb, 0.38 * colorScale);
-    nextTokens['--btn-nav-primary-shadow'] = `0 10px 22px ${rgba(brandRgb, 0.2 * colorScale)}`;
-  }
-
-  if (theme.navTheme === 'outline') {
-    nextTokens['--btn-nav-border'] = rgba(brandRgb, 0.3 * colorScale);
-    nextTokens['--btn-nav-hover-bg'] = rgba(brandRgb, 0.08 * colorScale);
-    nextTokens['--btn-nav-hover-border'] = rgba(brandRgb, 0.44 * colorScale);
-    nextTokens['--btn-nav-primary-bg'] = rgba(brandRgb, 0.12 * colorScale);
-    nextTokens['--btn-nav-primary-hover-bg'] = rgba(brandRgb, 0.18 * colorScale);
-  }
-
-  if (theme.actionTheme === 'warm') {
-    nextTokens['--btn-action-bg'] = rgba(brandRgb, 0.08 * colorScale);
-    nextTokens['--btn-action-border'] = rgba(brandRgb, 0.2 * colorScale);
-    nextTokens['--btn-action-solid-shadow'] = `0 10px 22px ${rgba(brandRgb, 0.2 * colorScale)}`;
-  }
-
-  if (theme.actionTheme === 'outline') {
-    nextTokens['--btn-action-solid-bg'] = rgba(brandRgb, 0.12 * colorScale);
-    nextTokens['--btn-action-solid-border'] = rgba(brandRgb, 0.3 * colorScale);
-  }
-
-  return nextTokens;
 }
 
-function resolveStyleTheme(theme) {
+function buildDarkContrastTokens(recipe) {
+  if (recipe.pageTheme !== 'graphite') return {};
+
+  const brandRgb = BRAND_THEME_TOKENS[recipe.brandTheme]['--brand-rgb'];
+  const brandDeep = DARK_BRAND_DEEP_TOKENS[recipe.brandTheme] || '#dbe7ff';
+
   return {
-    pageTheme: resolveThemeValue(theme, 'pageTheme', PAGE_THEME_TOKENS),
-    brandTheme: resolveThemeValue(theme, 'brandTheme', BRAND_THEME_TOKENS),
-    navTheme: resolveThemeValue(theme, 'navTheme', NAV_THEME_TOKENS),
-    actionTheme: resolveThemeValue(theme, 'actionTheme', ACTION_THEME_TOKENS),
-    panelTheme: resolveThemeValue(theme, 'panelTheme', PANEL_THEME_TOKENS),
-    radiusTheme: resolveThemeValue(theme, 'radiusTheme', RADIUS_THEME_TOKENS),
-    densityTheme: resolveThemeValue(theme, 'densityTheme', DENSITY_THEME_TOKENS),
-    titleTheme: resolveThemeValue(theme, 'titleTheme', TITLE_THEME_TOKENS),
-    statusTheme: resolveThemeValue(theme, 'statusTheme', STATUS_THEME_TOKENS),
-    colorStrength: clampThemeNumber(theme?.colorStrength, DEFAULT_STYLE_THEME.colorStrength, 70, 140, 5),
-    backgroundGlow: clampThemeNumber(theme?.backgroundGlow, DEFAULT_STYLE_THEME.backgroundGlow, 70, 140, 5),
-    spacingScale: clampThemeNumber(theme?.spacingScale, DEFAULT_STYLE_THEME.spacingScale, 85, 120, 5),
-    controlScale: clampThemeNumber(theme?.controlScale, DEFAULT_STYLE_THEME.controlScale, 90, 120, 5)
+    '--muted': '#b5c0d4',
+    '--brand-deep': brandDeep,
+    '--brand-soft': rgba(brandRgb, 0.22),
+    '--brand-soft-strong': rgba(brandRgb, 0.34),
+    '--badge-text': '#f3f7ff',
+    '--btn-nav-text': '#eef4ff',
+    '--btn-nav-bg': 'rgba(255, 255, 255, 0.06)',
+    '--btn-nav-border': 'rgba(233, 239, 255, 0.18)',
+    '--btn-nav-hover-bg': 'rgba(255, 255, 255, 0.1)',
+    '--btn-nav-hover-border': 'rgba(233, 239, 255, 0.28)',
+    '--btn-nav-primary-bg': `linear-gradient(180deg, ${rgba(brandRgb, 0.38)}, ${rgba(brandRgb, 0.24)})`,
+    '--btn-nav-primary-text': '#f8fbff',
+    '--btn-action-bg': 'rgba(255, 255, 255, 0.04)',
+    '--btn-action-border': 'rgba(233, 239, 255, 0.18)',
+    '--btn-action-text': '#eef4ff',
+    '--btn-action-solid-bg': `linear-gradient(180deg, ${rgba(brandRgb, 0.42)}, ${rgba(brandRgb, 0.26)})`,
+    '--btn-action-solid-text': '#f8fbff',
+    '--btn-action-solid-border': 'rgba(233, 239, 255, 0.18)',
+    '--status-warning-bg': 'rgba(120, 84, 20, 0.28)',
+    '--status-warning-border': 'rgba(255, 193, 92, 0.34)',
+    '--status-success-bg': 'rgba(30, 92, 56, 0.26)',
+    '--status-success-border': 'rgba(112, 210, 148, 0.3)',
+    '--status-error-bg': 'rgba(126, 38, 45, 0.28)',
+    '--status-error-border': 'rgba(255, 140, 150, 0.34)',
+    '--status-error-text': '#ffd9df'
   };
-}
-
-function resolveThemeRecord(record) {
-  return {
-    id: String(record?.id || '').trim(),
-    label: String(record?.label || '').trim() || '未命名主题',
-    summary: String(record?.summary || '').trim(),
-    theme: resolveStyleTheme(record?.theme),
-    builtIn: Boolean(record?.builtIn)
-  };
-}
-
-function getBuiltInThemeLibrary() {
-  return STYLE_THEME_PRESETS.map(createBuiltInThemeRecord);
-}
-
-function getStoredCustomThemeLibrary() {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(CUSTOM_THEME_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((record) => resolveThemeRecord({ ...record, builtIn: false }))
-      .filter((record) => record.id);
-  } catch {
-    return [];
-  }
-}
-
-function saveCustomThemeLibrary(records) {
-  if (typeof window === 'undefined') return;
-  const safeRecords = Array.isArray(records)
-    ? records
-      .map((record) => resolveThemeRecord({ ...record, builtIn: false }))
-      .filter((record) => record.id)
-    : [];
-  window.localStorage.setItem(CUSTOM_THEME_STORAGE_KEY, JSON.stringify(safeRecords));
 }
 
 export function getStyleThemeLibrary() {
-  return [...getBuiltInThemeLibrary(), ...getStoredCustomThemeLibrary()];
+  return STYLE_THEME_PRESETS.map((preset) => resolveThemeRecord({
+    id: preset.id,
+    label: preset.label,
+    summary: preset.summary,
+    theme: preset.theme,
+    builtIn: true
+  }));
 }
 
 export function getStoredActiveStyleThemeId() {
-  if (typeof window === 'undefined') return STYLE_THEME_PRESETS[0]?.id || 'default';
+  if (typeof window === 'undefined') return DEFAULT_STYLE_THEME.atmosphere;
   const activeId = String(window.localStorage.getItem(ACTIVE_THEME_ID_STORAGE_KEY) || '').trim();
-  const library = getStyleThemeLibrary();
-  if (activeId && library.some((record) => record.id === activeId)) return activeId;
-  return library[0]?.id || STYLE_THEME_PRESETS[0]?.id || 'default';
+  if (STYLE_THEME_PRESETS.some((preset) => preset.id === activeId)) return activeId;
+  return getStoredStyleTheme().atmosphere;
 }
 
 export function saveStoredActiveStyleThemeId(themeId) {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(ACTIVE_THEME_ID_STORAGE_KEY, String(themeId || '').trim());
-}
-
-export function saveCustomStyleTheme(record) {
-  const safeRecord = resolveThemeRecord({ ...record, builtIn: false });
-  const library = getStoredCustomThemeLibrary();
-  const nextLibrary = library.some((item) => item.id === safeRecord.id)
-    ? library.map((item) => (item.id === safeRecord.id ? safeRecord : item))
-    : [...library, safeRecord];
-  saveCustomThemeLibrary(nextLibrary);
-  return safeRecord;
-}
-
-export function deleteCustomStyleTheme(themeId) {
-  const nextLibrary = getStoredCustomThemeLibrary().filter((record) => record.id !== themeId);
-  saveCustomThemeLibrary(nextLibrary);
+  window.localStorage.setItem(ACTIVE_THEME_ID_STORAGE_KEY, normalizeAtmosphere(themeId));
 }
 
 export function getStoredStyleTheme() {
   if (typeof window === 'undefined') return DEFAULT_STYLE_THEME;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) return resolveStyleTheme(JSON.parse(raw));
-    const legacyRaw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
-    if (legacyRaw) return resolveStyleTheme(JSON.parse(legacyRaw));
-    return DEFAULT_STYLE_THEME;
-  } catch {
-    return DEFAULT_STYLE_THEME;
-  }
+  return getStoredThemeFromKeys([STORAGE_KEY, ...LEGACY_STORAGE_KEYS]) || DEFAULT_STYLE_THEME;
 }
 
 export function saveStyleTheme(theme) {
@@ -902,32 +741,41 @@ export function saveStyleTheme(theme) {
 
 export function applyStyleTheme(theme) {
   if (typeof document === 'undefined') return;
-  const root = document.documentElement;
+
   const safeTheme = resolveStyleTheme(theme);
+  const recipe = buildEffectiveTheme(safeTheme);
   const merged = {
-    ...PAGE_THEME_TOKENS[safeTheme.pageTheme],
-    ...BRAND_THEME_TOKENS[safeTheme.brandTheme],
-    ...NAV_THEME_TOKENS[safeTheme.navTheme],
-    ...ACTION_THEME_TOKENS[safeTheme.actionTheme],
-    ...buildPanelTokens(safeTheme),
-    ...RADIUS_THEME_TOKENS[safeTheme.radiusTheme],
-    ...DENSITY_THEME_TOKENS[safeTheme.densityTheme],
-    ...TITLE_THEME_TOKENS[safeTheme.titleTheme],
-    ...STATUS_THEME_TOKENS[safeTheme.statusTheme],
-    ...buildFineTuneTokens(safeTheme)
+    ...PAGE_THEME_TOKENS[recipe.pageTheme],
+    ...BRAND_THEME_TOKENS[recipe.brandTheme],
+    ...NAV_THEME_TOKENS[recipe.navTheme],
+    ...ACTION_THEME_TOKENS[recipe.actionTheme],
+    ...buildPanelTokens(recipe),
+    ...RADIUS_THEME_TOKENS[recipe.radiusTheme],
+    ...DENSITY_THEME_TOKENS[recipe.densityTheme],
+    ...TITLE_THEME_TOKENS[recipe.titleTheme],
+    ...STATUS_THEME_TOKENS[recipe.statusTheme],
+    ...buildFineTuneTokens(recipe),
+    ...buildDarkContrastTokens(recipe)
   };
+
+  const root = document.documentElement;
   Object.entries(merged).forEach(([key, value]) => {
     root.style.setProperty(key, value);
   });
-  root.dataset.pageTheme = safeTheme.pageTheme;
-  root.dataset.brandTheme = safeTheme.brandTheme;
-  root.dataset.navTheme = safeTheme.navTheme;
-  root.dataset.actionTheme = safeTheme.actionTheme;
-  root.dataset.panelTheme = safeTheme.panelTheme;
-  root.dataset.radiusTheme = safeTheme.radiusTheme;
-  root.dataset.densityTheme = safeTheme.densityTheme;
-  root.dataset.titleTheme = safeTheme.titleTheme;
-  root.dataset.statusTheme = safeTheme.statusTheme;
+
+  root.dataset.atmosphere = safeTheme.atmosphere;
+  root.dataset.tone = safeTheme.tone;
+
+  // 保留旧 data-*，避免历史 CSS 兼容层直接失效。
+  root.dataset.pageTheme = recipe.pageTheme;
+  root.dataset.brandTheme = recipe.brandTheme;
+  root.dataset.navTheme = recipe.navTheme;
+  root.dataset.actionTheme = recipe.actionTheme;
+  root.dataset.panelTheme = recipe.panelTheme;
+  root.dataset.radiusTheme = recipe.radiusTheme;
+  root.dataset.densityTheme = recipe.densityTheme;
+  root.dataset.titleTheme = recipe.titleTheme;
+  root.dataset.statusTheme = recipe.statusTheme;
 }
 
 export function resetStyleTheme() {
