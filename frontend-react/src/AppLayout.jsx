@@ -1,12 +1,13 @@
 import './app-shell.css';
+import { useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { applyThemePopoverSettings, getStoredThemePopoverSettings } from './styleTheme.js';
 
 const NAV_ITEMS = [
   { path: '/books', label: '资料库' },
   { path: '/workbench', label: '创作台' },
   { path: '/generation-logic', label: '生成链路' },
-  { path: '/changelog', label: '更新日志' },
-  { path: '/style-manager', label: '样式管理' }
+  { path: '/changelog', label: '更新日志' }
 ];
 
 function joinClasses(...values) {
@@ -17,6 +18,10 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const currentPath = location.pathname;
+
+  useEffect(() => {
+    applyThemePopoverSettings(getStoredThemePopoverSettings());
+  }, []);
 
   function isActive(path) {
     return currentPath === path || currentPath.startsWith(`${path}/`);

@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import ChapterList from './ChapterList.jsx';
+import ThemePopover from '../theme/ThemePopover.jsx';
 
 export default function GlobalBar({
   bookTitle,
@@ -40,30 +41,31 @@ export default function GlobalBar({
 
       <div className="workbench-global-bar-nav">
         <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          className="ghost-btn"
-          onClick={onPrevChapter}
-          disabled={chapterNumber <= 1}
-        >
-          ◂ 上一章
-        </button>
-        <span className="workbench-global-bar-chapter-pos">
-          {chapterNumber} / {totalChapterCount || '?'}
-        </span>
-        <button
-          type="button"
-          className="ghost-btn"
-          onClick={onNextChapter}
-        >
-          下一章 ▸
-        </button>
-        <ChapterList
-          currentChapter={chapterNumber}
-          items={chapterListItems}
-          onSelect={onSelectChapter}
-          triggerClassName="ghost-btn"
-        />
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={onPrevChapter}
+            disabled={chapterNumber <= 1}
+          >
+            ◂ 上一章
+          </button>
+          <span className="workbench-global-bar-chapter-pos">
+            {chapterNumber} / {totalChapterCount || '?'}
+          </span>
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={onNextChapter}
+          >
+            下一章 ▸
+          </button>
+          <ChapterList
+            currentChapter={chapterNumber}
+            items={chapterListItems}
+            onSelect={onSelectChapter}
+            triggerClassName="ghost-btn"
+          />
+          <ThemePopover />
         </div>
       </div>
     </div>

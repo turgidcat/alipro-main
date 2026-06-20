@@ -126,7 +126,7 @@ Phase 1 兼容说明：
 
 ## 7. StyleManager 降级方案
 
-新增 `frontend-react/src/components/theme/ThemePopover.jsx`，将主题入口放进 `AppLayout.jsx` 顶栏；若工作台全屏模式需要独立入口，可在 `GlobalBar.jsx` 复用同一组件，但不得复制状态逻辑。
+新增 `frontend-react/src/components/theme/ThemePopover.jsx`，将主题入口放进顶栏；本轮实际优先挂接 `GlobalBar.jsx`，因为它已经是工作台自己的顶栏，不需要为了放主题控件去改 `App.jsx` 主体逻辑。若后续工作台全屏模式需要其他入口，可复用同一组件，但不得复制状态逻辑。
 
 Popover 只保留：
 
@@ -134,7 +134,7 @@ Popover 只保留：
 2. 暖橙深浅：控制 `--primary` 与对应 accent 强度，选项数量保持少量且差异可见。
 3. 正文字体：只影响小说正文和创作长文本，不影响按钮与中文 UI。
 
-Phase 2 先将 `/style-manager` 重定向到 `/workbench`，并删除主导航入口和 `verify:style-manager` 脚本引用，但暂不物理删除 `StyleManagerPage.jsx`。`/visual-sample` 当前也重定向至 `/style-manager`，Phase 2 必须同步改为 `/workbench` 或删除该旧跳转，避免重定向链。
+Phase 2 先将 `/style-manager` 重定向到 `/workbench`，并删除主导航入口，但暂不物理删除 `StyleManagerPage.jsx`。`/visual-sample` 当前也重定向至 `/style-manager`，Phase 2 必须同步改为 `/workbench` 或删除该旧跳转，避免重定向链。`verify:style-manager` 脚本如当前回合未授权修改 `package.json`，则保留到后续清理回合再移除，并在文档中明确这是文件范围约束，不是功能回退。
 
 主题设置继续真正保存到浏览器存储，并在刷新后恢复（运行时主题持久化）；这不涉及后端或数据库。旧存储迁移仅在兼容期保留，最终是否清理以 Phase 7 前的实际使用情况为准。
 
@@ -207,7 +207,7 @@ WorkbenchStage
 
 ### Phase 2：StyleManager 降级为 ThemePopover
 
-在顶栏提供三个真实主题控制，将旧独立页面路由重定向到工作台，移除主导航与旧验证脚本入口；页面文件暂时保留。
+在顶栏提供三个真实主题控制，将旧独立页面路由重定向到工作台，移除主导航入口；页面文件暂时保留。若当前回合文件范围不包含 `package.json`，旧验证脚本入口可延后到后续清理回合移除。
 
 ### Phase 3：接入 shadcn/ui 基础组件
 
@@ -311,7 +311,7 @@ WorkbenchStage
 - 顶栏主题按钮可打开 Popover，三个控制项均有肉眼可辨变化并能刷新恢复。
 - `/style-manager` 访问后重定向到 `/workbench`，主导航不再显示“样式管理”。
 - `/visual-sample` 不产生旧路由链或死链。
-- `verify:style-manager` 已从 `package.json` 删除，`StyleManagerPage.jsx` 文件仍在。
+- 若当前回合允许修改 `package.json`，则 `verify:style-manager` 应同步删除；若当前回合未授权修改 `package.json`，则需在文档中标注为后续清理项，`StyleManagerPage.jsx` 文件仍在。
 - 构建通过，浏览器控制台无新增错误。
 
 ### Phase 3
