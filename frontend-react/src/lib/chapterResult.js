@@ -44,19 +44,22 @@ export function buildGenerationSuccessState({
   successText,
   chapterTitle,
   targetWordCount,
-  chapterFeedback
+  chapterFeedback,
+  statusKind = 'success',
+  feedbackFallbackUsed = false
 }) {
   return {
     hasContent: true,
     content,
-    statusKind: 'success',
+    statusKind,
     statusTitle: successTitle,
     statusText: successText,
     metaText: chapterTitle,
     wordCountLabel: `实际约 ${content.length} 字 / 目标 ${targetWordCount} 字`,
     previewText: String(content).replace(/\s+/g, ' ').slice(0, 520),
     feedbackSummary: chapterFeedback.chapter_summary || '',
-    feedbackFocus: chapterFeedback.next_chapter_focus || chapterFeedback.open_hooks || ''
+    feedbackFocus: chapterFeedback.next_chapter_focus || chapterFeedback.open_hooks || '',
+    feedbackFallbackUsed
   };
 }
 
@@ -88,30 +91,42 @@ export async function persistChapterResultCycle({
   setRevisionError,
   setResultModalOpen
 }) {
+  const normalizedContent = String(content || '').trim();
+  if (!normalizedContent) {
+    throw new Error('正文内容为空，已停止保存，避免写入空章节。');
+  }
+
   await upsertGeneratedChapter(selectedBookId, {
     title: chapterTitle,
     chapterName: normalizedPlan.chapter_name || '',
     chapterNumber,
-    content
+    content: normalizedContent
   });
 
   let chapterFeedback = null;
+  let feedbackFallbackUsed = false;
   try {
     const feedbackResponse = await generateChapterFeedback({
       bookId: selectedBookId,
       chapterNumber,
       chapterTitle,
-      content,
+      content: normalizedContent,
       outline: getGenerationChapterOutline(normalizedPlan)
     });
     chapterFeedback = feedbackResponse?.feedback || null;
+    feedbackFallbackUsed = !!(
+      feedbackResponse?.metadata?.feedbackFallbackUsed
+      || feedbackResponse?.feedback_compat?.feedback_fallback_used
+      || chapterFeedback?.feedback_fallback_used
+    );
   } catch (_) {
     chapterFeedback = null;
   }
 
   if (!chapterFeedback) {
+    feedbackFallbackUsed = true;
     chapterFeedback = buildLocalChapterFeedback({
-      content,
+      content: normalizedContent,
       plan: normalizedPlan,
       chapterStructure,
       mainStorylineLabel: selectedMainStorylineLabel,
@@ -128,15 +143,19 @@ export async function persistChapterResultCycle({
     chapterTitle: normalizedPlan.chapter_name || ''
   });
   setGenerationState(buildGenerationSuccessState({
-    content,
-    successTitle,
-    successText,
+    content: normalizedContent,
+    successTitle: feedbackFallbackUsed ? '正文已保存，反馈已降级生成' : successTitle,
+    successText: feedbackFallbackUsed
+      ? '正文已写入，但本章反馈接口失败，当前展示的是本地回退结果。下一章承接信息建议先人工复核。'
+      : successText,
     chapterTitle,
     targetWordCount,
-    chapterFeedback
+    chapterFeedback,
+    statusKind: feedbackFallbackUsed ? 'warning' : 'success',
+    feedbackFallbackUsed
   }));
-  setRevisionOriginal(String(content || ''));
-  setRevisionDraft(String(content || ''));
+  setRevisionOriginal(normalizedContent);
+  setRevisionDraft(normalizedContent);
   setRevisionSuggestions(null);
   setRevisionError('');
   if (openResultModal) {

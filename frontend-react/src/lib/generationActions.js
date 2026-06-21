@@ -110,7 +110,10 @@ export async function generateChapterAction({
       },
       promptType: 'chapter'
     });
-    const content = response?.content || response?.text || response || '';
+    const content = String(response?.content || response?.text || response || '').trim();
+    if (!content) {
+      throw new Error('生成接口已返回，但正文内容为空，已阻止写入。请检查后端 provider 返回结果。');
+    }
     await handlePersistChapterResultCycle({
       content,
       normalizedPlan,
