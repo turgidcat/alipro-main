@@ -15,7 +15,7 @@ function ReadinessPill({ kind, title, text }) {
   );
 }
 
-function RiskReview({ items, hasCritical, generationRiskConfirmed, isGenerating, onGenerationRiskConfirm }) {
+function RiskReview({ items }) {
   if (!items.length) return null;
 
   return (
@@ -39,21 +39,6 @@ function RiskReview({ items, hasCritical, generationRiskConfirmed, isGenerating,
           </article>
         ))}
       </div>
-
-      {hasCritical ? (
-        <label className="flex items-start gap-3 border-l-2 border-[color:color-mix(in_srgb,var(--status-error-border)_72%,transparent)] pl-4">
-          <input
-            className="mt-1 accent-[var(--brand)]"
-            type="checkbox"
-            checked={generationRiskConfirmed}
-            onChange={(event) => onGenerationRiskConfirm(event.target.checked)}
-            disabled={isGenerating}
-          />
-          <span className="text-[14px] leading-7 text-[color:var(--muted)]">
-            我确认：本章已放开高风险项，接受掌控度下降。
-          </span>
-        </label>
-      ) : null}
     </section>
   );
 }
@@ -73,15 +58,10 @@ function BriefColumn({ title, meta, children }) {
 export default function GenerationBanner(props) {
   const {
     chapterContext,
-    constraintOverrides,
     generationRiskReview,
     generationReadiness,
     generationRequiredItems,
-    generationRecommendedItems,
-    generationRiskConfirmed,
-    isGenerating,
-    onSetConstraintOverride,
-    onGenerationRiskConfirm
+    generationRecommendedItems
   } = props;
 
   const requiredReadyCount = generationRequiredItems.filter((item) => hasText(item.value)).length;
@@ -97,16 +77,10 @@ export default function GenerationBanner(props) {
 
       <BlockedConstraints
         generationConstraints={chapterContext.generationConstraints}
-        constraintOverrides={constraintOverrides}
-        setConstraintOverride={onSetConstraintOverride}
       />
 
       <RiskReview
         items={generationRiskReview.items}
-        hasCritical={generationRiskReview.hasCritical}
-        generationRiskConfirmed={generationRiskConfirmed}
-        isGenerating={isGenerating}
-        onGenerationRiskConfirm={onGenerationRiskConfirm}
       />
 
       <div className="grid gap-5 lg:grid-cols-3">

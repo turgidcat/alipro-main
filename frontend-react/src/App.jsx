@@ -17,7 +17,6 @@ import {
 import {
   normalizeLines,
   normalizeRoleList,
-  buildConstraintBriefText,
   composeStructuredOutline,
   describeRoleExecutionMeta,
   buildGenerationRiskReview,
@@ -86,8 +85,6 @@ export default function App() {
     chapterView, setChapterView,
     storylineOptions, setStorylineOptions,
     draftChapterPlan, setDraftChapterPlan,
-    constraintOverrides, setConstraintOverrides,
-    generationRiskConfirmed, setGenerationRiskConfirmed,
     draftStoryline, setDraftStoryline,
     generationState, setGenerationState,
     loadingChapter, setLoadingChapter,
@@ -110,13 +107,6 @@ export default function App() {
     savedChapterPlanSnapshot, setSavedChapterPlanSnapshot
   } = useWorkbench();
   const [drawerMemoryLoadedKey, setDrawerMemoryLoadedKey] = useState('');
-
-  function setConstraintOverride(key, mode) {
-    setConstraintOverrides((prev) => ({
-      ...prev,
-      [key]: mode
-    }));
-  }
 
   async function handleSaveChapterPlan() {
     setSavingState({ loading: true, error: '' });
@@ -494,7 +484,6 @@ export default function App() {
     );
     const chapterStructure = normalizedPlan.chapter_structure || emptyChapterStructure;
     const autoOutline = String(normalizedPlan.outline_text || composeStructuredOutline(chapterStructure)).trim();
-    const constraintBrief = buildConstraintBriefText(chapterContext.generationConstraints, constraintOverrides);
 
     if (missingRequiredItems.length > 0) {
       setGenerationState({
@@ -502,16 +491,6 @@ export default function App() {
         statusKind: 'warning',
         statusTitle: '缺少章节必填信息',
         statusText: `请先补齐：${missingRequiredItems.map((item) => item.label).join('、')}。`
-      });
-      return;
-    }
-
-    if (generationRiskReview.hasCritical && !generationRiskConfirmed) {
-      setGenerationState({
-        ...generationState,
-        statusKind: 'warning',
-        statusTitle: '请先确认高风险放开项',
-        statusText: '你已经放开至少一条禁止项。先确认你知道这会明显降低剧情掌控度，再继续生成。'
       });
       return;
     }
@@ -556,7 +535,7 @@ export default function App() {
           targetStorylines: selectedTargetStorylineLabel,
           wordCount: targetWordCount,
           rhythmHints: storylineRhythmHints.map((hint) => hint.text),
-          constraintBrief
+          constraintBrief: ''
         },
         promptType: 'chapter'
       });
@@ -890,8 +869,7 @@ export default function App() {
       };
   const generationRiskReview = buildGenerationRiskReview(
     draftChapterPlan,
-    chapterContext.generationConstraints,
-    constraintOverrides
+    chapterContext.generationConstraints
   );
   const storylineRhythmHints = selectedTargetStorylines
     .map((storyline) => {
@@ -973,13 +951,11 @@ export default function App() {
               chapterNumber={chapterNumber}
               draftChapterPlan={draftChapterPlan}
               chapterContext={chapterContext}
-              constraintOverrides={constraintOverrides}
               generationRiskReview={generationRiskReview}
               generationReadiness={generationReadiness}
               generationRequiredItems={generationRequiredItems}
               generationRecommendedItems={generationRecommendedItems}
               generationState={generationState}
-              generationRiskConfirmed={generationRiskConfirmed}
               isGenerating={isGenerating}
               loadingChapter={loadingChapter}
               onGenerateChapter={handleGenerateWithGuards}
@@ -988,8 +964,6 @@ export default function App() {
               onPrevChapter={goToPreviousChapter}
               onNextChapter={goToNextChapter}
               onChapterNumberChange={requestChapterChange}
-              onSetConstraintOverride={setConstraintOverride}
-              onGenerationRiskConfirm={setGenerationRiskConfirmed}
               onUpdateGenerationSetting={updateGenerationSetting}
             />
           </div>

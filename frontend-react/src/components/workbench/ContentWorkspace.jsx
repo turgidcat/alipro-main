@@ -15,14 +15,12 @@ export default function ContentWorkspace(props) {
     chapterNumber,
     draftChapterPlan,
     chapterContext,
-    constraintOverrides,
     canGenerate,
     generationRiskReview,
     generationReadiness,
     generationRequiredItems,
     generationRecommendedItems,
     generationState,
-    generationRiskConfirmed,
     isGenerating,
     loadingChapter,
     onGenerateChapter,
@@ -32,8 +30,6 @@ export default function ContentWorkspace(props) {
     onPrevChapter,
     onNextChapter,
     onChapterNumberChange,
-    onSetConstraintOverride,
-    onGenerationRiskConfirm,
     onUpdateGenerationSetting
   } = props;
 
@@ -69,7 +65,7 @@ export default function ContentWorkspace(props) {
               type="button"
               className={primaryButtonClass}
               onClick={onGenerateChapter}
-              disabled={!canGenerate || isGenerating || (generationRiskReview.hasCritical && !generationRiskConfirmed)}
+              disabled={!canGenerate || isGenerating}
             >
               {isGenerating ? '正在生成...' : '生成章节'}
             </button>
@@ -78,15 +74,10 @@ export default function ContentWorkspace(props) {
       >
         <GenerationBanner
           chapterContext={chapterContext}
-          constraintOverrides={constraintOverrides}
           generationRiskReview={generationRiskReview}
           generationReadiness={generationReadiness}
           generationRequiredItems={generationRequiredItems}
           generationRecommendedItems={generationRecommendedItems}
-          generationRiskConfirmed={generationRiskConfirmed}
-          isGenerating={isGenerating}
-          onSetConstraintOverride={onSetConstraintOverride}
-          onGenerationRiskConfirm={onGenerationRiskConfirm}
         />
       </WorkbenchSection>
 

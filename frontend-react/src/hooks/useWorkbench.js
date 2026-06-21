@@ -18,8 +18,6 @@ export function useWorkbench() {
   const [chapterView, setChapterView] = useState({});
   const [storylineOptions, setStorylineOptions] = useState([]);
   const [draftChapterPlan, setDraftChapterPlan] = useState(emptyChapterPlan);
-  const [constraintOverrides, setConstraintOverrides] = useState({});
-  const [generationRiskConfirmed, setGenerationRiskConfirmed] = useState(false);
   const [draftStoryline, setDraftStoryline] = useState(emptyStorylineDraft);
   const [generationState, setGenerationState] = useState(initialGenerationState);
   const [loadingChapter, setLoadingChapter] = useState(false);
@@ -76,11 +74,6 @@ export function useWorkbench() {
     };
   }, [selectedBookId, chapterNumber]);
 
-  useEffect(() => {
-    setConstraintOverrides({});
-    setGenerationRiskConfirmed(false);
-  }, [selectedBookId, chapterNumber]);
-
   return {
     ...workbenchData,
     planningModal, setPlanningModal,
@@ -92,8 +85,6 @@ export function useWorkbench() {
     chapterView, setChapterView,
     storylineOptions, setStorylineOptions,
     draftChapterPlan, setDraftChapterPlan,
-    constraintOverrides, setConstraintOverrides,
-    generationRiskConfirmed, setGenerationRiskConfirmed,
     draftStoryline, setDraftStoryline,
     generationState, setGenerationState,
     loadingChapter, setLoadingChapter,
