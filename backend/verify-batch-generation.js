@@ -1,19 +1,43 @@
 require('dotenv').config();
 
-const BASE_URL = process.env.BATCH_VERIFY_BASE_URL || 'http://localhost:3000';
-const BOOK_ID = process.env.BATCH_VERIFY_BOOK_ID || 'b8bd76b6-170f-4666-9233-36e86b1f8b1d';
-const CHAPTERS = (process.env.BATCH_VERIFY_CHAPTERS || '1,2,3,4')
-  .split(',')
-  .map((item) => Number(item.trim()))
-  .filter((item) => Number.isFinite(item) && item > 0);
-const WORD_COUNT_TOLERANCE = Number(process.env.BATCH_VERIFY_TOLERANCE || 0.1);
+const dbPromise = require('./database/init');
+const { execQueryOne } = require('./services/database');
+
+const DEFAULT_BASE_URL = process.env.BATCH_VERIFY_BASE_URL || 'http://localhost:3000';
+const DEFAULT_BOOK_ID = process.env.BATCH_VERIFY_BOOK_ID || 'b8bd76b6-170f-4666-9233-36e86b1f8b1d';
+const DEFAULT_MODE = (process.env.BATCH_VERIFY_MODE || 'inspect').trim().toLowerCase();
+const DEFAULT_CHAPTERS = process.env.BATCH_VERIFY_CHAPTERS || '1,2,3';
+
+function getArgValue(name, fallback = '') {
+  const args = process.argv.slice(2);
+  const index = args.indexOf(name);
+  if (index < 0) return fallback;
+  const next = args[index + 1];
+  return typeof next === 'string' ? next : fallback;
+}
+
+function parseChapters(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isFinite(item) && item > 0);
+}
+
+const MODE = getArgValue('--mode', DEFAULT_MODE) || 'inspect';
+const BASE_URL = getArgValue('--base-url', DEFAULT_BASE_URL) || DEFAULT_BASE_URL;
+const BOOK_ID = getArgValue('--book-id', DEFAULT_BOOK_ID) || DEFAULT_BOOK_ID;
+const CHAPTERS = parseChapters(getArgValue('--chapters', DEFAULT_CHAPTERS));
+
+function normalizeText(value) {
+  return String(value || '').trim();
+}
 
 function parseJsonObject(value) {
   if (!value) return {};
-  if (typeof value === 'object') return value;
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
   try {
     const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
   } catch (_) {
     return {};
   }
@@ -39,7 +63,57 @@ function hasMeaningfulOutlineStructure(value) {
     structure.character_change,
     structure.reader_payoff,
     structure.ending_hook
-  ].some((item) => String(item || '').trim());
+  ].some((item) => normalizeText(item));
+}
+
+function normalizeQualityCheck(value = {}) {
+  const qualityCheck = value && typeof value === 'object' ? value : {};
+  return {
+    status: normalizeText(qualityCheck.status || ''),
+    source: normalizeText(qualityCheck.source || ''),
+    verdict: normalizeText(qualityCheck.verdict || ''),
+    risks: parseJsonArray(qualityCheck.risks).map((item) => normalizeText(item)).filter(Boolean),
+    checkedAt: normalizeText(qualityCheck.checked_at || qualityCheck.checkedAt || '')
+  };
+}
+
+function buildSnapshotFromRows({ chapter, plan }) {
+  const structuredContent = parseJsonObject(plan?.structured_content);
+  const feedback = parseJsonObject(structuredContent.chapter_feedback);
+  return {
+    chapter,
+    plan,
+    structuredContent,
+    feedback,
+    qualityCheck: normalizeQualityCheck(feedback.quality_check)
+  };
+}
+
+function evaluateChapterSnapshot(chapterNumber, snapshot, previousSnapshot = null) {
+  const hasContent = normalizeText(snapshot?.chapter?.content || '').length > 0;
+  const hasSummary = normalizeText(snapshot?.feedback?.chapter_summary || '').length > 0;
+  const hasQualityCheck = normalizeText(snapshot?.qualityCheck?.status || '').length > 0;
+  const previousSummary = chapterNumber > 1
+    ? normalizeText(previousSnapshot?.feedback?.chapter_summary || '')
+    : '';
+  const canReadPreviousSummary = chapterNumber === 1 ? 'n/a' : !!previousSummary;
+
+  const checks = chapterNumber === 1
+    ? [hasContent, hasSummary, hasQualityCheck]
+    : [!!canReadPreviousSummary, hasContent, hasSummary, hasQualityCheck];
+
+  return {
+    chapterNumber,
+    chapterName: normalizeText(snapshot?.plan?.chapter_name || snapshot?.chapter?.chapter_name || snapshot?.chapter?.title || ''),
+    hasContent,
+    hasSummary,
+    hasQualityCheck,
+    qualityStatus: snapshot?.qualityCheck?.status || '',
+    qualitySource: snapshot?.qualityCheck?.source || '',
+    canReadPreviousSummary,
+    previousSummaryPreview: previousSummary.slice(0, 80),
+    status: checks.every(Boolean) ? 'ok' : 'missing_required_link'
+  };
 }
 
 async function requestJson(path, options = {}) {
@@ -62,20 +136,80 @@ async function requestJson(path, options = {}) {
     throw new Error(json.error || `HTTP ${response.status}`);
   }
 
-  return json;
+  return json.data;
 }
 
-async function run() {
-  console.log(`批量生成验收开始：book=${BOOK_ID}，chapters=${CHAPTERS.join(', ')}`);
-  const resultRows = [];
+async function fetchApiSnapshot(bookId, chapterNumber) {
+  const [chapterList, plan] = await Promise.all([
+    requestJson(`/api/books/${bookId}/chapters`).catch(() => []),
+    requestJson(`/api/books/${bookId}/chapter-plans/${chapterNumber}`).catch(() => null)
+  ]);
 
+  const chapter = Array.isArray(chapterList)
+    ? chapterList.find((item) => Number(item.chapter_number || 0) === Number(chapterNumber)) || null
+    : null;
+
+  return buildSnapshotFromRows({ chapter, plan });
+}
+
+async function runInspectMode() {
+  const db = await dbPromise;
+  const book = execQueryOne(db, 'SELECT id, title FROM books WHERE id = ? LIMIT 1', [BOOK_ID]);
+
+  if (!book) {
+    throw new Error(`未找到书籍：${BOOK_ID}`);
+  }
+
+  console.log(`连续 3 章闭环验收（inspect）：book=${BOOK_ID}《${book.title || '未命名作品'}》，chapters=${CHAPTERS.join(',')}`);
+
+  const rows = [];
+  for (const chapterNumber of CHAPTERS) {
+    const chapter = execQueryOne(
+      db,
+      'SELECT * FROM chapters WHERE book_id = ? AND chapter_number = ? LIMIT 1',
+      [BOOK_ID, chapterNumber]
+    );
+    const plan = execQueryOne(
+      db,
+      'SELECT * FROM chapter_plans WHERE book_id = ? AND chapter_number = ? ORDER BY updated_at DESC LIMIT 1',
+      [BOOK_ID, chapterNumber]
+    );
+    const previousPlan = chapterNumber > 1
+      ? execQueryOne(
+          db,
+          'SELECT * FROM chapter_plans WHERE book_id = ? AND chapter_number = ? ORDER BY updated_at DESC LIMIT 1',
+          [BOOK_ID, chapterNumber - 1]
+        )
+      : null;
+
+    const snapshot = buildSnapshotFromRows({ chapter, plan });
+    const previousSnapshot = buildSnapshotFromRows({ chapter: null, plan: previousPlan });
+    rows.push(evaluateChapterSnapshot(chapterNumber, snapshot, previousSnapshot));
+  }
+
+  console.table(rows);
+  const failed = rows.filter((item) => item.status !== 'ok');
+  if (failed.length > 0) {
+    process.exitCode = 1;
+  }
+}
+
+async function runGenerateMode() {
+  const book = await requestJson(`/api/books/${BOOK_ID}`);
+  console.log(`连续 3 章闭环验收（generate）：book=${BOOK_ID}《${book.title || '未命名作品'}》，chapters=${CHAPTERS.join(',')}`);
+
+  const rows = [];
   for (const chapterNumber of CHAPTERS) {
     try {
       const startedAt = Date.now();
-      const planRes = await requestJson(`/api/books/${BOOK_ID}/chapter-plans/${chapterNumber}`);
-      const plan = planRes.data;
+      const beforeSnapshot = await fetchApiSnapshot(BOOK_ID, chapterNumber);
+      const previousSnapshot = chapterNumber > 1
+        ? await fetchApiSnapshot(BOOK_ID, chapterNumber - 1)
+        : null;
+      const plan = beforeSnapshot.plan;
+
       if (!plan) {
-        resultRows.push({
+        rows.push({
           chapterNumber,
           status: 'missing_plan',
           detail: '未找到章节任务表'
@@ -83,69 +217,86 @@ async function run() {
         continue;
       }
 
+      if (chapterNumber > 1 && !normalizeText(previousSnapshot?.feedback?.chapter_summary || '')) {
+        rows.push({
+          chapterNumber,
+          status: 'missing_previous_summary',
+          detail: `第 ${chapterNumber} 章生成前未读到第 ${chapterNumber - 1} 章摘要`
+        });
+        continue;
+      }
+
       const structuredContent = parseJsonObject(plan.structured_content);
       const hasStructuredOutline = hasMeaningfulOutlineStructure(structuredContent.chapter_outline_structure);
-      const targetWordCount = Number(
-        structuredContent?.generation_settings?.word_count
-          || 3000
-      ) || 3000;
+      const targetWordCount = Number(structuredContent?.generation_settings?.word_count || 3000) || 3000;
+      const chapterTitle = plan.chapter_name
+        ? `第 ${chapterNumber} 章 ${plan.chapter_name}`
+        : `第 ${chapterNumber} 章`;
       const inputMode = hasStructuredOutline ? 'stored_structured_outline' : 'outline_text';
-      console.log(`开始验收第 ${chapterNumber} 章：input=${inputMode}，target=${targetWordCount}`);
-
-      const generatePayload = {
-        promptType: 'chapter',
-        bookId: BOOK_ID,
-        chapterNumber,
-        bookTitle: '破雾修真录',
-        genre: 'fantasy',
-        platform: 'qidian',
-        chapterTitle: plan.chapter_name || '',
-        outline: hasStructuredOutline ? '' : (plan.outline_text || ''),
-        wordCount: targetWordCount,
-        emotionIntensity: 75,
-        colloquialLevel: 65,
-        dialogueRatio: 28,
-        shuangTags: ['危机压迫', '剧情推进', '旧约追索'],
-        addCliffhanger: true,
-        enhanceDialogue: true,
-        avoidAIFeel: true,
-        fastPace: false,
-        detailedDesc: true,
-        generationBrief: {
-          requiredItems: ['章节任务', '情绪目标', '结尾钩子'],
-          recommendedItems: ['主剧情线承接', '角色关系推进'],
-          mainStoryline: plan.main_storyline_id || '',
-          targetStorylines: parseJsonArray(plan.target_storylines).join(' / '),
-          rhythmHints: ['开场尽快进入本章问题', '中段完成关键推进', '结尾留下承接压力'],
-          wordCount: targetWordCount
-        }
-      };
 
       const generateRes = await requestJson('/api/generate', {
         method: 'POST',
-        body: JSON.stringify(generatePayload)
+        body: JSON.stringify({
+          promptType: 'chapter',
+          bookId: BOOK_ID,
+          bookTitle: book.title || '',
+          genre: book.genre || 'urban',
+          subgenre: book.subgenre || '',
+          platform: book.target_platform || 'qidian',
+          template: book.writing_style || 'fast_pace',
+          chapterNumber,
+          chapterTitle,
+          chapterName: plan.chapter_name || '',
+          outline: hasStructuredOutline ? '' : (plan.outline_text || ''),
+          wordCount: targetWordCount
+        })
       });
 
-      const content = generateRes?.data?.content || '';
-      const actualLength = content.length;
-      const delta = actualLength - targetWordCount;
-      const ratio = targetWordCount > 0 ? ((actualLength - targetWordCount) / targetWordCount) : 0;
-      const durationSeconds = Number(((Date.now() - startedAt) / 1000).toFixed(1));
-      const isWordCountOk = Math.abs(ratio) <= WORD_COUNT_TOLERANCE;
+      const content = normalizeText(generateRes?.content || generateRes?.text || '');
+      if (!content) {
+        rows.push({
+          chapterNumber,
+          status: 'empty_content',
+          detail: '生成接口没有返回正文'
+        });
+        continue;
+      }
 
-      resultRows.push({
-        chapterNumber,
-        title: plan.chapter_name || '',
+      await requestJson(`/api/books/${BOOK_ID}/chapters/upsert`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: chapterTitle,
+          chapterName: plan.chapter_name || '',
+          chapterNumber,
+          content
+        })
+      });
+
+      const feedbackRes = await requestJson('/api/generate', {
+        method: 'POST',
+        body: JSON.stringify({
+          promptType: 'chapter_feedback',
+          bookId: BOOK_ID,
+          chapterNumber,
+          chapterTitle,
+          content,
+          outline: normalizeText(plan.outline_text || '')
+        })
+      });
+
+      const afterSnapshot = await fetchApiSnapshot(BOOK_ID, chapterNumber);
+      const evaluated = evaluateChapterSnapshot(chapterNumber, afterSnapshot, previousSnapshot);
+      rows.push({
+        ...evaluated,
         inputMode,
-        targetWordCount,
-        actualLength,
-        delta,
-        ratio: `${(ratio * 100).toFixed(1)}%`,
-        durationSeconds,
-        status: isWordCountOk ? 'ok' : 'word_count_out_of_range'
+        actualLength: content.length,
+        durationSeconds: Number(((Date.now() - startedAt) / 1000).toFixed(1)),
+        feedbackGenerated: !!feedbackRes?.metadata?.feedbackGenerated,
+        feedbackSaved: !!feedbackRes?.metadata?.feedbackSaved,
+        usedLocalFallback: !!feedbackRes?.metadata?.usedLocalFallback
       });
     } catch (error) {
-      resultRows.push({
+      rows.push({
         chapterNumber,
         status: 'error',
         detail: error.message
@@ -153,15 +304,32 @@ async function run() {
     }
   }
 
-  console.table(resultRows);
-
-  const failed = resultRows.filter((item) => item.status !== 'ok');
+  console.table(rows);
+  const failed = rows.filter((item) => item.status !== 'ok');
   if (failed.length > 0) {
     process.exitCode = 1;
   }
 }
 
+async function run() {
+  if (!BOOK_ID) {
+    throw new Error('请提供 --book-id 或 BATCH_VERIFY_BOOK_ID');
+  }
+  if (CHAPTERS.length !== 3) {
+    throw new Error(`当前脚本只接受连续 3 章验收，收到 chapters=${CHAPTERS.join(',') || '(empty)'}`);
+  }
+  if (MODE === 'inspect') {
+    await runInspectMode();
+    return;
+  }
+  if (MODE === 'generate') {
+    await runGenerateMode();
+    return;
+  }
+  throw new Error(`不支持的 mode：${MODE}`);
+}
+
 run().catch((error) => {
-  console.error('批量生成验收失败：', error);
+  console.error('连续 3 章闭环验收失败：', error.message || error);
   process.exit(1);
 });

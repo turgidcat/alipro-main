@@ -11,70 +11,6 @@ function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function stripOutlineListMarker(line = '') {
-  return String(line || '')
-    .replace(/^[-*•]\s*/, '')
-    .replace(/^\d+[\.\)、]\s*/, '')
-    .replace(/^[（(]?\d+[)）]\s*/, '')
-    .replace(/^要点\s*\d+\s*[:：]?\s*/, '')
-    .replace(/^第[\d一二三四五六七八九十百]+点\s*[:：]?\s*/, '')
-    .replace(/^(章节细纲|章节大纲|细纲正文|正文细纲|以下是细纲|以下为细纲|本章细纲)\s*[:：]?\s*/, '')
-    .replace(/^(本章目标|关键场景|冲突升级|角色变化|读者爽点\s*\/\s*情绪落点|读者爽点|情绪落点|结尾钩子|剧情线约束|剧情线推进|剧情推进|章节任务)\s*[:：]?\s*/, '')
-    .trim();
-}
-
-function ensureSentenceEnding(text = '') {
-  const normalized = String(text || '').trim();
-  if (!normalized) return '';
-  if (/[。！？!?]$/.test(normalized)) return normalized;
-  return normalized + '。';
-}
-
-function normalizeOutlineNarrativeOutput(value) {
-  const raw = String(value || '').replace(/\r/g, '').trim();
-  if (!raw) return '';
-
-  const fragments = raw
-    .split('\n')
-    .map(stripOutlineListMarker)
-    .map((line) => line.replace(/[：:]\s*$/g, '').trim())
-    .filter(Boolean)
-    .flatMap((line) => line.split(/[;；]+/))
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => line.replace(/^(同时|接着|随后|然后|最后)\s*[，,]/, '$1'))
-    .map((line) => line.replace(/[，,；;。！？!?]+$/g, '').trim())
-    .filter(Boolean);
-
-  if (fragments.length === 0) return '';
-
-  return ensureSentenceEnding(
-    fragments
-      .join('，')
-      .replace(/，{2,}/g, '，')
-      .replace(/。\s*，/g, '，')
-      .replace(/\s+/g, ' ')
-      .trim()
-  );
-}
-
-function looksLikeOutlineList(value = '') {
-  const text = String(value || '').trim();
-  if (!text) return false;
-  return /(^|\s)(\d+[\.\)、]|[（(]?\d+[)）]|要点\s*\d+|第[一二三四五六七八九十百]+点|本章目标\s*[:：]|关键场景\s*[:：]|冲突升级\s*[:：]|角色变化\s*[:：]|读者爽点\s*[:：]|情绪落点\s*[:：]|结尾钩子\s*[:：])/m.test(text);
-}
-
-function mergeUsage(primary, secondary) {
-  const first = primary && typeof primary === 'object' ? primary : {};
-  const second = secondary && typeof secondary === 'object' ? secondary : {};
-  const merged = {
-    prompt_tokens: Number(first.prompt_tokens || 0) + Number(second.prompt_tokens || 0),
-    completion_tokens: Number(first.completion_tokens || 0) + Number(second.completion_tokens || 0),
-    total_tokens: Number(first.total_tokens || 0) + Number(second.total_tokens || 0)
-  };
-  return merged.prompt_tokens || merged.completion_tokens || merged.total_tokens ? merged : (primary || secondary || null);
-}
-
 function normalizeJsonArray(value) {
   if (Array.isArray(value)) {
     return value;
@@ -379,69 +315,6 @@ function buildCharacterSummaryContext(characters = []) {
     summaryParts.push(`章节临时角色摘要：${normalizeText(chapterSummary.background)}`);
   }
   return summaryParts.join('\n\n');
-}
-
-function collectStoredCharacterNames(characters = []) {
-  if (!Array.isArray(characters)) return [];
-  return characters
-    .map((character) => normalizeText(character.name))
-    .filter((name) => name && name !== '全书角色设定' && name !== '本章新增角色');
-}
-
-function hasAnyCharacterNameInText(text, characterNames = []) {
-  const normalizedText = normalizeText(text);
-  if (!normalizedText || !Array.isArray(characterNames) || characterNames.length === 0) return false;
-  return characterNames.some((name) => name && normalizedText.includes(name));
-}
-
-function validateChapterGenerationContext({ requestCharacters = '', storedContext = {} }) {
-  const storedCharacterNames = Array.isArray(storedContext.characterNames) ? storedContext.characterNames : [];
-  const requestCharacterText = normalizeText(requestCharacters);
-  if (storedCharacterNames.length === 0 && !requestCharacterText) {
-    return '当前作品还没有可用角色设定。请先在工作台补齐角色卡，避免模型临时乱造人物名。';
-  }
-
-  const chapterSnapshots = [
-    { label: '当前章正文', content: storedContext.currentChapter?.content || '' },
-    { label: '上一章正文', content: storedContext.previousChapter?.content || '' }
-  ];
-
-  for (const snapshot of chapterSnapshots) {
-    const normalizedContent = normalizeText(snapshot.content);
-    if (!normalizedContent || normalizedContent.length < 80 || storedCharacterNames.length === 0) continue;
-    if (!hasAnyCharacterNameInText(normalizedContent, storedCharacterNames)) {
-      return `${snapshot.label}与当前角色库对不上，疑似混入了其他作品内容。请先清理污染正文或修正角色设定，再继续生成。`;
-    }
-  }
-
-  return '';
-}
-
-function hasMountedStorylineSelectionForGeneration(plan = {}) {
-  const mainStorylineId = normalizeText(plan?.main_storyline_id || plan?.mainStorylineId || '');
-  const targetStorylines = normalizeJsonArray(plan?.target_storylines || plan?.targetStorylines);
-  return !!mainStorylineId || targetStorylines.some((item) => normalizeText(item));
-}
-
-function hasUsableChapterOutlineForGeneration({ outline = '', chapterPlan = {}, chapterStructure = {} }) {
-  if (normalizeText(outline)) return true;
-  const effectiveStructure = chapterStructure && typeof chapterStructure === 'object'
-    ? chapterStructure
-    : {};
-  const chapterGoal = normalizeText(
-    effectiveStructure.chapter_goal
-    || effectiveStructure.chapterGoal
-    || chapterPlan?.chapter_mission
-    || ''
-  );
-  const keyScenes = normalizeText(effectiveStructure.key_scenes || effectiveStructure.keyScenes || '');
-  const endingHook = normalizeText(
-    effectiveStructure.ending_hook
-    || effectiveStructure.endingHook
-    || chapterPlan?.ending_hook
-    || ''
-  );
-  return !!chapterGoal && !!keyScenes && !!endingHook;
 }
 
 function buildGenerationBriefText(generationBrief = {}) {
@@ -1059,7 +932,7 @@ function buildFallbackChapterFeedback({
     next_chapter_focus: continuityReport.must_carry_forward[0] || endingHook || '承接本章结果，先确认哪些新内容需要转入后续。',
     continuity_report: continuityReport,
     updated_at: new Date().toISOString(),
-    source: 'fallback_audit'
+    source: 'local_fallback'
   };
 }
 
@@ -1221,6 +1094,63 @@ async function auditGeneratedContent({ bookTitle = '', chapterNumber = 0, chapte
     verdict,
     source: 'model_audit'
   };
+}
+
+function mapAuditVerdictToQualityStatus(verdict = '') {
+  const normalized = normalizeText(verdict).toLowerCase();
+  if (normalized === 'stable') return 'passed';
+  if (normalized === 'needs_review') return 'warning';
+  if (normalized === 'risky') return 'failed';
+  return 'not_run';
+}
+
+function normalizeQualityCheck(value = {}) {
+  const qualityCheck = value && typeof value === 'object' ? value : {};
+  const status = normalizeText(qualityCheck.status);
+  const source = normalizeText(qualityCheck.source);
+  const allowedStatus = new Set(['passed', 'warning', 'failed', 'degraded', 'not_run']);
+  const allowedSource = new Set(['model_audit', 'heuristic', 'local_fallback', 'none']);
+
+  return {
+    status: allowedStatus.has(status) ? status : 'not_run',
+    source: allowedSource.has(source) ? source : 'none',
+    verdict: normalizeText(qualityCheck.verdict || ''),
+    signals: normalizeJsonArray(qualityCheck.signals)
+      .map((item) => normalizeText(item))
+      .filter(Boolean)
+      .slice(0, 12),
+    airdrop_items: Array.isArray(qualityCheck.airdrop_items)
+      ? qualityCheck.airdrop_items
+        .map((item) => ({
+          name: normalizeText(item?.name || ''),
+          type: normalizeText(item?.type || ''),
+          severity: normalizeText(item?.severity || ''),
+          reason: normalizeText(item?.reason || ''),
+          suggestion: normalizeText(item?.suggestion || '')
+        }))
+        .filter((item) => item.name || item.reason)
+        .slice(0, 8)
+      : [],
+    risks: normalizeJsonArray(qualityCheck.risks)
+      .map((item) => normalizeText(item))
+      .filter(Boolean)
+      .slice(0, 8),
+    checked_at: normalizeText(qualityCheck.checked_at || qualityCheck.checkedAt || '') || new Date().toISOString(),
+    degraded_reason: normalizeText(qualityCheck.degraded_reason || qualityCheck.degradedReason || '') || null
+  };
+}
+
+function buildQualityCheckFromAuditResult(auditResult = {}, overrides = {}) {
+  return normalizeQualityCheck({
+    status: overrides.status || mapAuditVerdictToQualityStatus(auditResult.verdict || ''),
+    source: overrides.source || normalizeText(auditResult.source || '') || 'none',
+    verdict: overrides.verdict ?? normalizeText(auditResult.verdict || ''),
+    signals: overrides.signals || normalizeJsonArray(auditResult.signals),
+    airdrop_items: overrides.airdrop_items || normalizeJsonArray(auditResult.airdrop_items),
+    risks: overrides.risks || normalizeJsonArray(auditResult.risks),
+    checked_at: overrides.checked_at || new Date().toISOString(),
+    degraded_reason: overrides.degraded_reason || null
+  });
 }
 
 function getChapterOutlineStructure(plan) {
@@ -1733,7 +1663,15 @@ async function saveChapterFeedback({ bookId, chapterNumber, feedback }) {
   if (!existingPlan) return null;
 
   const structuredContent = parseStructuredContent(existingPlan.structured_content);
-  structuredContent.chapter_feedback = feedback;
+  const normalizedFeedback = feedback && typeof feedback === 'object'
+    ? {
+        ...feedback,
+        quality_check: feedback.quality_check
+          ? normalizeQualityCheck(feedback.quality_check)
+          : undefined
+      }
+    : feedback;
+  structuredContent.chapter_feedback = normalizedFeedback;
 
   let storylineProgressUpdated = false;
   let requiresStorylineReview = false;
@@ -1766,7 +1704,7 @@ async function saveChapterFeedback({ bookId, chapterNumber, feedback }) {
 
   saveDatabase(db);
   return {
-    feedback,
+    feedback: normalizedFeedback,
     storylineProgressUpdated,
     requiresStorylineReview
   };
@@ -1992,7 +1930,6 @@ async function loadBookGenerationContext(bookId, chapterNumber) {
     contextNotes: notes.join('\n\n'),
     generationConstraints,
     chapterStorylineContext,
-    characterNames: collectStoredCharacterNames(characterRows),
     storedCharacters,
     characterSummary,
     chapterPlan: chapterPlanRow || null,
@@ -2088,9 +2025,8 @@ function buildChapterNamePrompt({ genre, subgenre, chapterNumber }) {
 function buildOutlinePrompt({ genre, subgenre, bookTitle, chapterTitle, characters, contextNotes, chapterStorylinePrompt }) {
   const typeInfo = subgenre ? genre + ' - ' + subgenre : genre;
   return [
-    '请为以下章节创作一段给作者直接使用的章节细纲。',
+    '请为以下章节创作极简大纲。',
     '你必须优先遵守章节任务与剧情线约束，不要自由偏航。',
-    '这份细纲是前端正式展示稿，不是内部任务清单。',
     '',
     '类型：' + typeInfo,
     '书名：' + (bookTitle || '未提供'),
@@ -2100,72 +2036,12 @@ function buildOutlinePrompt({ genre, subgenre, bookTitle, chapterTitle, characte
     contextNotes ? '上下文：\n' + contextNotes : '',
     chapterStorylinePrompt ? '\n剧情线约束：\n' + chapterStorylinePrompt : '\n剧情线约束：\n暂无结构化剧情线，仅使用章节目标兜底。',
     '输出要求：',
-    '1. 直接输出一版内容完整的章节细纲草稿，优先把剧情推进信息写全。',
-    '2. 必须使用完整自然句，严禁小标题，严禁写“本章目标/关键场景/冲突升级”这类栏目名。',
-    '3. 总字数控制在 110-180 字之间，够清楚即可，不要膨胀成剧情正文。',
-    '4. 只按 5W1H 章纲方式写：谁在什么处境下，于哪里展开行动，要做什么，为什么会这样推进，最后形成什么结果或钩子。',
-    '5. 保持章纲粒度，允许概括“前段/中段/后段”的推进，不要展开成逐场景描写、心理细描或对白片段。',
-    '6. 每一句都必须服务当前章必须推进的剧情节点，不能提前写出被禁止发生的事件。',
-    '7. 不要输出解释性话术，不要说“以下是细纲”或“要点如下”，直接给细纲正文。'
+    '1. 用最简洁的语言列出 5 个要点。',
+    '2. 总字数控制在 50-250 字。',
+    '3. 不要写完整句子，不要解释。',
+    '4. 每个要点都要服务当前章必须推进的剧情节点，不能提前写出被禁止发生的事件。',
+    '5. 直接输出要点。'
   ].filter(Boolean).join('\n');
-}
-
-function buildOutlineNarrativeRewritePrompt({
-  genre,
-  subgenre,
-  bookTitle,
-  chapterTitle,
-  contextNotes,
-  chapterStorylinePrompt,
-  draftOutline
-}) {
-  const typeInfo = subgenre ? genre + ' - ' + subgenre : genre;
-  return [
-    '请把下面的章节细纲草稿，改写成给作者直接阅读的自然叙事稿。',
-    '你的任务不是重写剧情，而是保留全部有效信息，只优化表达方式。',
-    '',
-    '类型：' + typeInfo,
-    '书名：' + (bookTitle || '未提供'),
-    '章节名：' + (chapterTitle || '未提供'),
-    '',
-    contextNotes ? '上下文：\n' + contextNotes : '',
-    chapterStorylinePrompt ? '\n剧情线约束：\n' + chapterStorylinePrompt : '',
-    '',
-    '原始细纲草稿：',
-    draftOutline || '未提供',
-    '',
-    '改写要求：',
-    '1. 只输出最终叙事稿，不要解释。',
-    '2. 必须改写成单段或双段的自然叙事型章纲，像编辑写给作者的正式章节说明，不是正文。',
-    '3. 绝对不能删掉原稿里的推进点、冲突点、角色动作、结尾钩子和真假目标信息。',
-    '4. 可以补足连接词和承接语，让因果与节奏更顺，但不能新增原稿没有的重要剧情事实。',
-    '5. 不要分点，不要编号，不要栏目名，不要字段拼接感。',
-    '6. 语言要自然，但保持“章纲抽象层级”：只概括推进，不展开成具体画面、对白、长动作链或细腻心理描写。',
-    '7. 按 5W1H 收束表达：谁、在什么处境、于哪里、要做什么、为什么这样推进、结果与后续钩子是什么。',
-    '8. 优先使用“前段/中段/后段”“先…再…最后…”这类概括表达，而不是把每个瞬间写成小说段落。',
-    '9. 总字数控制在 120-180 字，信息完整，但不要写得像正文。'
-  ].filter(Boolean).join('\n');
-}
-
-async function rewriteOutlineNarratively({
-  genre,
-  subgenre,
-  bookTitle,
-  chapterTitle,
-  contextNotes,
-  chapterStorylinePrompt,
-  rawOutline
-}) {
-  const rewritePrompt = buildOutlineNarrativeRewritePrompt({
-    genre,
-    subgenre,
-    bookTitle,
-    chapterTitle,
-    contextNotes,
-    chapterStorylinePrompt,
-    draftOutline: rawOutline
-  });
-  return runTextGeneration(rewritePrompt, { temperature: 0.65, maxTokens: 900 });
 }
 
 function buildCharacterNamesPrompt({ genre, subgenre, importantCount = 5, otherCount = 5 }) {
@@ -2376,150 +2252,6 @@ async function runTextGeneration(prompt, {
   });
 }
 
-function writeSseEvent(res, eventName, payload) {
-  res.write(`event: ${eventName}\n`);
-  res.write(`data: ${JSON.stringify(payload)}\n\n`);
-}
-
-function prepareSseResponse(res) {
-  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  if (typeof res.flushHeaders === 'function') {
-    res.flushHeaders();
-  }
-}
-
-async function prepareChapterContentGenerationContext(requestBody = {}) {
-  const {
-    bookId,
-    bookTitle,
-    genre = 'urban',
-    subgenre,
-    platform = 'qidian',
-    template,
-    chapterTitle = '',
-    outline = '',
-    characters = '',
-    shuangTags = [],
-    emotionIntensity = 70,
-    colloquialLevel = 80,
-    dialogueRatio = 30,
-    wordCount = 2000,
-    addCliffhanger,
-    enhanceDialogue,
-    avoidAIFeel,
-    fastPace,
-    detailedDesc,
-    model
-  } = requestBody;
-
-  const chapterNumber = Number.parseInt(requestBody.chapterNumber, 10);
-  const storedContext = await loadBookGenerationContext(bookId, chapterNumber);
-  const chapterPlan = storedContext.chapterPlan || {};
-  const storylineContext = parseStructuredContent(chapterPlan.structured_content).storyline_context || {};
-  const draftStorylineConstraint = buildDraftStorylineConstraintText(storylineContext);
-  const finalBookTitle = normalizeText(bookTitle) || storedContext.bookTitle;
-  const finalCharacters = [storedContext.storedCharacters, normalizeText(characters)].filter(Boolean).join('\n\n');
-  const briefText = buildGenerationBriefText(requestBody.generationBrief);
-  const finalContextNotes = [storedContext.contextNotes, draftStorylineConstraint.text, briefText].filter(Boolean).join('\n\n');
-  const structuredOutline = normalizeText(buildStructuredOutlineText(getChapterOutlineStructure(chapterPlan)));
-  const requestChapterPlan = requestBody.chapterPlan && typeof requestBody.chapterPlan === 'object' ? requestBody.chapterPlan : {};
-  const requestChapterStructure = requestBody.chapterStructure && typeof requestBody.chapterStructure === 'object' ? requestBody.chapterStructure : {};
-  const mergedChapterPlanForValidation = {
-    ...chapterPlan,
-    ...requestChapterPlan,
-    chapter_structure: {
-      ...(chapterPlan.chapter_structure || {}),
-      ...requestChapterStructure,
-      ...(requestChapterPlan.chapter_structure || {})
-    }
-  };
-  const roleExecution = normalizeRoleExecutionList(
-    requestBody.chapterPlan?.role_execution
-    || requestBody.chapterPlan?.structured_content?.role_execution
-    || chapterPlan?.structured_content?.role_execution
-  );
-  const requestedOutline = normalizeText(outline);
-  const finalOutlineCandidate = requestedOutline
-    || structuredOutline
-    || normalizeText(chapterPlan.outline_text || buildOutlineFromChapterPlan(chapterPlan));
-  const hasOutlineAnchor = hasUsableChapterOutlineForGeneration({
-    outline: finalOutlineCandidate,
-    chapterPlan: mergedChapterPlanForValidation,
-    chapterStructure: requestChapterStructure
-  });
-  const hasStorylineAnchor = hasMountedStorylineSelectionForGeneration(mergedChapterPlanForValidation);
-  const finalOutline = finalOutlineCandidate || (
-    hasStorylineAnchor
-      ? '当前章节未填写细纲，请严格围绕已挂接剧情线、卷任务与现有上下文推进，不得擅自扩线或跳出既定承接。'
-      : ''
-  );
-
-  if (!hasOutlineAnchor && !hasStorylineAnchor) {
-    const error = new Error('当前既没有章节细纲，也没有剧情线挂载。请先补齐章节细纲，或至少挂载一条剧情线后再生成。');
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const generationContextError = validateChapterGenerationContext({
-    requestCharacters: characters,
-    storedContext
-  });
-  if (generationContextError) {
-    const error = new Error(generationContextError);
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const requestedWordCount = Number(wordCount) || 2000;
-  const maxTokens = Math.max(900, Math.ceil(requestedWordCount * 0.66));
-  const safeModel = model || 'deepseek-chat';
-  const prompt = deepseekService.buildCreativePrompt({
-    bookTitle: finalBookTitle,
-    genre,
-    subgenre,
-    platform,
-    template,
-    chapterTitle,
-    chapterSummary: normalizeText(chapterPlan.summary || ''),
-    outline: finalOutline,
-    characters: finalCharacters,
-    appearingRoles: normalizeJsonArray(chapterPlan.appearing_roles),
-    roleExecution,
-    contextNotes: finalContextNotes,
-    shuangTags: Array.isArray(shuangTags) ? shuangTags : [],
-    emotionIntensity: emotionIntensity || 70,
-    colloquialLevel: colloquialLevel || 80,
-    dialogueRatio: dialogueRatio || 30,
-    wordCount: requestedWordCount,
-    addCliffhanger: addCliffhanger !== undefined ? addCliffhanger : true,
-    enhanceDialogue: enhanceDialogue !== undefined ? enhanceDialogue : true,
-    avoidAIFeel: avoidAIFeel !== undefined ? avoidAIFeel : true,
-    fastPace: fastPace || false,
-    detailedDesc: detailedDesc || false
-  });
-
-  return {
-    bookId,
-    chapterNumber,
-    chapterTitle,
-    chapterPlan,
-    storylineContext,
-    finalBookTitle,
-    finalCharacters,
-    finalContextNotes,
-    finalOutline,
-    requestedWordCount,
-    maxTokens,
-    model: safeModel,
-    prompt,
-    draftStorylineConstraint,
-    storedContext
-  };
-}
-
 async function handleBookTitleGeneration(req, res) {
   try {
     const { genre = 'urban', subgenre } = req.body;
@@ -2594,25 +2326,6 @@ async function handleOutlineGeneration(req, res) {
     if (!result.success) {
       return res.status(result.statusCode || 500).json({ success: false, error: result.error });
     }
-    const firstPassContent = normalizeText(result.content);
-    const rewrittenResult = await rewriteOutlineNarratively({
-      genre,
-      subgenre,
-      bookTitle,
-      chapterTitle,
-      contextNotes: mergedContextNotes,
-      chapterStorylinePrompt: storylineContextMeta?.promptText || '',
-      rawOutline: firstPassContent
-    });
-    const finalRawContent = rewrittenResult.success
-      ? rewrittenResult.content
-      : firstPassContent;
-    const normalizedContent = normalizeOutlineNarrativeOutput(finalRawContent);
-    const finalContent = (
-      (!looksLikeOutlineList(normalizedContent) && normalizedContent.length >= 120)
-        ? normalizedContent
-        : normalizeOutlineNarrativeOutput(firstPassContent)
-    ) || normalizedContent || firstPassContent;
     let persistedStorylineContext = null;
     if (normalizeText(bookId || '') && Number.parseInt(chapterNumber, 10)) {
       persistedStorylineContext = await saveChapterStorylineContext({
@@ -2624,8 +2337,8 @@ async function handleOutlineGeneration(req, res) {
     return res.json({
       success: true,
       data: {
-        content: finalContent,
-        usage: mergeUsage(result.usage, rewrittenResult.success ? rewrittenResult.usage : null),
+        content: normalizeText(result.content),
+        usage: result.usage,
         storylineContext: {
           ...(persistedStorylineContext || buildPersistedStorylineContext(storylineContextMeta))
         },
@@ -2789,9 +2502,12 @@ async function handleChapterFeedbackGeneration(req, res) {
           )
           .slice(0, 8)
       }, auditResult),
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      source: 'model_feedback'
     };
 
+    let usedLocalFallback = false;
+    let degradedReason = null;
     if (isLowConfidenceFeedback(feedback, content)) {
       feedback = buildFallbackChapterFeedback({
         content,
@@ -2799,7 +2515,20 @@ async function handleChapterFeedbackGeneration(req, res) {
         mainStoryline,
         targetStorylines
       });
+      usedLocalFallback = true;
+      degradedReason = 'low_confidence_feedback';
     }
+
+    feedback.quality_check = buildQualityCheckFromAuditResult(
+      auditResult,
+      usedLocalFallback
+        ? {
+            status: 'degraded',
+            source: 'local_fallback',
+            degraded_reason: degradedReason
+          }
+        : {}
+    );
 
     const feedbackSaveResult = await saveChapterFeedback({ bookId, chapterNumber, feedback });
     return res.json({
@@ -2807,6 +2536,13 @@ async function handleChapterFeedbackGeneration(req, res) {
       data: {
         feedback: feedbackSaveResult?.feedback || feedback,
         metadata: {
+          feedbackGenerated: !usedLocalFallback,
+          feedbackSaved: !!feedbackSaveResult,
+          usedLocalFallback,
+          feedbackSource: normalizeText((feedbackSaveResult?.feedback || feedback)?.source || ''),
+          qualityCheckSaved: !!feedbackSaveResult?.feedback?.quality_check,
+          qualityCheck: (feedbackSaveResult?.feedback || feedback)?.quality_check || null,
+          degradedReason,
           storylineProgressUpdated: !!feedbackSaveResult?.storylineProgressUpdated,
           requiresStorylineReview: !!feedbackSaveResult?.requiresStorylineReview
         }
@@ -2820,27 +2556,83 @@ async function handleChapterFeedbackGeneration(req, res) {
 
 async function handleChapterContentGeneration(req, res) {
   try {
-    const prepared = await prepareChapterContentGenerationContext(req.body);
     const {
       bookId,
-      chapterNumber,
+      bookTitle,
+      genre = 'urban',
+      subgenre,
+      platform = 'qidian',
+      template,
+      chapterTitle = '',
+      outline = '',
+      characters = '',
+      shuangTags = [],
+      emotionIntensity = 70,
+      colloquialLevel = 80,
+      dialogueRatio = 30,
+      wordCount = 2000,
+      addCliffhanger,
+      enhanceDialogue,
+      avoidAIFeel,
+      fastPace,
+      detailedDesc,
+      model
+    } = req.body;
+
+    const chapterNumber = Number.parseInt(req.body.chapterNumber, 10);
+    const storedContext = await loadBookGenerationContext(bookId, chapterNumber);
+    const chapterPlan = storedContext.chapterPlan || {};
+    const storylineContext = parseStructuredContent(chapterPlan.structured_content).storyline_context || {};
+    const draftStorylineConstraint = buildDraftStorylineConstraintText(storylineContext);
+    const finalBookTitle = normalizeText(bookTitle) || storedContext.bookTitle;
+    const finalCharacters = [storedContext.storedCharacters, normalizeText(characters)].filter(Boolean).join('\n\n');
+    const briefText = buildGenerationBriefText(req.body.generationBrief);
+    const finalContextNotes = [storedContext.contextNotes, draftStorylineConstraint.text, briefText].filter(Boolean).join('\n\n');
+    const structuredOutline = normalizeText(buildStructuredOutlineText(getChapterOutlineStructure(chapterPlan)));
+    const roleExecution = normalizeRoleExecutionList(
+      req.body.chapterPlan?.role_execution
+      || req.body.chapterPlan?.structured_content?.role_execution
+      || chapterPlan?.structured_content?.role_execution
+    );
+    const finalOutline = normalizeText(outline)
+      || structuredOutline
+      || normalizeText(chapterPlan.outline_text || buildOutlineFromChapterPlan(chapterPlan));
+
+    if (!finalOutline) {
+      return res.status(400).json({ success: false, error: 'Outline is required' });
+    }
+
+    const requestedWordCount = Number(wordCount) || 2000;
+    const maxTokens = Math.max(900, Math.ceil(requestedWordCount * 0.66));
+    const prompt = deepseekService.buildCreativePrompt({
+      bookTitle: finalBookTitle,
+      genre,
+      subgenre,
+      platform,
+      template,
       chapterTitle,
-      chapterPlan,
-      storylineContext,
-      finalBookTitle,
-      finalContextNotes,
-      requestedWordCount,
-      maxTokens,
-      model,
-      prompt,
-      draftStorylineConstraint,
-      storedContext
-    } = prepared;
+      chapterSummary: normalizeText(chapterPlan.summary || ''),
+      outline: finalOutline,
+      characters: finalCharacters,
+      appearingRoles: normalizeJsonArray(chapterPlan.appearing_roles),
+      roleExecution,
+      contextNotes: finalContextNotes,
+      shuangTags: Array.isArray(shuangTags) ? shuangTags : [],
+      emotionIntensity: emotionIntensity || 70,
+      colloquialLevel: colloquialLevel || 80,
+      dialogueRatio: dialogueRatio || 30,
+      wordCount: requestedWordCount,
+      addCliffhanger: addCliffhanger !== undefined ? addCliffhanger : true,
+      enhanceDialogue: enhanceDialogue !== undefined ? enhanceDialogue : true,
+      avoidAIFeel: avoidAIFeel !== undefined ? avoidAIFeel : true,
+      fastPace: fastPace || false,
+      detailedDesc: detailedDesc || false
+    });
 
     logger.info('Starting content generation', {
       bookId: bookId || '',
       bookTitle: finalBookTitle || '',
-      genre: req.body.genre || 'urban',
+      genre,
       chapterTitle: chapterTitle || 'Untitled chapter',
       hasStoredContext: !!finalContextNotes,
       hasStoredCharacters: !!storedContext.storedCharacters,
@@ -2849,7 +2641,7 @@ async function handleChapterContentGeneration(req, res) {
     });
 
     const result = await runTextGeneration(prompt, {
-      model,
+      model: model || 'deepseek-chat',
       temperature: 0.7,
       maxTokens
     });
@@ -2870,7 +2662,7 @@ async function handleChapterContentGeneration(req, res) {
       targetStorylineLabels: relatedStorylineTitlesFromContext(storylineContext)
     });
     logger.info('Content generation succeeded', {
-      model,
+      model: model || 'deepseek-chat',
       targetWordCount: requestedWordCount,
       actualLength: generatedContent.length,
       continuityRiskCount: auditResult.risks.length
@@ -2882,7 +2674,7 @@ async function handleChapterContentGeneration(req, res) {
         content: generatedContent,
         usage: result.usage,
         metadata: {
-          model,
+          model: model || 'deepseek-chat',
           timestamp: new Date().toISOString(),
           targetWordCount: requestedWordCount,
           actualLength: generatedContent.length,
@@ -2911,126 +2703,6 @@ async function handleChapterContentGeneration(req, res) {
   }
 }
 
-async function handleChapterContentGenerationStream(req, res) {
-  let clientClosed = false;
-  const abortController = new AbortController();
-  req.on('close', () => {
-    clientClosed = true;
-    abortController.abort();
-  });
-
-  try {
-    const prepared = await prepareChapterContentGenerationContext(req.body);
-    const {
-      bookId,
-      chapterNumber,
-      chapterTitle,
-      chapterPlan,
-      storylineContext,
-      finalBookTitle,
-      requestedWordCount,
-      maxTokens,
-      model,
-      prompt,
-      draftStorylineConstraint
-    } = prepared;
-
-    prepareSseResponse(res);
-
-    logger.info('Starting streaming content generation', {
-      bookId: bookId || '',
-      bookTitle: finalBookTitle || '',
-      chapterNumber,
-      chapterTitle: chapterTitle || 'Untitled chapter',
-      targetWordCount: requestedWordCount,
-      maxTokens
-    });
-
-    let generatedContent = '';
-    let usage = null;
-
-    for await (const event of deepseekService.generateStream({
-      prompt,
-      model,
-      temperature: 0.7,
-      maxTokens,
-      signal: abortController.signal
-    })) {
-      if (clientClosed) return;
-
-      if (event.type === 'delta') {
-        generatedContent = event.fullContent || generatedContent;
-        writeSseEvent(res, 'delta', {
-          type: 'delta',
-          content: event.content,
-          content_length: generatedContent.length
-        });
-      }
-
-      if (event.type === 'usage') {
-        usage = event.usage || usage;
-        if (usage) {
-          writeSseEvent(res, 'usage', {
-            type: 'usage',
-            usage
-          });
-        }
-      }
-    }
-
-    if (clientClosed) return;
-
-    const auditResult = await auditGeneratedContent({
-      bookTitle: finalBookTitle,
-      chapterNumber,
-      chapterTitle,
-      content: generatedContent,
-      chapterPlan,
-      mainStoryline: normalizeText(relatedStorylineTitleFromContext(storylineContext, true)),
-      targetStorylineLabels: relatedStorylineTitlesFromContext(storylineContext)
-    });
-
-    if (clientClosed) return;
-
-    writeSseEvent(res, 'audit', {
-      type: 'audit',
-      ...auditResult
-    });
-
-    writeSseEvent(res, 'done', {
-      type: 'done',
-      content_length: generatedContent.length,
-      usage,
-      model,
-      metadata: {
-        targetWordCount: requestedWordCount,
-        storylineConstraintApplied: !!draftStorylineConstraint.applied,
-        usedStorylineIds: draftStorylineConstraint.usedStorylineIds || [],
-        usedBeatIds: draftStorylineConstraint.usedBeatIds || [],
-        usedVolumeTimeline: !!draftStorylineConstraint.usedVolumeTimeline,
-        isFallback: !!draftStorylineConstraint.isFallback
-      }
-    });
-
-    res.end();
-  } catch (error) {
-    if (clientClosed || res.writableEnded) return;
-
-    if (!res.headersSent) {
-      return res.status(error.statusCode || 500).json({
-        success: false,
-        error: error.message || '流式生成失败'
-      });
-    }
-
-    writeSseEvent(res, 'error', {
-      type: 'error',
-      message: error.message || '流式生成失败'
-    });
-    res.end();
-  }
-}
-
 router.post('/generate', async (req, res) => {
   const promptType = normalizeText(req.body.promptType || 'chapter') || 'chapter';
   if (promptType === 'book_title') return handleBookTitleGeneration(req, res);
@@ -3041,18 +2713,6 @@ router.post('/generate', async (req, res) => {
   if (promptType === 'full_outline') return handleFullOutlineGeneration(req, res);
   if (promptType === 'chapter_feedback') return handleChapterFeedbackGeneration(req, res);
   return handleChapterContentGeneration(req, res);
-});
-
-router.post('/generate/stream', async (req, res) => {
-  const promptType = normalizeText(req.body.promptType || 'chapter') || 'chapter';
-  if (promptType !== 'chapter') {
-    return res.status(400).json({
-      success: false,
-      error: '流式生成目前仅支持正文生成（promptType: chapter）'
-    });
-  }
-
-  return handleChapterContentGenerationStream(req, res);
 });
 
 router.post('/polish', async (req, res) => {

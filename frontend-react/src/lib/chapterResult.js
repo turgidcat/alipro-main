@@ -1,146 +1,210 @@
-import { getGenerationChapterOutline } from './chapterPlan.js';
-import { buildLocalChapterFeedback } from './revisionDiff.js';
+import { composeStructuredOutline } from './chapterPlan.js';
 import { mergeFeedbackIntoPlan } from './chapterBundle.js';
+import { buildLocalChapterFeedback } from './revisionDiff.js';
 
-export function buildSyncedChapterListContext(chapterContext = {}, {
-  chapterNumber = 1,
-  chapterTitle = ''
-} = {}) {
-  const normalizedChapterNumber = Number(chapterNumber || 1);
-  const currentItems = Array.isArray(chapterContext.chapterListItems) ? chapterContext.chapterListItems : [];
-  const nextCount = Math.max(Number(chapterContext.totalChapterCount || 0), normalizedChapterNumber, 1);
-  const itemByChapterNumber = new Map(
-    currentItems
-      .map((item) => [Number(item.chapterNumber || 0), item])
-      .filter(([itemChapterNumber]) => itemChapterNumber > 0)
-  );
+function normalizeText(value) {
+  return String(value || '').trim();
+}
 
-  itemByChapterNumber.set(normalizedChapterNumber, {
-    ...(itemByChapterNumber.get(normalizedChapterNumber) || {}),
-    chapterNumber: normalizedChapterNumber,
-    chapterName: String(chapterTitle || '').trim(),
-    status: 'has-content'
-  });
+function normalizeArray(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : [];
+}
 
-  const nextItems = Array.from({ length: nextCount }, (_, index) => {
-    const itemChapterNumber = index + 1;
-    return itemByChapterNumber.get(itemChapterNumber) || {
-      chapterNumber: itemChapterNumber,
-      chapterName: '',
-      status: 'empty'
-    };
-  });
+function normalizeQualityCheck(value = {}) {
+  const normalized = value && typeof value === 'object' ? value : {};
+  const allowedStatus = new Set(['passed', 'warning', 'failed', 'degraded', 'not_run']);
+  const allowedSource = new Set(['model_audit', 'heuristic', 'local_fallback', 'none']);
+  const status = normalizeText(normalized.status);
+  const source = normalizeText(normalized.source);
+  const checkedAt = normalizeText(normalized.checked_at || normalized.checkedAt);
+  const degradedReason = normalizeText(normalized.degraded_reason || normalized.degradedReason);
 
   return {
-    ...chapterContext,
-    totalChapterCount: nextCount,
-    chapterListItems: nextItems
+    status: allowedStatus.has(status) ? status : 'not_run',
+    source: allowedSource.has(source) ? source : 'none',
+    verdict: normalizeText(normalized.verdict),
+    signals: normalizeArray(normalized.signals).map((item) => normalizeText(item)).filter(Boolean),
+    airdrop_items: normalizeArray(normalized.airdrop_items).map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const normalizedItem = {
+        name: normalizeText(item.name),
+        type: normalizeText(item.type),
+        severity: normalizeText(item.severity),
+        reason: normalizeText(item.reason),
+        suggestion: normalizeText(item.suggestion)
+      };
+      return normalizedItem.name || normalizedItem.reason ? normalizedItem : null;
+    }).filter(Boolean),
+    risks: normalizeArray(normalized.risks).map((item) => normalizeText(item)).filter(Boolean),
+    checked_at: checkedAt || new Date().toISOString(),
+    degraded_reason: degradedReason || null
   };
 }
 
-export function buildGenerationSuccessState({
-  content,
-  successTitle,
-  successText,
-  chapterTitle,
-  targetWordCount,
-  chapterFeedback
-}) {
-  return {
-    hasContent: true,
-    content,
-    statusKind: 'success',
-    statusTitle: successTitle,
-    statusText: successText,
-    metaText: chapterTitle,
-    wordCountLabel: `实际约 ${content.length} 字 / 目标 ${targetWordCount} 字`,
-    previewText: String(content || ''),
-    feedbackSummary: chapterFeedback.chapter_summary || '',
-    feedbackFocus: chapterFeedback.next_chapter_focus || chapterFeedback.open_hooks || ''
-  };
+function mapAuditVerdictToStatus(verdict = '') {
+  const normalized = normalizeText(verdict).toLowerCase();
+  if (normalized === 'stable') return 'passed';
+  if (normalized === 'needs_review') return 'warning';
+  if (normalized === 'risky') return 'failed';
+  return 'not_run';
+}
+
+function buildQualityCheckFromAudit(generationAudit = {}, overrides = {}) {
+  const audit = generationAudit && typeof generationAudit === 'object' ? generationAudit : {};
+  return normalizeQualityCheck({
+    status: overrides.status || mapAuditVerdictToStatus(audit.verdict),
+    source: overrides.source || normalizeText(audit.source) || 'none',
+    verdict: overrides.verdict ?? normalizeText(audit.verdict),
+    signals: normalizeArray(overrides.signals || audit.signals),
+    airdrop_items: normalizeArray(overrides.airdrop_items || audit.airdrop_items),
+    risks: normalizeArray(overrides.risks || audit.risks),
+    checked_at: overrides.checked_at || new Date().toISOString(),
+    degraded_reason: overrides.degraded_reason || null
+  });
+}
+
+function buildLocalFallbackQualityCheck(generationAudit = {}, degradedReason = '') {
+  const hasAuditPayload = generationAudit
+    && typeof generationAudit === 'object'
+    && (
+      normalizeText(generationAudit.verdict)
+      || normalizeArray(generationAudit.signals).length > 0
+      || normalizeArray(generationAudit.risks).length > 0
+      || normalizeArray(generationAudit.airdrop_items).length > 0
+    );
+
+  if (!hasAuditPayload) {
+    return normalizeQualityCheck({
+      status: 'not_run',
+      source: 'none',
+      verdict: '',
+      signals: [],
+      airdrop_items: [],
+      risks: [],
+      checked_at: new Date().toISOString(),
+      degraded_reason: degradedReason || 'feedback_generation_failed'
+    });
+  }
+
+  return buildQualityCheckFromAudit(generationAudit, {
+    status: 'degraded',
+    source: 'local_fallback',
+    degraded_reason: degradedReason || 'feedback_generation_failed'
+  });
+}
+
+function ensureFeedbackQualityCheck(feedback, { generationAudit, usedLocalFallback = false, degradedReason = '' } = {}) {
+  const normalizedFeedback = feedback && typeof feedback === 'object' ? { ...feedback } : {};
+  const existingQualityCheck = normalizedFeedback.quality_check
+    ? normalizeQualityCheck(normalizedFeedback.quality_check)
+    : null;
+
+  if (usedLocalFallback) {
+    normalizedFeedback.source = 'local_fallback';
+    normalizedFeedback.quality_check = buildLocalFallbackQualityCheck(generationAudit, degradedReason);
+    return normalizedFeedback;
+  }
+
+  normalizedFeedback.source = normalizeText(normalizedFeedback.source) || 'model_feedback';
+  normalizedFeedback.quality_check = existingQualityCheck || buildQualityCheckFromAudit(generationAudit);
+  return normalizedFeedback;
 }
 
 export async function persistChapterResultCycle({
-  selectedBookId,
+  bookId,
   chapterNumber,
   content,
   normalizedPlan,
   chapterStructure,
   chapterTitle,
-  targetWordCount,
-  successTitle,
-  successText,
-  openResultModal = false,
-  selectedMainStorylineLabel,
-  selectedTargetStorylineLabel,
-  storylineRhythmHints,
-  upsertGeneratedChapter,
+  mainStorylineLabel,
+  targetStorylineLabel,
+  rhythmHints,
+  generationAudit,
   generateChapterFeedback,
   saveChapterPlan,
-  syncCurrentChapterListItem,
-  serializeChapterPlanDraft,
-  setDraftChapterPlan,
-  setSavedChapterPlanSnapshot,
-  setGenerationState,
-  setRevisionOriginal,
-  setRevisionDraft,
-  setRevisionSuggestions,
-  setRevisionError,
-  setResultModalOpen
+  upsertGeneratedChapter
 }) {
-  await upsertGeneratedChapter(selectedBookId, {
+  const cycleResult = {
+    contentSaved: false,
+    modelFeedbackGenerated: false,
+    feedbackSaved: false,
+    qualityCheckSaved: false,
+    usedLocalFallback: false,
+    feedbackGenerationError: '',
+    feedbackSaveError: '',
+    chapterFeedback: null,
+    feedbackPlan: null,
+    qualityCheck: null
+  };
+
+  await upsertGeneratedChapter(bookId, {
     title: chapterTitle,
     chapterName: normalizedPlan.chapter_name || '',
     chapterNumber,
     content
   });
+  cycleResult.contentSaved = true;
 
-  let chapterFeedback = null;
+  const outline = normalizeText(normalizedPlan.outline_text || composeStructuredOutline(chapterStructure));
+  let feedbackResponse = null;
+
   try {
-    const feedbackResponse = await generateChapterFeedback({
-      bookId: selectedBookId,
+    feedbackResponse = await generateChapterFeedback({
+      bookId,
       chapterNumber,
       chapterTitle,
       content,
-      outline: getGenerationChapterOutline(normalizedPlan)
+      outline
     });
-    chapterFeedback = feedbackResponse?.feedback || null;
-  } catch (_) {
-    chapterFeedback = null;
+  } catch (error) {
+    cycleResult.feedbackGenerationError = error.message;
   }
 
-  if (!chapterFeedback) {
-    chapterFeedback = buildLocalChapterFeedback({
-      content,
-      plan: normalizedPlan,
-      chapterStructure,
-      mainStorylineLabel: selectedMainStorylineLabel,
-      targetStorylineLabel: selectedTargetStorylineLabel,
-      rhythmHints: storylineRhythmHints
+  if (feedbackResponse?.feedback) {
+    const metadata = feedbackResponse.metadata || {};
+    cycleResult.usedLocalFallback = !!metadata.usedLocalFallback;
+    cycleResult.modelFeedbackGenerated = !cycleResult.usedLocalFallback && metadata.feedbackGenerated !== false;
+    cycleResult.feedbackSaved = !!metadata.feedbackSaved;
+    cycleResult.qualityCheckSaved = !!metadata.qualityCheckSaved;
+    cycleResult.chapterFeedback = ensureFeedbackQualityCheck(feedbackResponse.feedback, {
+      generationAudit,
+      usedLocalFallback: cycleResult.usedLocalFallback,
+      degradedReason: metadata.degradedReason || ''
     });
+  } else {
+    cycleResult.usedLocalFallback = true;
+    cycleResult.chapterFeedback = ensureFeedbackQualityCheck(
+      buildLocalChapterFeedback({
+        content,
+        plan: normalizedPlan,
+        chapterStructure,
+        mainStorylineLabel,
+        targetStorylineLabel,
+        rhythmHints
+      }),
+      {
+        generationAudit,
+        usedLocalFallback: true,
+        degradedReason: cycleResult.feedbackGenerationError || 'feedback_generation_failed'
+      }
+    );
   }
 
-  const feedbackPlan = mergeFeedbackIntoPlan(normalizedPlan, chapterFeedback);
-  await saveChapterPlan(selectedBookId, chapterNumber, feedbackPlan);
-  setDraftChapterPlan(feedbackPlan);
-  setSavedChapterPlanSnapshot(serializeChapterPlanDraft(feedbackPlan));
-  syncCurrentChapterListItem({
-    chapterTitle: normalizedPlan.chapter_name || ''
-  });
-  setGenerationState(buildGenerationSuccessState({
-    content,
-    successTitle,
-    successText,
-    chapterTitle,
-    targetWordCount,
-    chapterFeedback
-  }));
-  setRevisionOriginal(String(content || ''));
-  setRevisionDraft(String(content || ''));
-  setRevisionSuggestions(null);
-  setRevisionError('');
-  if (openResultModal) {
-    setResultModalOpen(true);
+  cycleResult.qualityCheck = cycleResult.chapterFeedback?.quality_check || null;
+
+  const needsLocalPersistence = cycleResult.usedLocalFallback || !cycleResult.feedbackSaved;
+  cycleResult.feedbackPlan = mergeFeedbackIntoPlan(normalizedPlan, cycleResult.chapterFeedback);
+
+  if (needsLocalPersistence) {
+    try {
+      await saveChapterPlan(bookId, chapterNumber, cycleResult.feedbackPlan);
+      cycleResult.feedbackSaved = true;
+      cycleResult.qualityCheckSaved = !!cycleResult.chapterFeedback?.quality_check;
+    } catch (error) {
+      cycleResult.feedbackSaveError = error.message;
+    }
   }
-  return { feedbackPlan, chapterFeedback };
+
+  return cycleResult;
 }
