@@ -849,8 +849,110 @@ const MODEL_AUDIT_DIMENSIONS = [
   'chapter_handoff',
   'generated_fact_conflicts',
   'generated_character_state_continuity',
-  'summary_continuity'
+  'summary_continuity',
+  'plan_anchor_audit'
 ];
+
+function normalizePlanAnchorItems(value = [], limit = 6) {
+  return normalizeJsonArray(value)
+    .map((item) => typeof item === 'string'
+      ? normalizeText(item)
+      : normalizeText(item?.summary || item?.title || item?.note || item?.name || '')
+    )
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function buildPlanAnchorAuditContext(chapterPlan = {}) {
+  const storylineContext = parseStructuredContent(chapterPlan?.structured_content).storyline_context || {};
+  const chapterMission = normalizeText(chapterPlan?.chapter_mission || '');
+  const mustAdvance = normalizePlanAnchorItems(storylineContext.mustAdvance, 6);
+  const mustNotHappen = normalizePlanAnchorItems(storylineContext.mustNotHappen, 6);
+  return {
+    chapter_mission: chapterMission,
+    must_advance: mustAdvance,
+    must_not_happen: mustNotHappen
+  };
+}
+
+function createSkippedPlanAnchorAudit(chapterPlan = {}, reason = '') {
+  const context = buildPlanAnchorAuditContext(chapterPlan);
+  return {
+    status: 'skipped',
+    chapter_mission: context.chapter_mission,
+    must_advance: context.must_advance.map((item) => ({
+      item,
+      status: 'skipped',
+      note: normalizeText(reason || '')
+    })),
+    must_not_happen: context.must_not_happen.map((item) => ({
+      item,
+      status: 'skipped',
+      note: normalizeText(reason || '')
+    })),
+    summary: normalizeText(reason || '')
+  };
+}
+
+function normalizePlanAnchorAudit(value = {}, chapterPlan = {}) {
+  const context = buildPlanAnchorAuditContext(chapterPlan);
+  const planAnchorAudit = value && typeof value === 'object' ? value : {};
+  const allowedStatus = new Set(['passed', 'needs_review', 'risky', 'skipped', 'not_applicable']);
+  const normalizeItems = (items = [], fallbackStatus = 'skipped') => normalizeJsonArray(items)
+    .map((item) => {
+      if (typeof item === 'string') {
+        return {
+          item: normalizeText(item),
+          status: fallbackStatus,
+          note: ''
+        };
+      }
+      const text = normalizeText(item?.item || item?.title || item?.summary || item?.name || '');
+      if (!text) return null;
+      const itemStatus = normalizeText(item?.status || '') || fallbackStatus;
+      return {
+        item: text,
+        status: itemStatus,
+        note: normalizeText(item?.note || item?.reason || '')
+      };
+    })
+    .filter((item) => item && item.item)
+    .slice(0, 6);
+
+  const status = normalizeText(planAnchorAudit.status || '');
+  return {
+    status: allowedStatus.has(status) ? status : ((context.chapter_mission || context.must_advance.length > 0 || context.must_not_happen.length > 0) ? 'skipped' : 'not_applicable'),
+    chapter_mission: normalizeText(planAnchorAudit.chapter_mission || planAnchorAudit.mission || context.chapter_mission || ''),
+    must_advance: normalizeItems(
+      planAnchorAudit.must_advance || planAnchorAudit.mustAdvance || context.must_advance,
+      context.must_advance.length > 0 ? 'skipped' : 'not_applicable'
+    ),
+    must_not_happen: normalizeItems(
+      planAnchorAudit.must_not_happen || planAnchorAudit.mustNotHappen || context.must_not_happen,
+      context.must_not_happen.length > 0 ? 'skipped' : 'not_applicable'
+    ),
+    summary: normalizeText(planAnchorAudit.summary || planAnchorAudit.note || '')
+  };
+}
+
+function derivePlanAnchorAuditRisks(planAnchorAudit = {}) {
+  const normalized = normalizePlanAnchorAudit(planAnchorAudit);
+  const risks = [];
+  if (normalized.status === 'risky' || normalized.status === 'needs_review') {
+    if (normalized.summary) risks.push(normalized.summary);
+  }
+  normalized.must_advance.forEach((item) => {
+    if (normalizeText(item?.status || '') === 'missing') {
+      risks.push(normalizeText(item.note || `本章应推进但未明显完成：${item.item}`));
+    }
+  });
+  normalized.must_not_happen.forEach((item) => {
+    if (normalizeText(item?.status || '') === 'triggered') {
+      risks.push(normalizeText(item.note || `本章提前触发了不应发生的事项：${item.item}`));
+    }
+  });
+  return [...new Set(risks.map((item) => normalizeText(item)).filter(Boolean))].slice(0, 4);
+}
 
 function sliceTextHead(text = '', limit = 500) {
   return String(text || '').slice(0, Math.max(0, Number(limit) || 0)).trim();
@@ -1378,6 +1480,7 @@ function buildContinuityAuditPrompt({
   localSignals = []
 }) {
   const outline = buildOutlineFromChapterPlan(chapterPlan);
+  const planAnchorContext = buildPlanAnchorAuditContext(chapterPlan);
   const serializedLocalSignals = JSON.stringify(
     normalizeJsonArray(localSignals).map((item) => ({
       type: normalizeText(item?.type || ''),
@@ -1388,6 +1491,7 @@ function buildContinuityAuditPrompt({
     null,
     2
   );
+  const serializedPlanAnchorContext = JSON.stringify(planAnchorContext, null, 2);
 
   return [
     '你是一名长篇小说连续性审计编辑。',
@@ -1401,13 +1505,14 @@ function buildContinuityAuditPrompt({
     '  "risks": ["需要提醒的问题，若无则返回空数组"],',
     '  "signals": ["本章实际命中的关键承接点或主线锚点"],',
     '  "airdrop_items": [{"name":"疑似空降内容","type":"角色/背景/势力/规则/道具/历史信息","severity":"low/medium/high","reason":"为什么判定为疑似空降","suggestion":"建议保留/建议回收/建议先挂接再写"}],',
+    '  "plan_anchor_audit": {"status":"passed/needs_review/risky/skipped/not_applicable","chapter_mission":"本章任务文本或空字符串","must_advance":[{"item":"应推进事项","status":"done/missing/skipped/not_applicable","note":"判断依据"}],"must_not_happen":[{"item":"不应提前发生的事项","status":"ok/triggered/skipped/not_applicable","note":"判断依据"}],"summary":"本维度结论摘要"}',
     '  "verdict": "stable/needs_review/risky"',
     '}',
     '',
     'continuity_audit 范围：',
     '1. 只审生成数据，不做完整 consistency_audit。',
     '2. 生成数据包括：已生成正文、已生成摘要、上一章结尾、当前章开头、上一章已生成事实、已生成角色状态。',
-    '3. 章节计划只作为辅助理解，不作为本轮正式判错依据。',
+    '3. 除 plan_anchor_audit 明确给出的 chapter_mission、mustAdvance、mustNotHappen 外，其他章节计划内容只作为辅助理解，不作为本轮正式 consistency_audit 判错依据。',
     '',
     '本次必查维度：',
     'A. text_integrity：检查正文是否疑似截断、半句结束、引号未闭合、格式破坏。',
@@ -1416,6 +1521,12 @@ function buildContinuityAuditPrompt({
     'D. generated_character_state_continuity：只检查已生成正文之间的角色状态是否互相矛盾，例如同一角色在前后章里出现她/他漂移。',
     'E. summary_continuity：检查当前章摘要是否忠实反映当前章正文，以及上一章摘要是否足以支持下一章承接。',
     'F. risks 误报复核：如果 local_signals 或候选风险更像普通句子片段，而不是正式风险，请明确指出并避免误报。',
+    'G. plan_anchor_audit：只做一个最小预设计划锚点检查，只对照 chapter_mission、mustAdvance、mustNotHappen，检查两件事：',
+    '   - 本章是否已经明显完成了应该推进的事项；',
+    '   - 本章是否提前触发了不该发生的事项。',
+    '   - 如果没有可用的 chapter_mission / mustAdvance / mustNotHappen，就把 plan_anchor_audit.status 设为 skipped 或 not_applicable，不要硬判。',
+    '   - 如果正文明显没有完成 chapter_mission 或 mustAdvance，请写入 risks，或至少在 plan_anchor_audit 中明确标成 needs_review / missing。',
+    '   - 如果正文提前触发 mustNotHappen，请写入 risks，并把 plan_anchor_audit.status 设为 risky。',
     '',
     '使用 local_signals 的规则：',
     '1. local_signals 只是本地函数提取的可疑证据，不是最终结论。',
@@ -1434,6 +1545,7 @@ function buildContinuityAuditPrompt({
     `上一章正文结尾（约 500 字）：${previousChapterTail || '未提供'}`,
     `当前章摘要：${currentChapterSummary || '未提供'}`,
     `当前章开头（约 500 字）：${currentChapterOpening || '未提供'}`,
+    `plan_anchor_context（正式小范围对照项）：\n${serializedPlanAnchorContext}`,
     `local_signals（只作证据，不是定案）：\n${serializedLocalSignals}`,
     '',
     '章节计划（仅辅助理解，不做正式 consistency_audit 判错）：',
@@ -1482,6 +1594,7 @@ async function auditGeneratedContent({
         heuristic_fallback_used: true
       },
       model_audit_dimensions: MODEL_AUDIT_DIMENSIONS,
+      plan_anchor_audit: createSkippedPlanAnchorAudit(chapterPlan, '正文为空，未执行模型计划锚点检查。'),
       needs_human_review: true
     };
   }
@@ -1521,6 +1634,7 @@ async function auditGeneratedContent({
         heuristic_fallback_used: true
       },
       model_audit_dimensions: MODEL_AUDIT_DIMENSIONS,
+      plan_anchor_audit: createSkippedPlanAnchorAudit(chapterPlan, '模型审计未执行，计划锚点检查已跳过。'),
       needs_human_review: fallback.risks.length > 0 || localSignals.length > 0
     };
   }
@@ -1539,12 +1653,15 @@ async function auditGeneratedContent({
         heuristic_fallback_used: true
       },
       model_audit_dimensions: MODEL_AUDIT_DIMENSIONS,
+      plan_anchor_audit: createSkippedPlanAnchorAudit(chapterPlan, '模型审计结果解析失败，计划锚点检查已跳过。'),
       needs_human_review: fallback.risks.length > 0 || localSignals.length > 0
     };
   }
 
   const risks = normalizeJsonArray(parsed.risks).map((item) => normalizeText(item)).filter(Boolean).slice(0, 8);
   const signals = normalizeJsonArray(parsed.signals).map((item) => normalizeText(item)).filter(Boolean).slice(0, 12);
+  const planAnchorAudit = normalizePlanAnchorAudit(parsed.plan_anchor_audit, chapterPlan);
+  const planAnchorRisks = derivePlanAnchorAuditRisks(planAnchorAudit);
   const airdropItems = Array.isArray(parsed.airdrop_items)
     ? parsed.airdrop_items
       .map((item) => ({
@@ -1557,10 +1674,16 @@ async function auditGeneratedContent({
       .filter((item) => item.name || item.reason)
       .slice(0, 8)
     : [];
-  const verdict = normalizeText(parsed.verdict || '') || (risks.length > 0 ? 'needs_review' : 'stable');
+  const mergedRisks = [...new Set([...risks, ...planAnchorRisks].map((item) => normalizeText(item)).filter(Boolean))].slice(0, 8);
+  let verdict = normalizeText(parsed.verdict || '') || (mergedRisks.length > 0 ? 'needs_review' : 'stable');
+  if (planAnchorAudit.status === 'risky') {
+    verdict = 'risky';
+  } else if (planAnchorAudit.status === 'needs_review' && verdict === 'stable') {
+    verdict = 'needs_review';
+  }
 
   return {
-    risks: risks.length > 0 ? risks : fallback.risks.slice(0, 4),
+    risks: mergedRisks.length > 0 ? mergedRisks : fallback.risks.slice(0, 4),
     signals: signals.length > 0 ? signals : fallback.signals.slice(0, 8),
     airdrop_items: airdropItems,
     verdict,
@@ -1572,7 +1695,8 @@ async function auditGeneratedContent({
       heuristic_fallback_used: false
     },
     model_audit_dimensions: MODEL_AUDIT_DIMENSIONS,
-    needs_human_review: verdict !== 'stable' || risks.length > 0
+    plan_anchor_audit: planAnchorAudit,
+    needs_human_review: verdict !== 'stable' || mergedRisks.length > 0 || ['needs_review', 'risky'].includes(planAnchorAudit.status)
   };
 }
 
@@ -1596,6 +1720,7 @@ function normalizeQualityCheck(value = {}) {
       .filter(Boolean)
       .slice(0, 12)
     : [];
+  const normalizedPlanAnchorAudit = normalizePlanAnchorAudit(qualityCheck.plan_anchor_audit || qualityCheck.planAnchorAudit || {});
 
   return {
     status: allowedStatus.has(status) ? status : 'not_run',
@@ -1633,6 +1758,7 @@ function normalizeQualityCheck(value = {}) {
       .map((item) => normalizeText(item))
       .filter(Boolean)
       .slice(0, 12),
+    plan_anchor_audit: normalizedPlanAnchorAudit,
     needs_human_review: Boolean(qualityCheck.needs_human_review)
   };
 }
@@ -1659,6 +1785,7 @@ function buildQualityCheckFromAuditResult(auditResult = {}, overrides = {}) {
       heuristic_fallback_used: normalizeText(auditResult.source || '') !== 'model_audit'
     },
     model_audit_dimensions: overrides.model_audit_dimensions || auditResult.model_audit_dimensions || MODEL_AUDIT_DIMENSIONS,
+    plan_anchor_audit: overrides.plan_anchor_audit || auditResult.plan_anchor_audit || createSkippedPlanAnchorAudit({}, ''),
     needs_human_review: defaultNeedsHumanReview
   });
 }
