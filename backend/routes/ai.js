@@ -3114,7 +3114,7 @@ async function handleChapterFeedbackGeneration(req, res) {
       character_progress: normalizeText(parsed.character_progress || ''),
       open_hooks: normalizeText(parsed.open_hooks || ''),
       next_chapter_focus: normalizeText(parsed.next_chapter_focus || ''),
-      continuity_report: mergeFeedbackContinuityReport({
+      continuity_report: {
         new_characters: sanitizedCharacters.keptItems,
         new_elements: sanitizedElements.keptItems,
         must_carry_forward: normalizeJsonArray(parsed?.continuity_report?.must_carry_forward)
@@ -3129,7 +3129,7 @@ async function handleChapterFeedbackGeneration(req, res) {
             sanitizedElements.droppedItems.map((name) => `反馈草稿里出现了正文未证实的新增设定“${name}”，已阻止写入连续性台账。`)
           )
           .slice(0, 8)
-      }, auditResult),
+      },
       updated_at: new Date().toISOString(),
       source: 'model_feedback'
     };
@@ -3147,6 +3147,8 @@ async function handleChapterFeedbackGeneration(req, res) {
       previousChapterAuditText: sliceTextCap(storedContext.previousChapter?.content || '', 12000),
       previousChapterTail: sliceTextTail(storedContext.previousChapter?.content || '', 2000)
     });
+
+    feedback.continuity_report = mergeFeedbackContinuityReport(feedback.continuity_report, auditResult);
 
     let usedLocalFallback = false;
     let degradedReason = null;
