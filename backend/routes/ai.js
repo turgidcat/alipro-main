@@ -1130,6 +1130,31 @@ function collectPossibleTruncationSignals(text = '') {
   return signals.filter(Boolean).slice(0, 3);
 }
 
+function buildGenerationTruncationState({ content = '', finishReason = '' } = {}) {
+  const truncationSignals = collectPossibleTruncationSignals(content);
+  const normalizedFinishReason = normalizeText(finishReason).toLowerCase();
+  const finishReasonSuggestsTruncation =
+    normalizedFinishReason === 'length'
+    || normalizedFinishReason === 'max_tokens'
+    || normalizedFinishReason === 'max_tokens_exceeded'
+    || normalizedFinishReason.includes('length')
+    || normalizedFinishReason.includes('max_tokens');
+  const highRiskSignals = truncationSignals.filter((item) => normalizeText(item?.severity || '') === 'high');
+  const mediumRiskSignals = truncationSignals.filter((item) => normalizeText(item?.severity || '') === 'medium');
+  const needsContinuation = finishReasonSuggestsTruncation || highRiskSignals.length > 0;
+
+  return {
+    finish_reason: normalizedFinishReason || null,
+    detected: finishReasonSuggestsTruncation || truncationSignals.length > 0,
+    needs_continuation: needsContinuation,
+    severity: needsContinuation ? 'high' : (mediumRiskSignals.length > 0 ? 'medium' : 'none'),
+    reason: finishReasonSuggestsTruncation
+      ? 'model_length_limit'
+      : (highRiskSignals.length > 0 ? 'local_truncation_signal' : (mediumRiskSignals.length > 0 ? 'local_truncation_warning' : 'none')),
+    signals: truncationSignals
+  };
+}
+
 function collectPossibleGeneratedCharacterStateConflictSignals({ currentText = '', previousText = '', roleNames = [] }) {
   const signals = [];
   const roles = [...new Set((Array.isArray(roleNames) ? roleNames : []).map((item) => normalizeText(item)).filter(Boolean))].slice(0, 10);
@@ -3248,7 +3273,7 @@ async function handleChapterContentGeneration(req, res) {
     }
 
     const requestedWordCount = Number(wordCount) || 2000;
-    const maxTokens = Math.max(900, Math.ceil(requestedWordCount * 0.66));
+    const maxTokens = Math.min(8000, Math.max(2400, Math.ceil(requestedWordCount * 2.0)));
     const prompt = deepseekService.buildCreativePrompt({
       bookTitle: finalBookTitle,
       genre,
@@ -3297,6 +3322,10 @@ async function handleChapterContentGeneration(req, res) {
     }
 
     const generatedContent = normalizeText(result.content);
+    const truncationState = buildGenerationTruncationState({
+      content: generatedContent,
+      finishReason: result.finishReason
+    });
     const auditResult = await auditGeneratedContent({
       bookTitle: finalBookTitle,
       chapterNumber,
@@ -3307,10 +3336,12 @@ async function handleChapterContentGeneration(req, res) {
       targetStorylineLabels: relatedStorylineTitlesFromContext(storylineContext)
     });
     logger.info('Content generation succeeded', {
-      model: model || 'deepseek-chat',
+      model: result.model || model || 'deepseek-chat',
       targetWordCount: requestedWordCount,
       actualLength: generatedContent.length,
-      continuityRiskCount: auditResult.risks.length
+      continuityRiskCount: auditResult.risks.length,
+      finishReason: result.finishReason || '',
+      needsContinuation: truncationState.needs_continuation
     });
 
     return res.json({
@@ -3319,10 +3350,13 @@ async function handleChapterContentGeneration(req, res) {
         content: generatedContent,
         usage: result.usage,
         metadata: {
-          model: model || 'deepseek-chat',
+          model: result.model || model || 'deepseek-chat',
+          finishReason: result.finishReason || null,
           timestamp: new Date().toISOString(),
           targetWordCount: requestedWordCount,
+          maxTokens,
           actualLength: generatedContent.length,
+          truncation: truncationState,
           storylineConstraintApplied: !!draftStorylineConstraint.applied,
           usedStorylineIds: draftStorylineConstraint.usedStorylineIds || [],
           usedBeatIds: draftStorylineConstraint.usedBeatIds || [],

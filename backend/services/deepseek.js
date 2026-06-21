@@ -228,7 +228,9 @@ class DeepSeekService {
         success: true,
         data: response.data,
         content: response.data.choices[0]?.message?.content || '',
-        usage: response.data.usage || null
+        usage: response.data.usage || null,
+        model: response.data.model || model,
+        finishReason: response.data.choices[0]?.finish_reason || null
       };
     } catch (error) {
       console.error('DeepSeek API 调用失败:', error.message);
