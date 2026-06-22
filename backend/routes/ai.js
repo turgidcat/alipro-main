@@ -265,19 +265,136 @@ async function ensureChapterPlanForOutlineGeneration({ bookId, chapterNumber, re
 }
 
 function tryParseJsonObject(text) {
-  const normalized = normalizeText(text);
+  const normalized = normalizeText(text).replace(/^\uFEFF/, '').trim();
   if (!normalized) return null;
-  try {
-    return JSON.parse(normalized);
-  } catch (_) {
-    const match = normalized.match(/\{[\s\S]*\}/);
-    if (!match) return null;
+  const candidates = [];
+  const pushCandidate = (value) => {
+    const candidate = normalizeText(value).replace(/^\uFEFF/, '').trim();
+    if (candidate) candidates.push(candidate);
+  };
+  const extractBalancedJsonObject = (value) => {
+    const source = normalizeText(value);
+    if (!source) return null;
+    let depth = 0;
+    let start = -1;
+    let inString = false;
+    let escaping = false;
+
+    for (let index = 0; index < source.length; index += 1) {
+      const char = source[index];
+      if (inString) {
+        if (escaping) {
+          escaping = false;
+          continue;
+        }
+        if (char === '\\') {
+          escaping = true;
+          continue;
+        }
+        if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+        continue;
+      }
+      if (char === '{') {
+        if (depth === 0) start = index;
+        depth += 1;
+        continue;
+      }
+      if (char === '}') {
+        if (depth === 0) continue;
+        depth -= 1;
+        if (depth === 0 && start >= 0) {
+          return source.slice(start, index + 1);
+        }
+      }
+    }
+    return null;
+  };
+
+  pushCandidate(normalized);
+
+  const fencedMatches = normalized.match(/```(?:json)?\s*([\s\S]*?)```/gi) || [];
+  fencedMatches.forEach((block) => {
+    const inner = block.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '');
+    pushCandidate(inner);
+  });
+
+  const balancedObject = extractBalancedJsonObject(normalized);
+  if (balancedObject) pushCandidate(balancedObject);
+
+  for (const candidate of candidates) {
     try {
-      return JSON.parse(match[0]);
+      return JSON.parse(candidate);
     } catch (_) {
-      return null;
+      // Keep trying more tolerant extraction candidates.
     }
   }
+  return null;
+}
+
+function looksLikeIncompleteJsonObject(text) {
+  const normalized = normalizeText(text).replace(/^\uFEFF/, '').trim();
+  if (!normalized || !normalized.startsWith('{')) return false;
+  try {
+    JSON.parse(normalized);
+    return false;
+  } catch (_) {
+    let depth = 0;
+    let inString = false;
+    let escaping = false;
+
+    for (let index = 0; index < normalized.length; index += 1) {
+      const char = normalized[index];
+      if (inString) {
+        if (escaping) {
+          escaping = false;
+          continue;
+        }
+        if (char === '\\') {
+          escaping = true;
+          continue;
+        }
+        if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+        continue;
+      }
+      if (char === '{') {
+        depth += 1;
+        continue;
+      }
+      if (char === '}') {
+        if (depth > 0) depth -= 1;
+      }
+    }
+
+    return depth > 0 || inString;
+  }
+}
+
+function getModelAuditParseErrorReason({ finishReason = '', rawPreview = '' } = {}) {
+  const normalizedFinishReason = normalizeText(finishReason).toLowerCase();
+  const finishReasonSuggestsTruncation =
+    normalizedFinishReason === 'length'
+    || normalizedFinishReason === 'max_tokens'
+    || normalizedFinishReason === 'max_tokens_exceeded'
+    || normalizedFinishReason.includes('length')
+    || normalizedFinishReason.includes('max_tokens');
+
+  if (finishReasonSuggestsTruncation) return 'model_audit_output_truncated';
+  if (looksLikeIncompleteJsonObject(rawPreview)) return 'model_audit_json_incomplete';
+  return 'model_audit_json_parse_failed';
 }
 
 function truncate(text, maxLength = 800) {
@@ -1642,7 +1759,7 @@ async function auditGeneratedContent({
 
   const result = await runTextGeneration(prompt, {
     temperature: 0.2,
-    maxTokens: 900,
+    maxTokens: 3000,
     responseFormat: { type: 'json_object' }
   });
 
@@ -1666,6 +1783,12 @@ async function auditGeneratedContent({
 
   const parsed = tryParseJsonObject(result.content);
   if (!parsed) {
+    const rawPreview = normalizeText(result.content || '').replace(/^\uFEFF/, '').trim().slice(0, 1000);
+    const auditFinishReason = normalizeText(result.finishReason || '').toLowerCase() || null;
+    const parseErrorReason = getModelAuditParseErrorReason({
+      finishReason: auditFinishReason,
+      rawPreview
+    });
     return {
       ...fallback,
       airdrop_items: [],
@@ -1675,7 +1798,11 @@ async function auditGeneratedContent({
       audit_layers: {
         model_audit_run: false,
         local_signal_extraction_run: true,
-        heuristic_fallback_used: true
+        heuristic_fallback_used: true,
+        parse_error: true,
+        parse_error_reason: parseErrorReason,
+        audit_finish_reason: auditFinishReason,
+        raw_preview: rawPreview || null
       },
       model_audit_dimensions: MODEL_AUDIT_DIMENSIONS,
       plan_anchor_audit: createSkippedPlanAnchorAudit(chapterPlan, '模型审计结果解析失败，计划锚点检查已跳过。'),
@@ -1777,7 +1904,13 @@ function normalizeQualityCheck(value = {}) {
     audit_layers: {
       model_audit_run: !!qualityCheck?.audit_layers?.model_audit_run,
       local_signal_extraction_run: !!qualityCheck?.audit_layers?.local_signal_extraction_run,
-      heuristic_fallback_used: !!qualityCheck?.audit_layers?.heuristic_fallback_used
+      heuristic_fallback_used: !!qualityCheck?.audit_layers?.heuristic_fallback_used,
+      ...(qualityCheck?.audit_layers?.parse_error ? {
+        parse_error: true,
+        parse_error_reason: normalizeText(qualityCheck?.audit_layers?.parse_error_reason || '') || null,
+        audit_finish_reason: normalizeText(qualityCheck?.audit_layers?.audit_finish_reason || '').toLowerCase() || null,
+        raw_preview: normalizeText(qualityCheck?.audit_layers?.raw_preview || '').slice(0, 1000) || null
+      } : {})
     },
     model_audit_dimensions: normalizeJsonArray(qualityCheck.model_audit_dimensions)
       .map((item) => normalizeText(item))
