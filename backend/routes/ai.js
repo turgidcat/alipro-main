@@ -3469,8 +3469,20 @@ async function handleChapterContentGeneration(req, res) {
     const chapterNumber = Number.parseInt(req.body.chapterNumber, 10);
     const storedContext = await loadBookGenerationContext(bookId, chapterNumber);
     const chapterPlan = storedContext.chapterPlan || {};
-    const storylineContext = parseStructuredContent(chapterPlan.structured_content).storyline_context || {};
+    const structuredContent = parseStructuredContent(chapterPlan.structured_content);
+    const savedStorylineContext = parseStructuredContent(structuredContent.storyline_context);
+    const liveStorylineContext = buildPersistedStorylineContext(storedContext.chapterStorylineContext || {});
+    const storylineContext = Object.keys(savedStorylineContext).length > 0
+      ? savedStorylineContext
+      : liveStorylineContext;
     const draftStorylineConstraint = buildDraftStorylineConstraintText(storylineContext);
+    if (Object.keys(savedStorylineContext).length === 0 && draftStorylineConstraint.applied) {
+      await saveChapterStorylineContext({
+        bookId,
+        chapterNumber,
+        storylineContext: storedContext.chapterStorylineContext || {}
+      });
+    }
     const finalBookTitle = normalizeText(bookTitle) || storedContext.bookTitle;
     const finalCharacters = [storedContext.storedCharacters, normalizeText(characters)].filter(Boolean).join('\n\n');
     const briefText = buildGenerationBriefText(req.body.generationBrief);
@@ -3490,7 +3502,7 @@ async function handleChapterContentGeneration(req, res) {
     }
 
     const requestedWordCount = Number(wordCount) || 2000;
-    const maxTokens = Math.min(8000, Math.max(2400, Math.ceil(requestedWordCount * 2.0)));
+    const maxTokens = Math.min(8000, Math.max(1800, Math.ceil(requestedWordCount * 1.35)));
     const prompt = deepseekService.buildCreativePrompt({
       bookTitle: finalBookTitle,
       genre,

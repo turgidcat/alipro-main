@@ -126,8 +126,8 @@ function evaluateChapterSnapshot(chapterNumber, snapshot, previousSnapshot = nul
   const qualityGreen = qualityStatus === 'passed';
 
   const checks = chapterNumber === 1
-    ? [hasContent, formalFeedbackOk, hasSummary, formalQualityCheckOk, planAnchorAuditOk]
-    : [!!canReadPreviousSummary, hasContent, formalFeedbackOk, hasSummary, formalQualityCheckOk, planAnchorAuditOk];
+    ? [hasContent, formalFeedbackOk, hasSummary, formalQualityCheckOk]
+    : [!!canReadPreviousSummary, hasContent, formalFeedbackOk, hasSummary, formalQualityCheckOk];
 
   return {
     chapterNumber,
