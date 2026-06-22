@@ -1,17 +1,12 @@
 import BlockedConstraints from './BlockedConstraints.jsx';
+import StatusNotice from './StatusNotice.jsx';
 import { hasText } from '../../lib/chapterPlan.js';
 
 const insetTitleClass = 'font-serif text-[13px] font-semibold tracking-[0.04em] text-[color:var(--brand-deep)]';
 
 function ReadinessPill({ kind, title, text }) {
-  const toneClass = {
-    success: 'text-[color:#2f6a46]',
-    warning: 'text-[color:#8a5a1f]',
-    error: 'text-[color:#a03a3a]'
-  }[kind] || 'text-[color:var(--brand-deep)]';
-
   return (
-    null
+    <StatusNotice kind={kind} title={title} text={text} />
   );
 }
 
@@ -61,7 +56,8 @@ export default function GenerationBanner(props) {
     generationRiskReview,
     generationReadiness,
     generationRequiredItems,
-    generationRecommendedItems
+    generationRecommendedItems,
+    generationChecklistItems = []
   } = props;
 
   const requiredReadyCount = generationRequiredItems.filter((item) => hasText(item.value)).length;
@@ -78,6 +74,36 @@ export default function GenerationBanner(props) {
       <BlockedConstraints
         generationConstraints={chapterContext.generationConstraints}
       />
+
+      {generationChecklistItems.length > 0 ? (
+        <section className="space-y-4 border-b border-[color:color-mix(in_srgb,var(--line)_68%,transparent)] pb-5">
+          <div className="border-l-2 border-[color:color-mix(in_srgb,var(--brand-soft-strong)_72%,transparent)] pl-4">
+            <p className={insetTitleClass}>进入可生成状态</p>
+            <p className="mt-2 text-[14px] leading-7 text-[color:var(--muted)]">把新章节从空白状态推进到可生成，只看这 3 步。</p>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-3">
+            {generationChecklistItems.map((item) => (
+              <article
+                key={item.key}
+                className={
+                  'rounded-2xl border px-4 py-4 ' +
+                  (item.done
+                    ? 'border-[color:var(--status-success-border)] bg-[color:var(--status-success-bg)]'
+                    : 'border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--surface)_88%,white)]')
+                }
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <strong className="text-[14px] font-semibold text-[color:var(--text)]">{item.label}</strong>
+                  <em className="font-mono text-[11px] font-bold not-italic tracking-[0.08em] text-[color:var(--brand-deep)]">
+                    {item.done ? 'READY' : 'TODO'}
+                  </em>
+                </div>
+                <p className="mt-2 text-[13px] leading-6 text-[color:var(--muted)]">{item.detail}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <RiskReview
         items={generationRiskReview.items}

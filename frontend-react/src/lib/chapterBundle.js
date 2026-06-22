@@ -1,4 +1,5 @@
 import { initialGenerationState } from './constants.js';
+import { buildQualityCheckState } from './generationActions.js';
 import {
   normalizeRoleList,
   normalizeRoleExecution,
@@ -73,7 +74,8 @@ export function normalizeChapterBundle(bundle, chapterNumber) {
           wordCountLabel: `实际约 ${content.length} 字 / 目标 ${getPlanWordCount(plan)} 字`,
           previewText: content.replace(/\s+/g, ' ').slice(0, 520),
           feedbackSummary: feedback.chapter_summary || '本章已有正文，生成反馈可后续继续增强。',
-          feedbackFocus: feedback.next_chapter_focus || feedback.open_hooks || '下一章重点暂未整理。'
+          feedbackFocus: feedback.next_chapter_focus || feedback.open_hooks || '下一章重点暂未整理。',
+          qualityCheck: buildQualityCheckState(feedback)
         }
       : initialGenerationState
   };

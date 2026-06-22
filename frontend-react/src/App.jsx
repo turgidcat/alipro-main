@@ -21,6 +21,8 @@ import {
   describeRoleExecutionMeta,
   buildGenerationRiskReview,
   getPlanWordCount,
+  hasMountedStorylineAnchor,
+  hasUsableChapterOutline,
   prepareOutlineModalPlan,
   withStructuredChapterPlan,
   hasText
@@ -38,6 +40,7 @@ import GlobalBar from './components/workbench/GlobalBar.jsx';
 import ChapterConfigPanel from './components/workbench/ChapterConfigPanel.jsx';
 import ContentWorkspace from './components/workbench/ContentWorkspace.jsx';
 import RevisionEditor from './components/workbench/RevisionEditor.jsx';
+import StatusNotice from './components/workbench/StatusNotice.jsx';
 import ContextDrawer from './components/workbench/ContextDrawer.jsx';
 import BookSettingDrawer from './components/workbench/drawers/BookSettingDrawer.jsx';
 import StorylineDrawer from './components/workbench/drawers/StorylineDrawer.jsx';
@@ -108,14 +111,22 @@ export default function App() {
   } = useWorkbench();
   const [drawerMemoryLoadedKey, setDrawerMemoryLoadedKey] = useState('');
 
-  async function handleSaveChapterPlan() {
+  function pushPlanningNotice(kind, title, text) {
+    setPlanningNotice({ kind, title, text });
+  }
+
+  async function persistCurrentChapterPlan({
+    plan,
+    successTitle,
+    successText,
+    failureTitle = '保存失败',
+    closeModal = false
+  }) {
+    setPlanningNotice(null);
     setSavingState({ loading: true, error: '' });
+    setPlanningNotice(null);
     try {
-      await saveChapterPlan(
-        selectedBookId,
-        chapterNumber,
-        prepareOutlineModalPlan(draftChapterPlan)
-      );
+      await saveChapterPlan(selectedBookId, chapterNumber, plan);
       const bundle = await fetchChapterSetupBundle(selectedBookId, chapterNumber);
       const normalized = normalizeChapterBundle(bundle, chapterNumber);
       setChapterContext(normalized.context);
@@ -124,33 +135,48 @@ export default function App() {
       setDraftChapterPlan(normalized.draft);
       setSavedChapterPlanSnapshot(serializeChapterPlanDraft(normalized.draft));
       setGenerationState(normalized.generation);
-      setChapterModal(null);
+      if (closeModal) {
+        setChapterModal(null);
+      }
+      pushPlanningNotice('success', successTitle, successText);
     } catch (saveError) {
       setSavingState({ loading: false, error: saveError.message });
-      return;
+      pushPlanningNotice('error', failureTitle, saveError.message);
+      return null;
     }
     setSavingState({ loading: false, error: '' });
+    return true;
+  }
+
+  async function handleSaveMountedStorylines() {
+    await persistCurrentChapterPlan({
+      plan: prepareOutlineModalPlan(draftChapterPlan),
+      successTitle: '本章挂载已保存',
+      successText: draftChapterPlan.main_storyline_id
+        ? '剧情线挂载和本章主推都已写回，可以继续生成或切到下一章。'
+        : '剧情线挂载已写回；如果想让这章主线更明确，建议再点一次“本章主推”。',
+      failureTitle: '保存本章挂载失败'
+    });
+  }
+
+  async function handleSaveChapterCharacters() {
+    await persistCurrentChapterPlan({
+      plan: prepareOutlineModalPlan(draftChapterPlan),
+      successTitle: '本章角色已保存',
+      successText: '角色说明已写回当前章节，可以继续生成或打开校改。',
+      failureTitle: '保存本章角色失败',
+      closeModal: true
+    });
   }
 
   async function handleSaveChapterOutline() {
-    setSavingState({ loading: true, error: '' });
-    try {
-      const outlinePlan = prepareOutlineModalPlan(draftChapterPlan);
-      await saveChapterPlan(selectedBookId, chapterNumber, outlinePlan);
-      const bundle = await fetchChapterSetupBundle(selectedBookId, chapterNumber);
-      const normalized = normalizeChapterBundle(bundle, chapterNumber);
-      setChapterContext(normalized.context);
-      setChapterView(normalized.view);
-      setStorylineOptions(normalized.storylineOptions);
-      setDraftChapterPlan(normalized.draft);
-      setSavedChapterPlanSnapshot(serializeChapterPlanDraft(normalized.draft));
-      setGenerationState(normalized.generation);
-      setChapterModal(null);
-    } catch (saveError) {
-      setSavingState({ loading: false, error: saveError.message });
-      return;
-    }
-    setSavingState({ loading: false, error: '' });
+    await persistCurrentChapterPlan({
+      plan: prepareOutlineModalPlan(draftChapterPlan),
+      successTitle: '章节任务表已保存',
+      successText: '本章目标、关键场景和结尾钩子已写回；满足条件后“生成章节”会自动可用。',
+      failureTitle: '保存章节任务表失败',
+      closeModal: true
+    });
   }
 
   async function reloadChapterSetup(overrideDraft = null) {
@@ -198,7 +224,7 @@ export default function App() {
       setSavedChapterPlanSnapshot(serializeChapterPlanDraft(cycleResult.feedbackPlan));
     }
 
-    setGenerationState(buildGenerationStateFromCycle({
+    const nextGenerationState = buildGenerationStateFromCycle({
       content,
       chapterTitle,
       targetWordCount,
@@ -206,7 +232,8 @@ export default function App() {
       cycleResult,
       successTitle,
       successText
-    }));
+    });
+    setGenerationState(nextGenerationState);
     setRevisionOriginal(String(content || ''));
     setRevisionDraft(String(content || ''));
     setRevisionSuggestions(null);
@@ -214,7 +241,10 @@ export default function App() {
     if (openResultModal) {
       setResultModalOpen(true);
     }
-    return cycleResult;
+    return {
+      ...cycleResult,
+      nextGenerationState
+    };
   }
 
   function goToPreviousChapter() {
@@ -395,7 +425,7 @@ export default function App() {
       const chapterTitle = draftChapterPlan.chapter_name
         ? `第 ${chapterNumber} 章 ${draftChapterPlan.chapter_name}`
         : `第 ${chapterNumber} 章`;
-      await handlePersistChapterResult({
+      const cycleResult = await handlePersistChapterResult({
         content: nextContent,
         normalizedPlan,
         chapterStructure,
@@ -404,9 +434,15 @@ export default function App() {
         successTitle: '正文已校改',
         successText: '校改后的正文、摘要和质量检查都已写回。'
       });
+      pushPlanningNotice(
+        cycleResult.nextGenerationState.statusKind,
+        cycleResult.nextGenerationState.statusTitle,
+        cycleResult.nextGenerationState.statusText
+      );
       setResultModalOpen(false);
     } catch (saveError) {
       setRevisionError(saveError.message);
+      pushPlanningNotice('error', '保存校改失败', saveError.message);
     } finally {
       setRevisionSaving(false);
     }
@@ -470,8 +506,16 @@ export default function App() {
       }
       await reloadChapterSetup(nextPlan);
       setChapterModal(null);
+      pushPlanningNotice(
+        'success',
+        draftStoryline.id ? '剧情线已保存' : '剧情线已创建并挂到当前章节',
+        draftStoryline.id
+          ? '剧情线范围和核心冲突已更新。'
+          : '新剧情线已自动挂到当前章节；如果这章主要推进它，记得点“本章主推”。'
+      );
     } catch (saveError) {
       setSavingState({ loading: false, error: saveError.message });
+      pushPlanningNotice('error', draftStoryline.id ? '保存剧情线失败' : '创建剧情线失败', saveError.message);
       return;
     }
     setSavingState({ loading: false, error: '' });
@@ -496,6 +540,7 @@ export default function App() {
     }
 
     setIsGenerating(true);
+    setPlanningNotice(null);
     setGenerationState({
       ...generationState,
       statusKind: 'info',
@@ -540,7 +585,7 @@ export default function App() {
         promptType: 'chapter'
       });
       const content = response?.content || response?.text || response || '';
-      await handlePersistChapterResult({
+      const cycleResult = await handlePersistChapterResult({
         content,
         normalizedPlan,
         chapterStructure,
@@ -551,7 +596,13 @@ export default function App() {
         generationAudit: response?.metadata?.continuityAudit || null,
         openResultModal: true
       });
+      pushPlanningNotice(
+        cycleResult.nextGenerationState.statusKind,
+        cycleResult.nextGenerationState.statusTitle,
+        cycleResult.nextGenerationState.statusText
+      );
     } catch (generateError) {
+      pushPlanningNotice('error', '生成失败', generateError.message);
       setGenerationState({
         ...generationState,
         statusKind: 'error',
@@ -781,6 +832,9 @@ export default function App() {
   const selectedTargetStorylineLabel = selectedTargetStorylines.length > 0
     ? selectedTargetStorylines.map((item) => item.name).join(' / ')
     : chapterView.targetStorylinesLabel || '暂未挂接';
+  const hasMainStoryline = hasText(draftChapterPlan.main_storyline_id);
+  const hasStorylineAnchor = hasMountedStorylineAnchor(draftChapterPlan);
+  const hasOutlineAnchor = hasUsableChapterOutline(draftChapterPlan);
   const chapterStructure = draftChapterPlan.chapter_structure || emptyChapterStructure;
   const generationRequiredItems = [
     { key: 'goal', label: '本章目标', value: chapterStructure.chapter_goal },
@@ -795,6 +849,33 @@ export default function App() {
   ];
   const missingRequiredItems = generationRequiredItems.filter((item) => !hasText(item.value));
   const missingRecommendedItems = generationRecommendedItems.filter((item) => !hasText(item.value));
+  const canGenerate = Boolean(selectedBookId) && missingRequiredItems.length === 0 && !loadingChapter;
+  const generationChecklistItems = [
+    {
+      key: 'outline',
+      label: '保存章节任务表',
+      done: hasOutlineAnchor,
+      detail: hasOutlineAnchor
+        ? '本章目标、关键场景、结尾钩子已具备。'
+        : '先点“编辑细纲”，补齐本章目标、关键场景、结尾钩子并保存。'
+    },
+    {
+      key: 'storyline',
+      label: '挂载剧情线（推荐）',
+      done: hasStorylineAnchor,
+      detail: hasStorylineAnchor
+        ? (hasMainStoryline ? '已挂载，且已经指定本章主推。' : '已挂载；如需更明确推进，建议再点“本章主推”。')
+        : '这一步不是硬性门槛，但先挂载剧情线，会更利于连续章节承接。'
+    },
+    {
+      key: 'generate',
+      label: '点击生成章节',
+      done: canGenerate,
+      detail: canGenerate
+        ? '当前按钮已可用，可以直接生成。'
+        : '完成任务表保存后，这里的按钮会自动亮起。'
+    }
+  ];
   const revisionOriginalParagraphs = normalizeParagraphs(revisionOriginal);
   const revisionSuggestionItems = Array.isArray(revisionSuggestions?.suggestions) ? revisionSuggestions.suggestions : [];
   const revisionSuggestionMarks = revisionSuggestionItems.reduce((acc, item) => {
@@ -853,9 +934,21 @@ export default function App() {
   const generationReadiness = missingRequiredItems.length > 0
     ? {
         kind: 'warning',
-        title: '生成前还有必填信息缺失',
-        text: `建议先补齐：${missingRequiredItems.map((item) => item.label).join('、')}。`
+        title: '新章节还没进入可生成状态',
+        text: `还差这几项：${missingRequiredItems.map((item) => item.label).join('、')}。先保存任务表，再点生成。`
       }
+    : !hasStorylineAnchor
+      ? {
+          kind: 'warning',
+          title: '已经可以生成，但建议先挂剧情线',
+          text: '当前任务表已满足生成条件；如果要让后续章节更稳承接，建议再挂 1 条剧情线。'
+        }
+      : !hasMainStoryline
+        ? {
+            kind: 'warning',
+            title: '可以生成，但建议指定本章主推',
+            text: '已挂载剧情线，不过还没标明这章主要推进哪条线；点“本章主推”会更清楚。'
+          }
     : missingRecommendedItems.length > 0
       ? {
           kind: 'warning',
@@ -916,6 +1009,14 @@ export default function App() {
 
       {error ? <div className="global-banner is-error">{error}</div> : null}
       {loadingBooks ? <div className="global-banner">正在读取书籍列表...</div> : null}
+      {planningNotice ? (
+        <StatusNotice
+          kind={planningNotice.kind}
+          title={planningNotice.title}
+          text={planningNotice.text}
+          className="mb-4"
+        />
+      ) : null}
       <section className="workbench-stage">
         <div className="workbench-dual-pane">
           <div className="workbench-dual-pane-left">
@@ -933,7 +1034,7 @@ export default function App() {
               loadingChapter={loadingChapter}
               selectedBookId={selectedBookId}
               onChapterNumberChange={requestChapterChange}
-              onSaveChapterPlan={handleSaveChapterPlan}
+              onSaveChapterPlan={handleSaveMountedStorylines}
               onOpenOutlineModal={() => setChapterModal('outline')}
               onOpenCharacterModal={() => setChapterModal('character')}
               onOpenStorylineCreator={openStorylineCreator}
@@ -955,6 +1056,8 @@ export default function App() {
               generationReadiness={generationReadiness}
               generationRequiredItems={generationRequiredItems}
               generationRecommendedItems={generationRecommendedItems}
+              generationChecklistItems={generationChecklistItems}
+              canGenerate={canGenerate}
               generationState={generationState}
               isGenerating={isGenerating}
               loadingChapter={loadingChapter}
@@ -1131,7 +1234,7 @@ export default function App() {
             <>
               {savingState.error ? <div className="modal-error">{savingState.error}</div> : null}
               <button type="button" className="ghost-btn" onClick={() => setChapterModal(null)}>取消</button>
-              <button type="button" className="solid-btn" onClick={handleSaveChapterPlan} disabled={savingState.loading}>
+              <button type="button" className="solid-btn" onClick={handleSaveChapterCharacters} disabled={savingState.loading}>
                 {savingState.loading ? '正在保存...' : '保存本章角色'}
               </button>
             </>

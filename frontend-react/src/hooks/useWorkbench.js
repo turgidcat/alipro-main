@@ -12,7 +12,7 @@ export function useWorkbench() {
   const [planningModal, setPlanningModal] = useState(null);
   const [chapterModal, setChapterModal] = useState(null);
   const [savingState, setSavingState] = useState({ loading: false, error: '' });
-  const [planningNotice, setPlanningNotice] = useState('');
+  const [planningNotice, setPlanningNotice] = useState(null);
   const [chapterNumber, setChapterNumber] = useState(1);
   const [chapterContext, setChapterContext] = useState({});
   const [chapterView, setChapterView] = useState({});

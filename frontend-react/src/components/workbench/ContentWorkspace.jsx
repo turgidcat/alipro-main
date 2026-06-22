@@ -3,6 +3,7 @@ import GenerationSettingsPopover from './GenerationSettingsPopover.jsx';
 import IndentedTextBlock from '../IndentedTextBlock.jsx';
 import WorkbenchSection from './WorkbenchSection.jsx';
 import MetaCode from './MetaCode.jsx';
+import StatusNotice from './StatusNotice.jsx';
 
 const ghostButtonClass =
   'appearance-none inline-flex min-h-9 items-center justify-center rounded-md border border-[color:color-mix(in_srgb,var(--line)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--surface)_84%,transparent)] px-3.5 text-[13px] font-medium text-[color:var(--text)] transition hover:border-[color:color-mix(in_srgb,var(--brand-soft-strong)_45%,var(--line))] hover:text-[color:var(--brand-deep)] disabled:cursor-not-allowed disabled:opacity-60';
@@ -20,6 +21,7 @@ export default function ContentWorkspace(props) {
     generationReadiness,
     generationRequiredItems,
     generationRecommendedItems,
+    generationChecklistItems,
     generationState,
     isGenerating,
     loadingChapter,
@@ -72,12 +74,20 @@ export default function ContentWorkspace(props) {
           </div>
         }
       >
+        <StatusNotice
+          kind={isGenerating ? 'warning' : generationState.statusKind}
+          title={isGenerating ? '正在生成这一章' : generationState.statusTitle}
+          text={isGenerating ? '生成中会自动禁用按钮，避免重复点击；完成后会在下方更新正文、反馈和质量检查。' : generationState.statusText}
+          className="mb-0"
+        />
+
         <GenerationBanner
           chapterContext={chapterContext}
           generationRiskReview={generationRiskReview}
           generationReadiness={generationReadiness}
           generationRequiredItems={generationRequiredItems}
           generationRecommendedItems={generationRecommendedItems}
+          generationChecklistItems={generationChecklistItems}
         />
       </WorkbenchSection>
 
@@ -111,6 +121,49 @@ export default function ContentWorkspace(props) {
             <p className="mt-2 text-[14px] leading-7 text-[color:var(--muted)]">
               {generationState.statusText}
             </p>
+          </div>
+        </section>
+
+        <section className="min-w-0 border-t border-[color:color-mix(in_srgb,var(--line)_58%,transparent)] pt-5">
+          <div className="grid gap-4">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+              <MetaCode>QUALITY CHECK</MetaCode>
+              <span className="text-[13px] leading-6 text-[color:var(--muted)]">独立查看这一章的质量检查结果</span>
+            </div>
+            <StatusNotice
+              kind={generationState.qualityCheck?.kind || 'warning'}
+              title={generationState.qualityCheck?.title || '当前还没有正式质量检查'}
+              text={generationState.qualityCheck?.summary || '生成完成后，这里会展示本章质检状态。'}
+              className="mb-0"
+            />
+            {generationState.qualityCheck?.signals?.length || generationState.qualityCheck?.risks?.length || generationState.qualityCheck?.airdropItems?.length ? (
+              <div className="grid gap-4 lg:grid-cols-3">
+                <section className="min-w-0 border-l border-[color:color-mix(in_srgb,var(--line-strong)_72%,transparent)] pl-4">
+                  <MetaCode>SIGNALS</MetaCode>
+                  <IndentedTextBlock
+                    text={(generationState.qualityCheck?.signals || []).join('\n')}
+                    className="mt-3"
+                    paragraphClassName="cn-text-paragraph text-[14px] leading-7 text-[color:var(--muted)]"
+                  />
+                </section>
+                <section className="min-w-0 border-l border-[color:color-mix(in_srgb,var(--line-strong)_72%,transparent)] pl-4">
+                  <MetaCode>RISKS</MetaCode>
+                  <IndentedTextBlock
+                    text={(generationState.qualityCheck?.risks || []).join('\n') || '当前没有额外风险提醒。'}
+                    className="mt-3"
+                    paragraphClassName="cn-text-paragraph text-[14px] leading-7 text-[color:var(--muted)]"
+                  />
+                </section>
+                <section className="min-w-0 border-l border-[color:color-mix(in_srgb,var(--line-strong)_72%,transparent)] pl-4">
+                  <MetaCode>AIRDROP</MetaCode>
+                  <IndentedTextBlock
+                    text={(generationState.qualityCheck?.airdropItems || []).join('\n') || '当前没有检测到明显空降设定。'}
+                    className="mt-3"
+                    paragraphClassName="cn-text-paragraph text-[14px] leading-7 text-[color:var(--muted)]"
+                  />
+                </section>
+              </div>
+            ) : null}
           </div>
         </section>
 

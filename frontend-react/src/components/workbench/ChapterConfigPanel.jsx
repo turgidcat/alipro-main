@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import WorkbenchSection from './WorkbenchSection.jsx';
 import MetaCode from './MetaCode.jsx';
+import StatusNotice from './StatusNotice.jsx';
 import {
   buildOutlineExcerpt,
   describeRoleExecutionMeta,
@@ -79,6 +80,29 @@ export default function ChapterConfigPanel(props) {
   const [outlineExpanded, setOutlineExpanded] = useState(false);
   const canExpandOutline = Boolean(latestOutline) && normalizeText(outlineSummaryText) !== normalizeText(latestOutline);
   const displayOutlineParagraphs = splitParagraphs(outlineExpanded ? latestOutline : outlineSummaryText);
+  const storylineStatusNotice = !effectiveOutlineAnchor
+    ? {
+        kind: 'warning',
+        title: '新章节还不能直接进入稳定生成状态',
+        text: '先点“编辑细纲”，补齐本章目标、关键场景、结尾钩子并保存任务表；保存后生成按钮会自动亮起。'
+      }
+    : !hasMountedStorylines
+      ? {
+          kind: 'warning',
+          title: '已经可以生成，但建议先挂 1 条剧情线',
+          text: '剧情线不是硬性门槛，但先挂载再生成，更容易让第 2、3 章承接前文。'
+        }
+      : !hasMainStoryline
+        ? {
+            kind: 'warning',
+            title: '剧情线已挂载，还差“本章主推”这一步',
+            text: '点某条剧情线右侧的“本章主推”，能让系统更明确知道这一章主要推进哪条线。'
+          }
+        : {
+            kind: 'success',
+            title: '本章挂载路径已清楚',
+            text: '任务表已具备，剧情线也已挂载并指定主推，可以继续生成或切换章节。'
+          };
 
   useEffect(() => {
     setOutlineExpanded(false);
@@ -139,6 +163,13 @@ export default function ChapterConfigPanel(props) {
           </div>
         }
       >
+        <StatusNotice
+          kind={storylineStatusNotice.kind}
+          title={storylineStatusNotice.title}
+          text={storylineStatusNotice.text}
+          className="mb-0"
+        />
+
         <div className="flex min-w-0 flex-wrap items-center gap-3 overflow-x-hidden">
           <span className={statusChipClass}>已挂载 {selectedTargetStorylines.length} 条剧情线</span>
           <span className={statusChipClass}>{hasMainStoryline ? '已指定本章主推' : '尚未指定本章主推'}</span>
@@ -179,7 +210,12 @@ export default function ChapterConfigPanel(props) {
               return (
                 <label
                   key={storyline.id}
-                  className="grid min-w-0 gap-3 border-b border-[color:color-mix(in_srgb,var(--line)_48%,transparent)] py-4 last:border-b-0"
+                  className={
+                    'grid min-w-0 gap-3 border-b py-4 last:border-b-0 ' +
+                    (isSelected
+                      ? 'border-[color:color-mix(in_srgb,var(--brand-soft-strong)_44%,var(--line))] bg-[color:color-mix(in_srgb,var(--brand)_6%,transparent)]'
+                      : 'border-[color:color-mix(in_srgb,var(--line)_48%,transparent)]')
+                  }
                 >
                   <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
                     <input
@@ -208,6 +244,14 @@ export default function ChapterConfigPanel(props) {
                       {isSelected && hint?.actionField && hint.actionField !== 'start' ? (
                         <p className="mt-1 break-words text-[13px] leading-6 text-[color:var(--brand-deep)]">
                           已超原定范围，原定第 {storyline.endChapter} 章收束
+                        </p>
+                      ) : null}
+
+                      {isSelected ? (
+                        <p className="mt-1 break-words text-[13px] leading-6 text-[color:var(--brand-deep)]">
+                          {draftChapterPlan.main_storyline_id === storyline.id
+                            ? '已挂载，且当前就是本章主推。'
+                            : '已挂载；如果这章主要推进这条线，再点一次“本章主推”。'}
                         </p>
                       ) : null}
                     </div>
