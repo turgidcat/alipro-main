@@ -93,6 +93,18 @@ function buildLocalFallbackQualityCheck(generationAudit = {}, degradedReason = '
   });
 }
 
+function canPersistFormalFeedback(feedback = {}) {
+  const normalizedFeedback = feedback && typeof feedback === 'object' ? feedback : {};
+  const normalizedSource = normalizeText(normalizedFeedback.source);
+  const qualityCheck = normalizeQualityCheck(normalizedFeedback.quality_check || {});
+
+  if (normalizedSource !== 'model_feedback') return false;
+  if (!qualityCheck) return false;
+  if (qualityCheck.source === 'local_fallback' || qualityCheck.source === 'none') return false;
+  if (qualityCheck.status === 'degraded' || qualityCheck.status === 'not_run') return false;
+  return true;
+}
+
 function ensureFeedbackQualityCheck(feedback, { generationAudit, usedLocalFallback = false, degradedReason = '' } = {}) {
   const normalizedFeedback = feedback && typeof feedback === 'object' ? { ...feedback } : {};
   const existingQualityCheck = normalizedFeedback.quality_check
@@ -165,13 +177,14 @@ export async function persistChapterResultCycle({
     const metadata = feedbackResponse.metadata || {};
     cycleResult.usedLocalFallback = !!metadata.usedLocalFallback;
     cycleResult.modelFeedbackGenerated = !cycleResult.usedLocalFallback && metadata.feedbackGenerated !== false;
-    cycleResult.feedbackSaved = !!metadata.feedbackSaved;
-    cycleResult.qualityCheckSaved = !!metadata.qualityCheckSaved;
     cycleResult.chapterFeedback = ensureFeedbackQualityCheck(feedbackResponse.feedback, {
       generationAudit,
       usedLocalFallback: cycleResult.usedLocalFallback,
       degradedReason: metadata.degradedReason || ''
     });
+    const canPersistFeedback = canPersistFormalFeedback(cycleResult.chapterFeedback);
+    cycleResult.feedbackSaved = canPersistFeedback && !!metadata.feedbackSaved;
+    cycleResult.qualityCheckSaved = canPersistFeedback && !!metadata.qualityCheckSaved;
   } else {
     cycleResult.usedLocalFallback = true;
     cycleResult.chapterFeedback = ensureFeedbackQualityCheck(
@@ -189,12 +202,17 @@ export async function persistChapterResultCycle({
         degradedReason: cycleResult.feedbackGenerationError || 'feedback_generation_failed'
       }
     );
+    cycleResult.feedbackSaved = false;
+    cycleResult.qualityCheckSaved = false;
   }
 
   cycleResult.qualityCheck = cycleResult.chapterFeedback?.quality_check || null;
 
-  const needsLocalPersistence = cycleResult.usedLocalFallback || !cycleResult.feedbackSaved;
-  cycleResult.feedbackPlan = mergeFeedbackIntoPlan(normalizedPlan, cycleResult.chapterFeedback);
+  const canPersistFeedback = canPersistFormalFeedback(cycleResult.chapterFeedback);
+  const needsLocalPersistence = canPersistFeedback && !cycleResult.feedbackSaved;
+  cycleResult.feedbackPlan = needsLocalPersistence
+    ? mergeFeedbackIntoPlan(normalizedPlan, cycleResult.chapterFeedback)
+    : null;
 
   if (needsLocalPersistence) {
     try {

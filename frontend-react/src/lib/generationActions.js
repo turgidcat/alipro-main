@@ -46,8 +46,8 @@ function buildStatusMeta({
       statusKind: 'warning',
       statusTitle: `${successTitle}（部分完成）`,
       statusText: detail
-        ? `正文已保存，但摘要/检查未完整保存：${detail}。`
-        : '正文已保存，但摘要/检查未完整保存。'
+        ? `正文已保存，但正式反馈/摘要/质检未写回：${detail}。`
+        : '正文已保存，但正式反馈/摘要/质检未写回。'
     };
   }
 
