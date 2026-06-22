@@ -316,6 +316,15 @@ function tryParseJsonObject(text) {
     }
     return null;
   };
+  const repairCommonJsonIssues = (value) => {
+    const source = normalizeText(value);
+    if (!source) return '';
+    return source
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, '\'')
+      .replace(/\u00A0/g, ' ')
+      .replace(/,\s*([}\]])/g, '$1');
+  };
 
   pushCandidate(normalized);
 
@@ -332,7 +341,14 @@ function tryParseJsonObject(text) {
     try {
       return JSON.parse(candidate);
     } catch (_) {
-      // Keep trying more tolerant extraction candidates.
+      const repaired = repairCommonJsonIssues(candidate);
+      if (repaired && repaired !== candidate) {
+        try {
+          return JSON.parse(repaired);
+        } catch (_) {
+          // Keep trying more tolerant extraction candidates.
+        }
+      }
     }
   }
   return null;
@@ -2786,6 +2802,31 @@ function buildChapterFeedbackPrompt({ bookTitle, chapterNumber, chapterTitle, ou
   ].join('\n');
 }
 
+function buildChapterFeedbackRepairPrompt(rawOutput = '') {
+  return [
+    '你是一名 JSON 修复助手。请把下面这段“章节反馈失败输出”修复成严格合法的 JSON 对象。',
+    '不要添加代码块，不要解释，不要补充失败输出里没有出现的新事实。',
+    '如果某个字段缺失，请尽量从现有内容里抽取；实在缺失就返回空字符串或空数组，不要编造。',
+    '输出必须严格符合这个 schema：',
+    '{',
+    '  "chapter_summary": "用 1-2 句话总结这一章实际发生了什么",',
+    '  "story_progress": "这一章把主剧情推进到了哪里",',
+    '  "character_progress": "关键角色关系或状态发生了什么变化",',
+    '  "open_hooks": "这一章结束时还悬着什么",',
+    '  "next_chapter_focus": "下一章最值得优先承接的写作重点",',
+    '  "continuity_report": {',
+    '    "new_characters": [{"name": "新增角色名", "role": "本章职责", "relation": "与主角/主线关系", "status": "合理/偏突兀", "note": "是否值得继续保留"}],',
+    '    "new_elements": [{"name": "新增势力/地点/规则/道具", "role": "本章职责", "relation": "与当前主线关系", "status": "合理/偏突兀", "note": "后续是否应继续使用"}],',
+    '    "must_carry_forward": ["下一章必须继续承接的信息"],',
+    '    "continuity_risks": ["本章里可能导致后续失控的点"]',
+    '  }',
+    '}',
+    '',
+    '待修复输出：',
+    rawOutput || '{}'
+  ].join('\n');
+}
+
 function buildBookTitlePrompt({ genre, subgenre }) {
   const typeInfo = subgenre ? genre + ' - ' + subgenre : genre;
   return [
@@ -3240,17 +3281,59 @@ async function handleChapterFeedbackGeneration(req, res) {
     });
 
     const result = await runTextGeneration(prompt, {
-      temperature: 0.4,
-      maxTokens: 900,
+      temperature: 0.35,
+      maxTokens: 1200,
       responseFormat: { type: 'json_object' }
     });
     if (!result.success) {
       return res.status(result.statusCode || 500).json({ success: false, error: result.error || '反馈生成失败' });
     }
 
-    const parsed = tryParseJsonObject(result.content);
+    let parsed = tryParseJsonObject(result.content);
+    let feedbackJsonRecovered = false;
     if (!parsed) {
-      return res.status(500).json({ success: false, error: '反馈解析失败' });
+      const rawPreview = normalizeText(result.content || '').replace(/^\uFEFF/, '').trim();
+      const parseErrorReason = getModelAuditParseErrorReason({
+        finishReason: normalizeText(result.finishReason || '').toLowerCase(),
+        rawPreview: rawPreview.slice(0, 1000)
+      });
+
+      logger.warn('Chapter feedback JSON parse failed, attempting recovery', {
+        bookId,
+        chapterNumber,
+        parseErrorReason,
+        finishReason: normalizeText(result.finishReason || '').toLowerCase() || null,
+        rawPreview: rawPreview.slice(0, 1000) || null
+      });
+
+      const needsFullRetry = parseErrorReason === 'model_audit_output_truncated' || parseErrorReason === 'model_audit_json_incomplete';
+      if (needsFullRetry) {
+        const retryResult = await runTextGeneration(prompt, {
+          temperature: 0.2,
+          maxTokens: 1600,
+          responseFormat: { type: 'json_object' }
+        });
+        if (retryResult.success) {
+          parsed = tryParseJsonObject(retryResult.content);
+          feedbackJsonRecovered = !!parsed;
+        }
+      }
+
+      if (!parsed && rawPreview) {
+        const repairResult = await runTextGeneration(buildChapterFeedbackRepairPrompt(rawPreview), {
+          temperature: 0.1,
+          maxTokens: 1400,
+          responseFormat: { type: 'json_object' }
+        });
+        if (repairResult.success) {
+          parsed = tryParseJsonObject(repairResult.content);
+          feedbackJsonRecovered = !!parsed;
+        }
+      }
+
+      if (!parsed) {
+        return res.status(500).json({ success: false, error: '反馈解析失败' });
+      }
     }
 
     const sanitizedCharacters = sanitizeFeedbackLedgerItems(parsed?.continuity_report?.new_characters, {
@@ -3341,6 +3424,7 @@ async function handleChapterFeedbackGeneration(req, res) {
         metadata: {
           feedbackGenerated: !usedLocalFallback,
           feedbackSaved: !!feedbackSaveResult,
+          feedbackJsonRecovered,
           usedLocalFallback,
           feedbackSource: normalizeText((feedbackSaveResult?.feedback || feedback)?.source || ''),
           qualityCheckSaved: !!feedbackSaveResult?.feedback?.quality_check,
