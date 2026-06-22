@@ -37,41 +37,83 @@ alipro-main/
 
 ## 本地运行
 
-### 方式一：Windows 一键启动
+首次拉取项目或依赖目录丢失时，请先分别安装前后端依赖：
 
-直接运行：
-
-```powershell
-backend\start.bat
-```
-
-默认会启动后端，并引导你打开带热更新的开发入口：
-
-```text
-http://127.0.0.1:5173/
-```
-
-### 方式二：手动启动
-
-```powershell
+`powershell
 cd backend
 npm install
-npm start
-```
 
-再单独启动前端：
+cd ..\frontend-react
+npm install
+`
 
-```powershell
-cd frontend-react
+### 方式一：推荐开发启动方式
+
+优先直接运行 PowerShell 脚本：
+
+`powershell
+pwsh -ExecutionPolicy Bypass -File .\scripts\restart-alipro-dev.ps1
+`
+
+这会按当前项目实际开发方式：
+
+- 关闭占用 3000 / 5173 端口的旧进程
+- 启动后端：ackend 下的 
+pm run dev
+- 启动前端：rontend-react 下的 
+pm run dev -- --host 127.0.0.1
+
+说明：
+
+- scripts\restart-alipro-dev.ps1 是当前实际启动入口，但不会替你执行首次 
+pm install
+- 根目录下的 .\restart-alipro-dev.cmd 只是兼容包装器，内部会转发到这个 PowerShell 脚本
+- 如果你是第一次运行这个仓库，先完成上面的依赖安装再执行这个脚本
+
+启动后可使用：
+
+`	ext
+前端开发入口：http://127.0.0.1:5173/
+后端健康检查：http://127.0.0.1:3000/health
+`
+
+### 方式二：手动启动开发环境
+
+先启动后端：
+
+`powershell
+cd backend
 npm install
 npm run dev
-```
+`
+
+再启动前端：
+
+`powershell
+cd frontend-react
+npm install
+npm run dev -- --host 127.0.0.1
+`
 
 然后在浏览器打开：
 
-```text
+`	ext
 http://127.0.0.1:5173/
-```
+`
+
+### 方式三：仅启动后端
+
+如果你只是想单独拉起后端，可以运行：
+
+`powershell
+backend\start.bat
+`
+
+注意：
+
+- 这个脚本当前只负责启动后端
+- 它不会自动启动 rontend-react 的 Vite 开发服务
+- 因此它不是完整的本地开发环境启动方式
 
 ## 常用页面
 
