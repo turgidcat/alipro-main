@@ -68,12 +68,17 @@ function hasMeaningfulOutlineStructure(value) {
 
 function normalizeQualityCheck(value = {}) {
   const qualityCheck = value && typeof value === 'object' ? value : {};
+  const planAnchorAudit = parseJsonObject(qualityCheck.plan_anchor_audit || qualityCheck.planAnchorAudit);
   return {
     status: normalizeText(qualityCheck.status || ''),
     source: normalizeText(qualityCheck.source || ''),
     verdict: normalizeText(qualityCheck.verdict || ''),
     risks: parseJsonArray(qualityCheck.risks).map((item) => normalizeText(item)).filter(Boolean),
-    checkedAt: normalizeText(qualityCheck.checked_at || qualityCheck.checkedAt || '')
+    checkedAt: normalizeText(qualityCheck.checked_at || qualityCheck.checkedAt || ''),
+    needsHumanReview: Boolean(qualityCheck.needs_human_review),
+    planAnchorAudit: {
+      status: normalizeText(planAnchorAudit.status || '')
+    }
   };
 }
 
@@ -85,31 +90,61 @@ function buildSnapshotFromRows({ chapter, plan }) {
     plan,
     structuredContent,
     feedback,
+    feedbackSource: normalizeText(feedback.source || ''),
     qualityCheck: normalizeQualityCheck(feedback.quality_check)
   };
 }
 
 function evaluateChapterSnapshot(chapterNumber, snapshot, previousSnapshot = null) {
   const hasContent = normalizeText(snapshot?.chapter?.content || '').length > 0;
+  const hasFeedback = snapshot?.feedback && typeof snapshot.feedback === 'object' && Object.keys(snapshot.feedback).length > 0;
+  const feedbackSource = normalizeText(snapshot?.feedbackSource || '');
   const hasSummary = normalizeText(snapshot?.feedback?.chapter_summary || '').length > 0;
   const hasQualityCheck = normalizeText(snapshot?.qualityCheck?.status || '').length > 0;
+  const qualityStatus = normalizeText(snapshot?.qualityCheck?.status || '');
+  const qualitySource = normalizeText(snapshot?.qualityCheck?.source || '');
+  const planAnchorAuditStatus = normalizeText(snapshot?.qualityCheck?.planAnchorAudit?.status || '');
+  const needsHumanReview = !!snapshot?.qualityCheck?.needsHumanReview;
   const previousSummary = chapterNumber > 1
     ? normalizeText(previousSnapshot?.feedback?.chapter_summary || '')
     : '';
   const canReadPreviousSummary = chapterNumber === 1 ? 'n/a' : !!previousSummary;
+  const formalFeedbackOk = hasFeedback && feedbackSource === 'model_feedback';
+  const formalQualityCheckOk =
+    hasQualityCheck
+    && qualitySource === 'model_audit'
+    && qualityStatus !== 'degraded'
+    && qualityStatus !== 'not_run'
+    && qualityStatus !== 'none'
+    && qualitySource !== 'local_fallback'
+    && qualitySource !== 'none';
+  const planAnchorAuditOk =
+    normalizeText(planAnchorAuditStatus).length > 0
+    && planAnchorAuditStatus !== 'skipped'
+    && planAnchorAuditStatus !== 'not_run'
+    && planAnchorAuditStatus !== 'none';
+  const qualityGreen = qualityStatus === 'passed';
 
   const checks = chapterNumber === 1
-    ? [hasContent, hasSummary, hasQualityCheck]
-    : [!!canReadPreviousSummary, hasContent, hasSummary, hasQualityCheck];
+    ? [hasContent, formalFeedbackOk, hasSummary, formalQualityCheckOk, planAnchorAuditOk]
+    : [!!canReadPreviousSummary, hasContent, formalFeedbackOk, hasSummary, formalQualityCheckOk, planAnchorAuditOk];
 
   return {
     chapterNumber,
     chapterName: normalizeText(snapshot?.plan?.chapter_name || snapshot?.chapter?.chapter_name || snapshot?.chapter?.title || ''),
     hasContent,
+    hasFeedback,
+    feedbackSource,
     hasSummary,
     hasQualityCheck,
-    qualityStatus: snapshot?.qualityCheck?.status || '',
-    qualitySource: snapshot?.qualityCheck?.source || '',
+    qualityStatus,
+    qualitySource,
+    planAnchorAuditStatus,
+    formalFeedbackOk,
+    formalQualityCheckOk,
+    planAnchorAuditOk,
+    qualityGreen,
+    needsHumanReview,
     canReadPreviousSummary,
     previousSummaryPreview: previousSummary.slice(0, 80),
     status: checks.every(Boolean) ? 'ok' : 'missing_required_link'
