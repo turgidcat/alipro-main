@@ -1,5 +1,6 @@
 import { Fragment } from 'react';
 import Modal from './Modal.jsx';
+import StatusNotice from './StatusNotice.jsx';
 
 export default function RevisionEditor(props) {
   const {
@@ -51,6 +52,12 @@ export default function RevisionEditor(props) {
       }
     >
       <div className="revision-editor">
+        {revisionError ? (
+          <StatusNotice kind="error" title="校改保存失败" text={revisionError} className="mb-0" />
+        ) : null}
+        {revisionNotice ? (
+          <StatusNotice kind="success" title="校改区提示" text={revisionNotice} className="mb-0" />
+        ) : null}
         <label className="editor-field">
           <span>校改目标</span>
           <textarea

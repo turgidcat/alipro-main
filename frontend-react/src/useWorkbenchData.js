@@ -70,6 +70,8 @@ export function useWorkbenchData() {
         setSelectedBookId('');
         persistCurrentBookId('');
         setPlanningState(emptyPlanning);
+        setError('');
+        return;
       }
       setError(`当前书籍加载失败：${loadError.message}`);
     } finally {
@@ -98,14 +100,16 @@ export function useWorkbenchData() {
         }
 
         const storedId = getStoredCurrentBookId();
-        const nextId = list.some((book) => book.id === storedId)
-          ? storedId
-          : list[0].id;
-
-        if (storedId && storedId !== nextId) {
-          persistCurrentBookId(nextId);
+        if (storedId && list.some((book) => book.id === storedId)) {
+          setSelectedBookId(storedId);
+          return;
         }
-        setSelectedBookId(nextId);
+
+        if (storedId) {
+          persistCurrentBookId('');
+        }
+        setSelectedBookId('');
+        setPlanningState(emptyPlanning);
       } catch (loadError) {
         if (cancelled) return;
         setError(`书籍列表读取失败：${loadError.message}`);
@@ -138,14 +142,17 @@ export function useWorkbenchData() {
       }
 
       const storedId = preferredBookId || getStoredCurrentBookId();
-      const nextId = list.some((book) => book.id === storedId)
-        ? storedId
-        : list[0].id;
-
-      if (storedId && storedId !== nextId) {
-        persistCurrentBookId(nextId);
+      if (storedId && list.some((book) => book.id === storedId)) {
+        persistCurrentBookId(storedId);
+        setSelectedBookId(storedId);
+        return;
       }
-      setSelectedBookId(nextId);
+
+      if (storedId) {
+        persistCurrentBookId('');
+      }
+      setSelectedBookId('');
+      setPlanningState(emptyPlanning);
     } catch (loadError) {
       setError(`涔︾睄鍒楄〃璇诲彇澶辫触锛?{loadError.message}`);
     } finally {

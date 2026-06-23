@@ -119,6 +119,66 @@ function summarizeRoleExecution(roleExecution = []) {
     .filter(Boolean);
 }
 
+function splitSseBlocks(buffer = '') {
+  const normalized = String(buffer || '').replace(/\r\n/g, '\n');
+  const parts = normalized.split('\n\n');
+  return {
+    blocks: parts.slice(0, -1),
+    rest: parts[parts.length - 1] || ''
+  };
+}
+
+function extractSseData(block = '') {
+  const dataLines = String(block || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !line.startsWith(':'))
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trimStart());
+
+  return dataLines.join('\n').trim();
+}
+
+function createStreamError(error, fallbackMessage = '流式生成失败') {
+  if (error && typeof error === 'object' && error.statusCode && error.message) {
+    return error;
+  }
+
+  if (error?.response) {
+    const status = error.response.status;
+    const errorData = error.response.data;
+    const message = status === 401
+      ? 'API Key 无效或已过期'
+      : status === 429
+        ? '请求过于频繁或额度不足'
+        : status === 500
+          ? 'DeepSeek 服务内部错误'
+          : errorData?.error?.message
+            || errorData?.message
+            || fallbackMessage;
+    const wrapped = new Error(message);
+    wrapped.statusCode = status;
+    return wrapped;
+  }
+
+  if (error?.code === 'ECONNABORTED' || String(error?.message || '').includes('timeout')) {
+    const wrapped = new Error('请求超时，模型生成时间过长');
+    wrapped.statusCode = 408;
+    return wrapped;
+  }
+
+  if (error?.name === 'AbortError' || String(error?.message || '').includes('aborted')) {
+    const wrapped = new Error('请求已中断');
+    wrapped.statusCode = 499;
+    return wrapped;
+  }
+
+  const wrapped = new Error(error?.message || fallbackMessage);
+  wrapped.statusCode = error?.statusCode || 500;
+  return wrapped;
+}
+
 class DeepSeekService {
   constructor() {
     this.apiKey = process.env.DEEPSEEK_API_KEY;
@@ -168,7 +228,9 @@ class DeepSeekService {
         success: true,
         data: response.data,
         content: response.data.choices[0]?.message?.content || '',
-        usage: response.data.usage || null
+        usage: response.data.usage || null,
+        model: response.data.model || model,
+        finishReason: response.data.choices[0]?.finish_reason || null
       };
     } catch (error) {
       console.error('DeepSeek API 调用失败:', error.message);
@@ -219,6 +281,113 @@ class DeepSeekService {
         statusCode: 500
       };
     }
+  }
+
+  async *generateStream(options) {
+    const {
+      prompt,
+      model = 'deepseek-chat',
+      temperature = 0.7,
+      maxTokens = 4000,
+      responseFormat = null,
+      signal
+    } = options;
+
+    let response;
+    try {
+      const payload = {
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature,
+        max_tokens: maxTokens,
+        stream: true
+      };
+
+      if (responseFormat && typeof responseFormat === 'object') {
+        payload.response_format = responseFormat;
+      }
+
+      response = await this.client.post('/chat/completions', payload, {
+        responseType: 'stream',
+        timeout: 300000,
+        signal
+      });
+    } catch (error) {
+      throw createStreamError(error, '流式请求初始化失败');
+    }
+
+    let buffer = '';
+    let fullContent = '';
+    let usage = null;
+    let doneReceived = false;
+
+    try {
+      for await (const chunk of response.data) {
+        const { blocks, rest } = splitSseBlocks(buffer + chunk.toString('utf8'));
+        buffer = rest;
+
+        for (const block of blocks) {
+          const data = extractSseData(block);
+          if (!data) continue;
+          if (data === '[DONE]') {
+            doneReceived = true;
+            break;
+          }
+
+          let parsed;
+          try {
+            parsed = JSON.parse(data);
+          } catch (error) {
+            console.warn('DeepSeek stream JSON 解析失败，已跳过该片段:', data.slice(0, 160));
+            continue;
+          }
+
+          if (parsed?.error) {
+            throw createStreamError({
+              message: parsed.error.message || '流式生成失败',
+              statusCode: parsed.error.code || 500
+            });
+          }
+
+          const delta = parsed?.choices?.[0]?.delta?.content;
+          if (typeof delta === 'string' && delta.length > 0) {
+            fullContent += delta;
+            yield { type: 'delta', content: delta, fullContent };
+          }
+
+          if (parsed?.usage && typeof parsed.usage === 'object') {
+            usage = parsed.usage;
+          }
+        }
+
+        if (doneReceived) break;
+      }
+
+      const trailingData = extractSseData(buffer);
+      if (!doneReceived && trailingData && trailingData !== '[DONE]') {
+        try {
+          const parsed = JSON.parse(trailingData);
+          const delta = parsed?.choices?.[0]?.delta?.content;
+          if (typeof delta === 'string' && delta.length > 0) {
+            fullContent += delta;
+            yield { type: 'delta', content: delta, fullContent };
+          }
+          if (parsed?.usage && typeof parsed.usage === 'object') {
+            usage = parsed.usage;
+          }
+        } catch (error) {
+          console.warn('DeepSeek stream 尾段 JSON 解析失败，已跳过该片段:', trailingData.slice(0, 160));
+        }
+      }
+    } catch (error) {
+      throw createStreamError(error);
+    } finally {
+      if (response?.data?.destroy && !response.data.destroyed) {
+        response.data.destroy();
+      }
+    }
+
+    yield { type: 'usage', usage, fullContent };
   }
 
   buildCreativePrompt(params) {

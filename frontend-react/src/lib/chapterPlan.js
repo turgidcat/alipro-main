@@ -135,19 +135,6 @@ export function getOutlineSourceLabel(source) {
   return '手动编辑';
 }
 
-export function buildConstraintBriefText(generationConstraints, overrides) {
-  if (!generationConstraints || typeof generationConstraints !== 'object') return '';
-  const lines = [];
-  (Array.isArray(generationConstraints.blocked) ? generationConstraints.blocked : []).forEach((group, index) => {
-    const key = `blocked-${group.label}-${index}`;
-    const mode = overrides?.[key] || 'ban';
-    if (mode === 'ban') return;
-    const detail = group.rule || '';
-    lines.push(`本章放开限制：${group.label}${detail ? `｜${detail}` : ''}`);
-  });
-  return lines.join('\n');
-}
-
 export function composeStructuredOutline(structure) {
   const sections = [
     ['本章目标', structure.chapter_goal],
@@ -268,26 +255,12 @@ export function describeRoleExecutionMeta(item) {
   return `${dimension}｜${direction}｜${scope}｜把握度 ${confidence}`;
 }
 
-export function buildGenerationRiskReview(plan, generationConstraints, overrides = {}) {
-  const blocked = Array.isArray(generationConstraints?.blocked) ? generationConstraints.blocked : [];
+export function buildGenerationRiskReview(plan, generationConstraints) {
   const roleExecution = Array.isArray(plan?.role_execution) ? plan.role_execution : [];
-  const allowedBlocked = blocked.filter((group, index) => {
-    const key = `blocked-${group.label}-${index}`;
-    return (overrides[key] || 'ban') === 'allow';
-  });
   const stageRoles = roleExecution.filter((item) => item.scope === 'stage');
   const coreCandidateRoles = roleExecution.filter((item) => item.scope === 'core_candidate');
   const highConfidenceCoreCandidates = coreCandidateRoles.filter((item) => item.confidence === 'high' || item.confidence === 'medium');
   const items = [];
-
-  if (allowedBlocked.length > 0) {
-    items.push({
-      level: 'critical',
-      title: '你已手动放开禁止项',
-      text: `当前放开的高风险项：${allowedBlocked.map((item) => item.label).join('、')}。这类内容最容易让本章直接引入未铺垫的大设定或偏离主线。`,
-      action: '建议先回第二步把相关信息补进章节计划或剧情线，再决定是否放开。'
-    });
-  }
 
   if (highConfidenceCoreCandidates.length > 0) {
     items.push({

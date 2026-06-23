@@ -379,6 +379,7 @@ function syncStorylineProgressFromChapterPlan(db, {
   const progressEntry = {
     chapter_id: chapterId || '',
     chapter_number: Number(chapterNumber || 0),
+    used_storyline_ids: contextStorylineIds,
     used_beat_ids: contextBeatIds,
     chapter_summary: sanitizedFeedback.chapter_summary,
     story_progress: sanitizedFeedback.story_progress,
@@ -386,7 +387,7 @@ function syncStorylineProgressFromChapterPlan(db, {
     open_hooks: sanitizedFeedback.open_hooks,
     progress_note: sanitizedFeedback.progress_note,
     deviation_risk: requiresStorylineReview ? 'medium' : 'none',
-    status: requiresStorylineReview ? 'touched' : 'touched',
+    status: requiresStorylineReview ? 'needs_review' : 'advanced',
     requires_review: requiresStorylineReview,
     source: feedback.source || 'chapter_plan_feedback',
     updated_at: new Date().toISOString()
@@ -415,12 +416,14 @@ function syncStorylineProgressFromChapterPlan(db, {
     const existingCompletedBeats = Array.isArray(existingCurrentProgress.completedBeats)
       ? existingCurrentProgress.completedBeats
       : [];
-    const nextCompletedBeats = existingCompletedBeats.filter((beatId) => !contextBeatIds.includes(beatId));
+    const nextCompletedBeats = [...new Set([...existingCompletedBeats, ...contextBeatIds])].filter(Boolean);
     const nextChapterProgressEntries = nextProgress.map((item) => ({
       chapterId: item.chapter_id || '',
       chapterNumber: Number(item.chapter_number || 0),
+      usedStorylineIds: Array.isArray(item.used_storyline_ids) ? item.used_storyline_ids : [],
       usedBeatIds: Array.isArray(item.used_beat_ids) ? item.used_beat_ids : [],
       summary: item.chapter_summary || '',
+      storyProgress: item.story_progress || '',
       progressNote: item.progress_note || '',
       deviationRisk: item.deviation_risk || 'none',
       status: item.status || 'touched',
@@ -453,6 +456,11 @@ function syncStorylineProgressFromChapterPlan(db, {
       ...existingCurrentProgress,
       lastUpdatedChapterId: chapterId || existingCurrentProgress.lastUpdatedChapterId || '',
       lastUpdatedChapterNumber: progressEntry.chapter_number,
+      lastProgressSummary: progressEntry.story_progress || progressEntry.chapter_summary || progressEntry.next_chapter_focus || '',
+      lastUsedStorylineIds: contextStorylineIds,
+      lastUsedBeatIds: contextBeatIds,
+      lifecycleStatus: requiresStorylineReview ? 'needs_review' : 'advanced',
+      requiresReview: requiresStorylineReview,
       completedBeats: nextCompletedBeats,
       activeBeats: nextActiveBeats,
       openQuestions: nextOpenQuestions,
@@ -463,9 +471,12 @@ function syncStorylineProgressFromChapterPlan(db, {
       ...storylineContent,
       last_chapter_feedback: progressEntry,
       chapter_progress: nextProgress,
-      currentProgress: nextCurrentProgress
+      currentProgress: nextCurrentProgress,
+      lifecycleStatus: nextCurrentProgress.lifecycleStatus
     };
-    const nextStatus = row.status === 'draft' ? 'active' : (row.status || 'active');
+    const nextStatus = requiresStorylineReview
+      ? 'needs_review'
+      : (['draft', 'generated', 'needs_review'].includes(row.status) ? 'active' : (row.status || 'active'));
 
     db.run(
       'UPDATE storylines SET structured_content = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',

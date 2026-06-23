@@ -2,7 +2,8 @@ import { formatStorylineTypeLabel } from './lib/storylineLabel.js';
 import { normalizeNarrativeOutlineText } from './lib/chapterPlan.js';
 
 const API_BASE = '/api';
-const CURRENT_BOOK_KEY = 'current_book_id';
+const CURRENT_BOOK_KEY = 'currentBookId';
+const LEGACY_CURRENT_BOOK_KEY = 'current_book_id';
 const CURRENT_BOOK_EVENT = 'alipro:current-book-changed';
 
 function getAuthToken() {
@@ -52,6 +53,11 @@ function normalizeBook(book) {
 
 function normalizeStoryline(storyline) {
   const normalizedType = String(storyline.storyline_type || '').trim().toLowerCase() === 'main' ? 'main' : 'branch';
+  const structuredContent = parseJsonObject(storyline.structured_content || storyline.structuredContent);
+  const currentProgress = parseJsonObject(structuredContent.currentProgress);
+  const chapterProgress = Array.isArray(structuredContent.chapter_progress)
+    ? structuredContent.chapter_progress
+    : [];
   return {
     id: storyline.id,
     volumeNumber: Number(storyline.volume_number || 1),
@@ -62,7 +68,14 @@ function normalizeStoryline(storyline) {
     coreConflict: storyline.core_conflict || '',
     startChapter: Number(storyline.start_chapter || 1),
     endChapter: Number(storyline.end_chapter || 10),
-    status: storyline.status || 'draft'
+    status: storyline.status || structuredContent.lifecycleStatus || 'draft',
+    structuredContent,
+    currentProgress,
+    chapterProgress,
+    lastProgressSummary: currentProgress.lastProgressSummary || structuredContent?.last_chapter_feedback?.story_progress || '',
+    lastUpdatedChapterNumber: Number(currentProgress.lastUpdatedChapterNumber || 0) || null,
+    lastUsedBeatIds: Array.isArray(currentProgress.lastUsedBeatIds) ? currentProgress.lastUsedBeatIds : [],
+    requiresReview: Boolean(currentProgress.requiresReview || storyline.status === 'needs_review')
   };
 }
 
@@ -258,7 +271,7 @@ function normalizeRoleList(value) {
 
 export function getStoredCurrentBookId() {
   try {
-    return localStorage.getItem(CURRENT_BOOK_KEY) || '';
+    return localStorage.getItem(CURRENT_BOOK_KEY) || localStorage.getItem(LEGACY_CURRENT_BOOK_KEY) || '';
   } catch (_) {
     return '';
   }
@@ -268,8 +281,10 @@ export function persistCurrentBookId(bookId) {
   try {
     if (bookId) {
       localStorage.setItem(CURRENT_BOOK_KEY, bookId);
+      localStorage.setItem(LEGACY_CURRENT_BOOK_KEY, bookId);
     } else {
       localStorage.removeItem(CURRENT_BOOK_KEY);
+      localStorage.removeItem(LEGACY_CURRENT_BOOK_KEY);
     }
     if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
       window.dispatchEvent(new CustomEvent(CURRENT_BOOK_EVENT, {
@@ -835,6 +850,180 @@ export async function generateChapterContent(payload) {
     method: 'POST',
     body: JSON.stringify(payload)
   });
+}
+
+function splitSseEventBlocks(buffer) {
+  const normalized = String(buffer || '');
+  const blocks = normalized.split(/\r?\n\r?\n/);
+  return {
+    blocks: blocks.slice(0, -1),
+    rest: blocks.at(-1) || ''
+  };
+}
+
+function parseSseEventBlock(block) {
+  const lines = String(block || '').split(/\r?\n/);
+  let eventName = '';
+  const dataLines = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith('event:')) {
+      eventName = trimmed.slice(6).trim();
+      continue;
+    }
+    if (trimmed.startsWith('data:')) {
+      dataLines.push(trimmed.slice(5).trimStart());
+    }
+  }
+
+  if (!dataLines.length) return null;
+  return {
+    eventName,
+    data: dataLines.join('\n')
+  };
+}
+
+export async function streamChapterContent(payload, {
+  signal,
+  onDelta,
+  onUsage,
+  onAudit,
+  onDone,
+  onError
+} = {}) {
+  const response = await fetch(`${API_BASE}/generate/stream`, {
+    method: 'POST',
+    headers: createHeaders(),
+    body: JSON.stringify(payload),
+    signal
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || `HTTP ${response.status}`);
+  }
+
+  if (!response.body) {
+    throw new Error('流式响应不可用，当前浏览器没有返回可读取的数据流。');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullContent = '';
+  let latestUsage = null;
+  let latestAudit = null;
+  let donePayload = null;
+  let errorHandled = false;
+
+  const processBlock = (block) => {
+    const parsedBlock = parseSseEventBlock(block);
+    if (!parsedBlock?.data) return false;
+
+    let eventPayload;
+    try {
+      eventPayload = JSON.parse(parsedBlock.data);
+    } catch (_) {
+      return false;
+    }
+
+    const eventType = eventPayload.type || parsedBlock.eventName || 'message';
+
+    if (eventType === 'delta') {
+      const delta = String(eventPayload.content || '');
+      fullContent += delta;
+      onDelta?.({
+        delta,
+        content: fullContent,
+        contentLength: Number(eventPayload.content_length || fullContent.length)
+      });
+      return false;
+    }
+
+    if (eventType === 'usage') {
+      latestUsage = eventPayload.usage || latestUsage;
+      onUsage?.({
+        ...eventPayload,
+        content: fullContent
+      });
+      return false;
+    }
+
+    if (eventType === 'audit') {
+      latestAudit = eventPayload;
+      onAudit?.({
+        ...eventPayload,
+        content: fullContent
+      });
+      return false;
+    }
+
+    if (eventType === 'done') {
+      const finalContent = typeof eventPayload.content === 'string' ? eventPayload.content : fullContent;
+      donePayload = {
+        ...eventPayload,
+        content: finalContent,
+        usage: eventPayload.usage || latestUsage,
+        audit: latestAudit
+      };
+      onDone?.(donePayload);
+      return true;
+    }
+
+    if (eventType === 'error') {
+      const streamError = new Error(eventPayload.message || '流式生成失败');
+      errorHandled = true;
+      onError?.(streamError.message);
+      throw streamError;
+    }
+
+    return false;
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const { blocks, rest } = splitSseEventBlocks(buffer);
+      buffer = rest;
+
+      for (const block of blocks) {
+        if (processBlock(block)) {
+          return donePayload;
+        }
+      }
+    }
+
+    buffer += decoder.decode();
+    const { blocks } = splitSseEventBlocks(`${buffer}\n\n`);
+    for (const block of blocks) {
+      if (processBlock(block)) {
+        return donePayload;
+      }
+    }
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw error;
+    }
+    if (!errorHandled) {
+      onError?.(error.message || '流式生成失败');
+    }
+    throw error;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch (_) {}
+  }
+
+  if (donePayload) {
+    return donePayload;
+  }
+
+  throw new Error('流式响应提前结束，未收到完成事件。');
 }
 
 export async function generateChapterFeedback(payload) {

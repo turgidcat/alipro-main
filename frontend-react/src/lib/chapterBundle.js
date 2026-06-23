@@ -1,4 +1,5 @@
 import { initialGenerationState } from './constants.js';
+import { buildQualityCheckState } from './generationActions.js';
 import {
   normalizeRoleList,
   normalizeRoleExecution,
@@ -12,6 +13,13 @@ export function normalizeChapterBundle(bundle, chapterNumber) {
   const content = String(plan.generatedContent || '').trim();
   const feedback = plan.chapterFeedback || {};
   const appearingRoles = normalizeRoleList(plan.appearingRoles);
+  const targetWordCount = getPlanWordCount(plan);
+  const deviationRatio = targetWordCount > 0 && content
+    ? (content.length - targetWordCount) / targetWordCount
+    : 0;
+  const deviationLabel = targetWordCount > 0 && content
+    ? `，偏差 ${deviationRatio >= 0 ? '+' : ''}${(deviationRatio * 100).toFixed(1)}%`
+    : '';
 
   return {
     context: {
@@ -70,10 +78,14 @@ export function normalizeChapterBundle(bundle, chapterNumber) {
           statusTitle: '本章已有正文',
           statusText: '可以查看正文，也可以调整章节规划后重新生成。',
           metaText: `第 ${chapterNumber} 章 · ${plan.chapterTitle || '未命名章节'}`,
-          wordCountLabel: `实际约 ${content.length} 字 / 目标 ${getPlanWordCount(plan)} 字`,
+          wordCountLabel: `实际约 ${content.length} 字 / 目标 ${targetWordCount} 字${deviationLabel}`,
           previewText: content.replace(/\s+/g, ' ').slice(0, 520),
           feedbackSummary: feedback.chapter_summary || '本章已有正文，生成反馈可后续继续增强。',
-          feedbackFocus: feedback.next_chapter_focus || feedback.open_hooks || '下一章重点暂未整理。'
+          feedbackFocus: feedback.next_chapter_focus || feedback.open_hooks || '下一章重点暂未整理。',
+          qualityCheck: buildQualityCheckState(feedback),
+          storylineProgress: feedback.storyline_progress || null,
+          storylineProgressUpdated: !!feedback.storyline_progress,
+          storylineProgressError: ''
         }
       : initialGenerationState
   };
