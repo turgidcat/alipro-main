@@ -4,6 +4,12 @@ function normalizeText(value) {
 
 function normalizeQualityCheck(rawQualityCheck = {}) {
   const qualityCheck = rawQualityCheck && typeof rawQualityCheck === 'object' ? rawQualityCheck : {};
+  const storylineAudit = qualityCheck.storyline_audit && typeof qualityCheck.storyline_audit === 'object'
+    ? qualityCheck.storyline_audit
+    : {};
+  const wordCountAudit = qualityCheck.word_count_audit && typeof qualityCheck.word_count_audit === 'object'
+    ? qualityCheck.word_count_audit
+    : {};
   return {
     status: normalizeText(qualityCheck.status) || 'not_run',
     source: normalizeText(qualityCheck.source) || 'none',
@@ -19,6 +25,26 @@ function normalizeQualityCheck(rawQualityCheck = {}) {
         })
         .filter(Boolean)
       : []
+    ,
+    storylineAudit: {
+      status: normalizeText(storylineAudit.status) || 'not_applicable',
+      usedStorylineIds: Array.isArray(storylineAudit.used_storyline_ids)
+        ? storylineAudit.used_storyline_ids.map((item) => normalizeText(item)).filter(Boolean)
+        : [],
+      usedBeatIds: Array.isArray(storylineAudit.used_beat_ids)
+        ? storylineAudit.used_beat_ids.map((item) => normalizeText(item)).filter(Boolean)
+        : [],
+      summary: normalizeText(storylineAudit.summary),
+      risks: Array.isArray(storylineAudit.risks) ? storylineAudit.risks.map((item) => normalizeText(item)).filter(Boolean) : [],
+      requiresReview: Boolean(storylineAudit.requires_review || storylineAudit.requiresReview)
+    },
+    wordCountAudit: {
+      status: normalizeText(wordCountAudit.status) || 'not_applicable',
+      target: Number(wordCountAudit.target || 0) || 0,
+      actual: Number(wordCountAudit.actual || 0) || 0,
+      deviationRatio: Number(wordCountAudit.deviation_ratio || wordCountAudit.deviationRatio || 0) || 0,
+      summary: normalizeText(wordCountAudit.summary)
+    }
   };
 }
 
@@ -60,6 +86,12 @@ export function buildQualityCheckState(chapterFeedback = {}) {
   if (qualityCheck.degradedReason) {
     detailParts.push(`原因：${qualityCheck.degradedReason}`);
   }
+  if (qualityCheck.storylineAudit.status && qualityCheck.storylineAudit.status !== 'not_applicable') {
+    detailParts.push(`剧情线：${qualityCheck.storylineAudit.status}`);
+  }
+  if (qualityCheck.wordCountAudit.status && qualityCheck.wordCountAudit.status !== 'not_applicable') {
+    detailParts.push(`字数：${qualityCheck.wordCountAudit.status}`);
+  }
 
   let summary = detailParts.join(' · ');
   if (!summary) {
@@ -75,8 +107,13 @@ export function buildQualityCheckState(chapterFeedback = {}) {
     title: statusMeta.title,
     summary,
     signals: qualityCheck.signals,
-    risks: qualityCheck.risks,
-    airdropItems: qualityCheck.airdropItems
+    risks: [
+      ...qualityCheck.risks,
+      ...qualityCheck.storylineAudit.risks
+    ],
+    airdropItems: qualityCheck.airdropItems,
+    storylineAudit: qualityCheck.storylineAudit,
+    wordCountAudit: qualityCheck.wordCountAudit
   };
 }
 
@@ -119,7 +156,11 @@ function buildStatusMeta({
   }
 
   if (cycleResult?.contentSaved) {
-    const detail = normalizeText(cycleResult?.feedbackSaveError || cycleResult?.feedbackGenerationError);
+    const detail = normalizeText(
+      cycleResult?.storylineProgressError
+      || cycleResult?.feedbackSaveError
+      || cycleResult?.feedbackGenerationError
+    );
     return {
       statusKind: 'warning',
       statusTitle: `${successTitle}（部分完成）`,
@@ -151,6 +192,13 @@ export function buildGenerationStateFromCycle({
     cycleResult
   });
 
+  const actualLength = String(content || '').length;
+  const safeTarget = Number(targetWordCount || 0) || 0;
+  const deviationRatio = safeTarget > 0 ? (actualLength - safeTarget) / safeTarget : 0;
+  const deviationLabel = safeTarget > 0
+    ? `，偏差 ${deviationRatio >= 0 ? '+' : ''}${(deviationRatio * 100).toFixed(1)}%`
+    : '';
+
   return {
     hasContent: true,
     content,
@@ -158,10 +206,13 @@ export function buildGenerationStateFromCycle({
     statusTitle: statusMeta.statusTitle,
     statusText: statusMeta.statusText,
     metaText: chapterTitle,
-    wordCountLabel: `实际约 ${String(content || '').length} 字 / 目标 ${targetWordCount} 字`,
+    wordCountLabel: `实际约 ${actualLength} 字 / 目标 ${targetWordCount} 字${deviationLabel}`,
     previewText: String(content || '').replace(/\s+/g, ' ').slice(0, 520),
     feedbackSummary: chapterFeedback?.chapter_summary || '',
     feedbackFocus: chapterFeedback?.next_chapter_focus || chapterFeedback?.open_hooks || '',
-    qualityCheck: buildQualityCheckState(chapterFeedback)
+    qualityCheck: buildQualityCheckState(chapterFeedback),
+    storylineProgress: chapterFeedback?.storyline_progress || null,
+    storylineProgressUpdated: !!cycleResult?.storylineProgressUpdated,
+    storylineProgressError: normalizeText(cycleResult?.storylineProgressError || '')
   };
 }

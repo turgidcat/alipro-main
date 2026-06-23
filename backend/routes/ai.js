@@ -1889,6 +1889,12 @@ function normalizeQualityCheck(value = {}) {
       .slice(0, 12)
     : [];
   const normalizedPlanAnchorAudit = normalizePlanAnchorAudit(qualityCheck.plan_anchor_audit || qualityCheck.planAnchorAudit || {});
+  const storylineAudit = qualityCheck.storyline_audit && typeof qualityCheck.storyline_audit === 'object'
+    ? qualityCheck.storyline_audit
+    : {};
+  const wordCountAudit = qualityCheck.word_count_audit && typeof qualityCheck.word_count_audit === 'object'
+    ? qualityCheck.word_count_audit
+    : {};
 
   return {
     status: allowedStatus.has(status) ? status : 'not_run',
@@ -1933,6 +1939,28 @@ function normalizeQualityCheck(value = {}) {
       .filter(Boolean)
       .slice(0, 12),
     plan_anchor_audit: normalizedPlanAnchorAudit,
+    storyline_audit: {
+      status: normalizeText(storylineAudit.status || '') || 'not_applicable',
+      used_storyline_ids: normalizeJsonArray(storylineAudit.used_storyline_ids || storylineAudit.usedStorylineIds)
+        .map((item) => normalizeText(item))
+        .filter(Boolean),
+      used_beat_ids: normalizeJsonArray(storylineAudit.used_beat_ids || storylineAudit.usedBeatIds)
+        .map((item) => normalizeText(item))
+        .filter(Boolean),
+      summary: normalizeText(storylineAudit.summary || ''),
+      risks: normalizeJsonArray(storylineAudit.risks)
+        .map((item) => normalizeText(item))
+        .filter(Boolean)
+        .slice(0, 6),
+      requires_review: Boolean(storylineAudit.requires_review || storylineAudit.requiresReview)
+    },
+    word_count_audit: {
+      status: normalizeText(wordCountAudit.status || '') || 'not_applicable',
+      target: Number(wordCountAudit.target || 0) || 0,
+      actual: Number(wordCountAudit.actual || 0) || 0,
+      deviation_ratio: Number(wordCountAudit.deviation_ratio || wordCountAudit.deviationRatio || 0) || 0,
+      summary: normalizeText(wordCountAudit.summary || '')
+    },
     needs_human_review: Boolean(qualityCheck.needs_human_review)
   };
 }
@@ -2118,6 +2146,10 @@ function buildChapterStorylineContext({
   const storylineContexts = selectedStorylines.map((row) => {
     const structured = parseStructuredContent(row.structured_content);
     const beat = pickBeatForChapter(chapterIndex, structured, row);
+    const explicitBeatId = normalizeText(beat?.beatId || beat?.beat_id || '');
+    const fallbackBeatId = row.id
+      ? `fallback:${row.id}:chapter:${Number(chapterIndex || 0) || 'unknown'}`
+      : '';
     const payoffs = normalizeJsonArray(structured.payoffs).filter((item) => {
       const chapterApprox = Number(item?.chapterApprox || item?.chapter || 0);
       return chapterApprox === Number(chapterIndex);
@@ -2132,10 +2164,11 @@ function buildChapterStorylineContext({
       type: normalizeText(structured.type || row.storyline_type || ''),
       dramaticQuestion: normalizeText(structured.dramaticQuestion || row.core_conflict || ''),
       summary: normalizeText(structured.summary || row.description || ''),
-      beatId: normalizeText(beat?.beatId || beat?.beat_id || ''),
-      beatTitle: normalizeText(beat?.title || beat?.beat || ''),
+      beatId: explicitBeatId || fallbackBeatId,
+      beatTitle: normalizeText(beat?.title || beat?.beat || '') || (fallbackBeatId ? '剧情线摘要兜底节点' : ''),
       beatSummary: normalizeText(beat?.summary || beat?.beat || ''),
       expectedChange: normalizeText(beat?.expectedChange || beat?.expected_change || ''),
+      isFallbackBeat: !explicitBeatId && !!fallbackBeatId,
       mustInclude: normalizeJsonArray(beat?.must_include || beat?.mustInclude),
       mustAvoid: normalizeJsonArray(beat?.must_avoid || beat?.mustAvoid),
       relatedCharacters: normalizeJsonArray(structured.relatedCharacters || []).map((item) => item?.name || item).filter(Boolean),
@@ -2442,6 +2475,158 @@ function relatedStorylineTitleFromContext(storylineContext = {}, preferFirst = f
   return preferFirst ? titles[0] : titles.join(' / ');
 }
 
+function buildStorylineProgressAudit({ feedback = {}, structuredContent = {}, chapterPlan = {} } = {}) {
+  const storylineContext = parseStructuredContent(structuredContent.storyline_context);
+  const usedStorylineIds = normalizeJsonArray(storylineContext.usedStorylineIds)
+    .map((item) => normalizeText(item))
+    .filter(Boolean);
+  const usedBeatIds = normalizeJsonArray(storylineContext.usedBeatIds)
+    .map((item) => normalizeText(item))
+    .filter(Boolean);
+  const targetStorylineIds = normalizeJsonArray(chapterPlan.target_storylines)
+    .map((item) => normalizeText(item))
+    .filter(Boolean);
+  const mainStorylineId = normalizeText(chapterPlan.main_storyline_id || '');
+  const hasStorylineTarget = !!mainStorylineId || targetStorylineIds.length > 0 || usedStorylineIds.length > 0;
+  const isFallback = !!storylineContext.isFallback;
+  const summary = normalizeText(
+    feedback.story_progress
+    || feedback.chapter_summary
+    || feedback.next_chapter_focus
+    || ''
+  );
+  const risks = [];
+
+  if (hasStorylineTarget && usedStorylineIds.length === 0) {
+    risks.push('本章已有剧情线挂载或主推，但生成 metadata 没有记录 usedStorylineIds。');
+  }
+  if (hasStorylineTarget && usedBeatIds.length === 0) {
+    risks.push('本章没有命中结构化 usedBeatIds，需要人工确认是否只使用了剧情线摘要兜底。');
+  }
+  if (isFallback) {
+    risks.push('本章剧情线约束来自 fallback，上线前需要复核结构化 beat 是否完整。');
+  }
+  if (hasStorylineTarget && !summary) {
+    risks.push('本章反馈没有给出剧情线推进摘要。');
+  }
+
+  const status = !hasStorylineTarget
+    ? 'not_applicable'
+    : risks.length > 0
+      ? 'needs_review'
+      : 'advanced';
+
+  return {
+    status,
+    used_storyline_ids: usedStorylineIds,
+    used_beat_ids: usedBeatIds,
+    summary,
+    risks,
+    requires_review: risks.length > 0
+  };
+}
+
+function buildWordCountAudit({ content = '', targetWordCount = 0 } = {}) {
+  const target = Number(targetWordCount || 0) || 0;
+  const actual = normalizeText(content).length;
+  if (!target || !actual) {
+    return {
+      status: 'not_applicable',
+      target,
+      actual,
+      deviation_ratio: 0,
+      summary: '目标字数或实际字数缺失，未执行字数偏差检查。'
+    };
+  }
+
+  const deviationRatio = Number(((actual - target) / target).toFixed(4));
+  const absDeviation = Math.abs(deviationRatio);
+  const status = absDeviation > 0.35
+    ? 'risky'
+    : absDeviation > 0.2
+      ? 'needs_review'
+      : 'passed';
+  const percent = `${deviationRatio >= 0 ? '+' : ''}${(deviationRatio * 100).toFixed(1)}%`;
+  return {
+    status,
+    target,
+    actual,
+    deviation_ratio: deviationRatio,
+    summary: `目标 ${target} 字，实际约 ${actual} 字，偏差 ${percent}。`
+  };
+}
+
+function enforceGeneratedWordCount(content = '', targetWordCount = 0) {
+  const normalized = normalizeText(content);
+  const target = Number(targetWordCount || 0) || 0;
+  if (!target || normalized.length <= Math.ceil(target * 1.35)) {
+    return {
+      content: normalized,
+      audit: {
+        trimmed: false,
+        target,
+        originalLength: normalized.length,
+        finalLength: normalized.length,
+        reason: ''
+      }
+    };
+  }
+
+  const maxLength = Math.ceil(target * 1.25);
+  const minLength = Math.ceil(target * 0.9);
+  const candidate = normalized.slice(0, maxLength);
+  const breakChars = ['\n\n', '。', '！', '？', '”', '」'];
+  let cutIndex = -1;
+  for (const mark of breakChars) {
+    const index = candidate.lastIndexOf(mark);
+    if (index >= minLength) {
+      cutIndex = Math.max(cutIndex, index + mark.length);
+    }
+  }
+  const finalContent = normalized.slice(0, cutIndex > 0 ? cutIndex : maxLength).trim();
+  return {
+    content: finalContent,
+    audit: {
+      trimmed: true,
+      target,
+      originalLength: normalized.length,
+      finalLength: finalContent.length,
+      reason: `正文超过目标字数 35%，已按句末/段落在约 ${maxLength} 字内收束。`
+    }
+  };
+}
+
+function enrichFeedbackWithAudits({ feedback = {}, structuredContent = {}, chapterPlan = {}, content = '' } = {}) {
+  const enriched = feedback && typeof feedback === 'object' ? { ...feedback } : {};
+  const qualityCheck = normalizeQualityCheck(enriched.quality_check || {});
+  const storylineAudit = buildStorylineProgressAudit({ feedback: enriched, structuredContent, chapterPlan });
+  const planStructured = parseStructuredContent(chapterPlan.structured_content);
+  const targetWordCount = Number(planStructured?.generation_settings?.word_count || 0) || 0;
+  const wordCountAudit = buildWordCountAudit({ content, targetWordCount });
+  const risks = [
+    ...normalizeJsonArray(qualityCheck.risks).map((item) => normalizeText(item)).filter(Boolean),
+    ...storylineAudit.risks,
+    ...(wordCountAudit.status === 'risky' ? [wordCountAudit.summary] : [])
+  ].filter(Boolean);
+
+  enriched.storyline_progress = {
+    status: storylineAudit.status,
+    usedStorylineIds: storylineAudit.used_storyline_ids,
+    usedBeatIds: storylineAudit.used_beat_ids,
+    summary: storylineAudit.summary,
+    requiresReview: storylineAudit.requires_review,
+    risks: storylineAudit.risks
+  };
+  enriched.quality_check = normalizeQualityCheck({
+    ...qualityCheck,
+    risks,
+    storyline_audit: storylineAudit,
+    word_count_audit: wordCountAudit,
+    needs_human_review: qualityCheck.needs_human_review || storylineAudit.requires_review || wordCountAudit.status === 'risky'
+  });
+  return enriched;
+}
+
 async function saveChapterStorylineContext({ bookId, chapterNumber, storylineContext }) {
   const db = await dbPromise;
   const existingPlan = execQueryOne(
@@ -2463,7 +2648,7 @@ async function saveChapterStorylineContext({ bookId, chapterNumber, storylineCon
   return structuredContent.storyline_context;
 }
 
-async function saveChapterFeedback({ bookId, chapterNumber, feedback }) {
+async function saveChapterFeedback({ bookId, chapterNumber, feedback, content = '' }) {
   const db = await dbPromise;
   const existingPlan = execQueryOne(
     db,
@@ -2482,10 +2667,17 @@ async function saveChapterFeedback({ bookId, chapterNumber, feedback }) {
           : undefined
       }
     : feedback;
-  structuredContent.chapter_feedback = normalizedFeedback;
+  const enrichedFeedback = enrichFeedbackWithAudits({
+    feedback: normalizedFeedback,
+    structuredContent,
+    chapterPlan: existingPlan,
+    content
+  });
+  structuredContent.chapter_feedback = enrichedFeedback;
 
   let storylineProgressUpdated = false;
   let requiresStorylineReview = false;
+  let storylineProgressError = '';
 
   db.run(
     'UPDATE chapter_plans SET structured_content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -2506,6 +2698,7 @@ async function saveChapterFeedback({ bookId, chapterNumber, feedback }) {
     storylineProgressUpdated = updatedCount > 0;
     requiresStorylineReview = !!parseStructuredContent(structuredContent.storyline_context)?.isFallback;
   } catch (error) {
+    storylineProgressError = error.message || '剧情线进度写回失败';
     logger.error('Storyline progress writeback failed', {
       error: error.message,
       bookId,
@@ -2515,9 +2708,10 @@ async function saveChapterFeedback({ bookId, chapterNumber, feedback }) {
 
   saveDatabase(db);
   return {
-    feedback: normalizedFeedback,
+    feedback: enrichedFeedback,
     storylineProgressUpdated,
-    requiresStorylineReview
+    requiresStorylineReview,
+    storylineProgressError
   };
 }
 
@@ -3416,7 +3610,7 @@ async function handleChapterFeedbackGeneration(req, res) {
         : {}
     );
 
-    const feedbackSaveResult = await saveChapterFeedback({ bookId, chapterNumber, feedback });
+    const feedbackSaveResult = await saveChapterFeedback({ bookId, chapterNumber, feedback, content });
     return res.json({
       success: true,
       data: {
@@ -3431,7 +3625,9 @@ async function handleChapterFeedbackGeneration(req, res) {
           qualityCheck: (feedbackSaveResult?.feedback || feedback)?.quality_check || null,
           degradedReason,
           storylineProgressUpdated: !!feedbackSaveResult?.storylineProgressUpdated,
-          requiresStorylineReview: !!feedbackSaveResult?.requiresStorylineReview
+          requiresStorylineReview: !!feedbackSaveResult?.requiresStorylineReview,
+          storylineProgressError: normalizeText(feedbackSaveResult?.storylineProgressError || ''),
+          storylineProgress: (feedbackSaveResult?.feedback || feedback)?.storyline_progress || null
         }
       }
     });
@@ -3441,69 +3637,77 @@ async function handleChapterFeedbackGeneration(req, res) {
   }
 }
 
-async function handleChapterContentGeneration(req, res) {
-  try {
-    const {
+async function prepareChapterContentGeneration(body = {}) {
+  const {
+    bookId,
+    bookTitle,
+    genre = 'urban',
+    subgenre,
+    platform = 'qidian',
+    template,
+    chapterTitle = '',
+    outline = '',
+    characters = '',
+    shuangTags = [],
+    emotionIntensity = 70,
+    colloquialLevel = 80,
+    dialogueRatio = 30,
+    wordCount = 2000,
+    addCliffhanger,
+    enhanceDialogue,
+    avoidAIFeel,
+    fastPace,
+    detailedDesc,
+    model
+  } = body;
+
+  const chapterNumber = Number.parseInt(body.chapterNumber, 10);
+  const storedContext = await loadBookGenerationContext(bookId, chapterNumber);
+  const chapterPlan = storedContext.chapterPlan || {};
+  const structuredContent = parseStructuredContent(chapterPlan.structured_content);
+  const savedStorylineContext = parseStructuredContent(structuredContent.storyline_context);
+  const liveStorylineContext = buildPersistedStorylineContext(storedContext.chapterStorylineContext || {});
+  const savedUsedStorylineIds = normalizeJsonArray(savedStorylineContext.usedStorylineIds);
+  const savedUsedBeatIds = normalizeJsonArray(savedStorylineContext.usedBeatIds);
+  const liveUsedBeatIds = normalizeJsonArray(liveStorylineContext.usedBeatIds);
+  const shouldRefreshStorylineContext =
+    Object.keys(savedStorylineContext).length === 0
+    || (savedUsedStorylineIds.length > 0 && savedUsedBeatIds.length === 0 && liveUsedBeatIds.length > 0);
+  const storylineContext = !shouldRefreshStorylineContext
+    ? savedStorylineContext
+    : liveStorylineContext;
+  const draftStorylineConstraint = buildDraftStorylineConstraintText(storylineContext);
+  if (shouldRefreshStorylineContext && draftStorylineConstraint.applied) {
+    await saveChapterStorylineContext({
       bookId,
-      bookTitle,
-      genre = 'urban',
-      subgenre,
-      platform = 'qidian',
-      template,
-      chapterTitle = '',
-      outline = '',
-      characters = '',
-      shuangTags = [],
-      emotionIntensity = 70,
-      colloquialLevel = 80,
-      dialogueRatio = 30,
-      wordCount = 2000,
-      addCliffhanger,
-      enhanceDialogue,
-      avoidAIFeel,
-      fastPace,
-      detailedDesc,
-      model
-    } = req.body;
+      chapterNumber,
+      storylineContext: storedContext.chapterStorylineContext || {}
+    });
+  }
+  const finalBookTitle = normalizeText(bookTitle) || storedContext.bookTitle;
+  const finalCharacters = [storedContext.storedCharacters, normalizeText(characters)].filter(Boolean).join('\n\n');
+  const briefText = buildGenerationBriefText(body.generationBrief);
+  const requestedWordCount = Number(wordCount) || 2000;
+  const wordCountConstraint = `【字数硬约束】本章目标约 ${requestedWordCount} 字，允许偏差 ±20%。不要为了铺陈额外扩写；接近目标字数时必须自然收束。`;
+  const finalContextNotes = [storedContext.contextNotes, draftStorylineConstraint.text, wordCountConstraint, briefText].filter(Boolean).join('\n\n');
+  const structuredOutline = normalizeText(buildStructuredOutlineText(getChapterOutlineStructure(chapterPlan)));
+  const roleExecution = normalizeRoleExecutionList(
+    body.chapterPlan?.role_execution
+    || body.chapterPlan?.structured_content?.role_execution
+    || chapterPlan?.structured_content?.role_execution
+  );
+  const finalOutline = normalizeText(outline)
+    || structuredOutline
+    || normalizeText(chapterPlan.outline_text || buildOutlineFromChapterPlan(chapterPlan));
 
-    const chapterNumber = Number.parseInt(req.body.chapterNumber, 10);
-    const storedContext = await loadBookGenerationContext(bookId, chapterNumber);
-    const chapterPlan = storedContext.chapterPlan || {};
-    const structuredContent = parseStructuredContent(chapterPlan.structured_content);
-    const savedStorylineContext = parseStructuredContent(structuredContent.storyline_context);
-    const liveStorylineContext = buildPersistedStorylineContext(storedContext.chapterStorylineContext || {});
-    const storylineContext = Object.keys(savedStorylineContext).length > 0
-      ? savedStorylineContext
-      : liveStorylineContext;
-    const draftStorylineConstraint = buildDraftStorylineConstraintText(storylineContext);
-    if (Object.keys(savedStorylineContext).length === 0 && draftStorylineConstraint.applied) {
-      await saveChapterStorylineContext({
-        bookId,
-        chapterNumber,
-        storylineContext: storedContext.chapterStorylineContext || {}
-      });
-    }
-    const finalBookTitle = normalizeText(bookTitle) || storedContext.bookTitle;
-    const finalCharacters = [storedContext.storedCharacters, normalizeText(characters)].filter(Boolean).join('\n\n');
-    const briefText = buildGenerationBriefText(req.body.generationBrief);
-    const finalContextNotes = [storedContext.contextNotes, draftStorylineConstraint.text, briefText].filter(Boolean).join('\n\n');
-    const structuredOutline = normalizeText(buildStructuredOutlineText(getChapterOutlineStructure(chapterPlan)));
-    const roleExecution = normalizeRoleExecutionList(
-      req.body.chapterPlan?.role_execution
-      || req.body.chapterPlan?.structured_content?.role_execution
-      || chapterPlan?.structured_content?.role_execution
-    );
-    const finalOutline = normalizeText(outline)
-      || structuredOutline
-      || normalizeText(chapterPlan.outline_text || buildOutlineFromChapterPlan(chapterPlan));
+  if (!finalOutline) {
+    const error = new Error('Outline is required');
+    error.statusCode = 400;
+    throw error;
+  }
 
-    if (!finalOutline) {
-      return res.status(400).json({ success: false, error: 'Outline is required' });
-    }
-
-    const requestedWordCount = Number(wordCount) || 2000;
-    const maxTokens = Math.min(8000, Math.max(1800, Math.ceil(requestedWordCount * 1.35)));
-    const prompt = deepseekService.buildCreativePrompt({
+  const maxTokens = Math.min(6500, Math.max(1200, Math.ceil(requestedWordCount * 1.1)));
+  const prompt = deepseekService.buildCreativePrompt({
       bookTitle: finalBookTitle,
       genre,
       subgenre,
@@ -3528,6 +3732,45 @@ async function handleChapterContentGeneration(req, res) {
       detailedDesc: detailedDesc || false
     });
 
+  return {
+    bookId,
+    genre,
+    chapterNumber,
+    chapterTitle,
+    model,
+    finalBookTitle,
+    finalContextNotes,
+    finalCharacters,
+    storedContext,
+    chapterPlan,
+    storylineContext,
+    draftStorylineConstraint,
+    requestedWordCount,
+    maxTokens,
+    prompt
+  };
+}
+
+async function handleChapterContentGeneration(req, res) {
+  try {
+    const prepared = await prepareChapterContentGeneration(req.body || {});
+    const {
+      bookId,
+      genre,
+      chapterNumber,
+      chapterTitle,
+      model,
+      finalBookTitle,
+      finalContextNotes,
+      storedContext,
+      chapterPlan,
+      storylineContext,
+      draftStorylineConstraint,
+      requestedWordCount,
+      maxTokens,
+      prompt
+    } = prepared;
+
     logger.info('Starting content generation', {
       bookId: bookId || '',
       bookTitle: finalBookTitle || '',
@@ -3550,7 +3793,8 @@ async function handleChapterContentGeneration(req, res) {
       return res.status(result.statusCode || 500).json({ success: false, error: result.error });
     }
 
-    const generatedContent = normalizeText(result.content);
+    const wordCountEnforcement = enforceGeneratedWordCount(result.content, requestedWordCount);
+    const generatedContent = wordCountEnforcement.content;
     const truncationState = buildGenerationTruncationState({
       content: generatedContent,
       finishReason: result.finishReason
@@ -3585,6 +3829,7 @@ async function handleChapterContentGeneration(req, res) {
           targetWordCount: requestedWordCount,
           maxTokens,
           actualLength: generatedContent.length,
+          wordCountEnforcement: wordCountEnforcement.audit,
           truncation: truncationState,
           storylineConstraintApplied: !!draftStorylineConstraint.applied,
           usedStorylineIds: draftStorylineConstraint.usedStorylineIds || [],
@@ -3607,9 +3852,138 @@ async function handleChapterContentGeneration(req, res) {
       stack: error.stack,
       route: '/api/generate'
     });
-    return res.status(500).json({ success: false, error: 'Server error' });
+    return res.status(error.statusCode || 500).json({ success: false, error: error.message || 'Server error' });
   }
 }
+
+function writeSseEvent(res, type, payload = {}) {
+  res.write(`event: ${type}\n`);
+  res.write(`data: ${JSON.stringify({ type, ...payload })}\n\n`);
+}
+
+async function handleChapterContentStream(req, res) {
+  let prepared = null;
+  try {
+    prepared = await prepareChapterContentGeneration(req.body || {});
+    const {
+      bookId,
+      genre,
+      chapterNumber,
+      chapterTitle,
+      model,
+      finalBookTitle,
+      finalContextNotes,
+      storedContext,
+      chapterPlan,
+      storylineContext,
+      draftStorylineConstraint,
+      requestedWordCount,
+      maxTokens,
+      prompt
+    } = prepared;
+
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    logger.info('Starting streaming content generation', {
+      bookId: bookId || '',
+      bookTitle: finalBookTitle || '',
+      genre,
+      chapterTitle: chapterTitle || 'Untitled chapter',
+      hasStoredContext: !!finalContextNotes,
+      hasStoredCharacters: !!storedContext.storedCharacters,
+      targetWordCount: requestedWordCount,
+      maxTokens
+    });
+
+    let generatedContent = '';
+    let latestUsage = null;
+    for await (const event of deepseekService.generateStream({
+      prompt,
+      model: model || 'deepseek-chat',
+      temperature: 0.7,
+      maxTokens,
+      signal: req.signal
+    })) {
+      if (event.type === 'delta') {
+        generatedContent = String(event.fullContent || `${generatedContent}${event.content || ''}`);
+        writeSseEvent(res, 'delta', {
+          content: event.content,
+          content_length: generatedContent.length
+        });
+      }
+      if (event.type === 'usage') {
+        latestUsage = event.usage || latestUsage;
+        generatedContent = String(event.fullContent || generatedContent);
+        writeSseEvent(res, 'usage', {
+          usage: latestUsage,
+          content_length: generatedContent.length
+        });
+      }
+    }
+
+    const wordCountEnforcement = enforceGeneratedWordCount(generatedContent, requestedWordCount);
+    generatedContent = wordCountEnforcement.content;
+    const truncationState = buildGenerationTruncationState({
+      content: generatedContent,
+      finishReason: ''
+    });
+    const auditResult = await auditGeneratedContent({
+      bookTitle: finalBookTitle,
+      chapterNumber,
+      chapterTitle,
+      content: generatedContent,
+      chapterPlan,
+      mainStoryline: normalizeText(relatedStorylineTitleFromContext(storylineContext, true)),
+      targetStorylineLabels: relatedStorylineTitlesFromContext(storylineContext)
+    });
+
+    writeSseEvent(res, 'audit', {
+      audit: auditResult,
+      content_length: generatedContent.length
+    });
+
+    writeSseEvent(res, 'done', {
+      content: generatedContent,
+      content_length: generatedContent.length,
+      usage: latestUsage,
+      metadata: {
+        model: model || 'deepseek-chat',
+        finishReason: null,
+        timestamp: new Date().toISOString(),
+        targetWordCount: requestedWordCount,
+        maxTokens,
+        actualLength: generatedContent.length,
+        wordCountEnforcement: wordCountEnforcement.audit,
+        truncation: truncationState,
+        storylineConstraintApplied: !!draftStorylineConstraint.applied,
+        usedStorylineIds: draftStorylineConstraint.usedStorylineIds || [],
+        usedBeatIds: draftStorylineConstraint.usedBeatIds || [],
+        usedVolumeTimeline: !!draftStorylineConstraint.usedVolumeTimeline,
+        isFallback: !!draftStorylineConstraint.isFallback,
+        continuityAudit: auditResult,
+        context: {
+          bookId: bookId || null,
+          bookTitle: finalBookTitle || null,
+          hasStoredContext: !!finalContextNotes,
+          hasStoredCharacters: !!storedContext.storedCharacters
+        }
+      }
+    });
+    res.end();
+  } catch (error) {
+    logger.error('Streaming content generation failed', { error: error.message, stack: error.stack });
+    if (!res.headersSent) {
+      return res.status(error.statusCode || 500).json({ success: false, error: error.message || '流式生成失败' });
+    }
+    writeSseEvent(res, 'error', { message: error.message || '流式生成失败' });
+    res.end();
+  }
+}
+
+router.post('/generate/stream', handleChapterContentStream);
 
 router.post('/generate', async (req, res) => {
   const promptType = normalizeText(req.body.promptType || 'chapter') || 'chapter';

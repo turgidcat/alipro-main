@@ -34,6 +34,21 @@ export default function StorylineDrawer({ storylines, mainStorylineId, targetSto
               <div style={{ color: 'var(--muted)', fontSize: '11px', marginTop: '2px' }}>
                 第 {sl.start_chapter || '?'} - {sl.end_chapter || '?'} 章
               </div>
+              <div style={{ color: 'var(--muted)', fontSize: '11px', marginTop: '4px' }}>
+                状态：{sl.status || sl.currentProgress?.lifecycleStatus || 'draft'}
+                {sl.lastUpdatedChapterNumber ? ` · 最近推进第 ${sl.lastUpdatedChapterNumber} 章` : ''}
+                {sl.requiresReview ? ' · 需复核' : ''}
+              </div>
+              {sl.lastProgressSummary ? (
+                <div style={{ color: 'var(--muted)', fontSize: '12px', lineHeight: 1.7, marginTop: '4px' }}>
+                  {sl.lastProgressSummary}
+                </div>
+              ) : null}
+              {Array.isArray(sl.lastUsedBeatIds) && sl.lastUsedBeatIds.length > 0 ? (
+                <div style={{ color: 'var(--muted)', fontSize: '11px', marginTop: '4px' }}>
+                  used beat：{sl.lastUsedBeatIds.join(' / ')}
+                </div>
+              ) : null}
             </div>
           );
         })}

@@ -76,8 +76,8 @@ export default function ContentWorkspace(props) {
       >
         <StatusNotice
           kind={isGenerating ? 'warning' : generationState.statusKind}
-          title={isGenerating ? '正在生成这一章' : generationState.statusTitle}
-          text={isGenerating ? '生成中会自动禁用按钮，避免重复点击；完成后会在下方更新正文、反馈和质量检查。' : generationState.statusText}
+          title={isGenerating ? (generationState.statusTitle || '正在生成这一章') : generationState.statusTitle}
+          text={isGenerating ? (generationState.statusText || '生成中会自动禁用按钮，避免重复点击；完成后会在下方更新正文、反馈和质量检查。') : generationState.statusText}
           className="mb-0"
         />
 
@@ -164,6 +164,54 @@ export default function ContentWorkspace(props) {
                 </section>
               </div>
             ) : null}
+          </div>
+        </section>
+
+        <section className="min-w-0 border-t border-[color:color-mix(in_srgb,var(--line)_58%,transparent)] pt-5">
+          <div className="grid gap-4">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+              <MetaCode>STORYLINE PROGRESS</MetaCode>
+              <span className="text-[13px] leading-6 text-[color:var(--muted)]">本章剧情线推进与写回结果</span>
+            </div>
+            {generationState.storylineProgress || generationState.qualityCheck?.storylineAudit ? (
+              <div className="grid gap-4 lg:grid-cols-3">
+                <section className="min-w-0 border-l border-[color:color-mix(in_srgb,var(--line-strong)_72%,transparent)] pl-4">
+                  <MetaCode>STATUS</MetaCode>
+                  <p className="mt-2 text-[14px] leading-7 text-[color:var(--muted)]">
+                    {generationState.storylineProgress?.status
+                      || generationState.qualityCheck?.storylineAudit?.status
+                      || 'not_applicable'}
+                    {generationState.storylineProgressUpdated ? ' · 已写回剧情线进度' : ''}
+                  </p>
+                  {generationState.storylineProgressError ? (
+                    <p className="mt-2 text-[13px] font-semibold leading-6 text-[color:#b34343]">
+                      写回失败：{generationState.storylineProgressError}
+                    </p>
+                  ) : null}
+                </section>
+                <section className="min-w-0 border-l border-[color:color-mix(in_srgb,var(--line-strong)_72%,transparent)] pl-4">
+                  <MetaCode>USED IDS</MetaCode>
+                  <IndentedTextBlock
+                    text={[
+                      `Storylines: ${(generationState.storylineProgress?.usedStorylineIds || generationState.qualityCheck?.storylineAudit?.usedStorylineIds || []).join(' / ') || '未记录'}`,
+                      `Beats: ${(generationState.storylineProgress?.usedBeatIds || generationState.qualityCheck?.storylineAudit?.usedBeatIds || []).join(' / ') || '未记录'}`
+                    ].join('\n')}
+                    className="mt-3"
+                    paragraphClassName="cn-text-paragraph text-[14px] leading-7 text-[color:var(--muted)]"
+                  />
+                </section>
+                <section className="min-w-0 border-l border-[color:color-mix(in_srgb,var(--line-strong)_72%,transparent)] pl-4">
+                  <MetaCode>SUMMARY</MetaCode>
+                  <IndentedTextBlock
+                    text={generationState.storylineProgress?.summary || generationState.qualityCheck?.storylineAudit?.summary || '暂无剧情线推进摘要'}
+                    className="mt-3"
+                    paragraphClassName="cn-text-paragraph text-[14px] leading-7 text-[color:var(--muted)]"
+                  />
+                </section>
+              </div>
+            ) : (
+              <p className="text-[14px] leading-7 text-[color:var(--muted)]">生成完成后，这里会展示本章使用的剧情线、beat 和推进写回状态。</p>
+            )}
           </div>
         </section>
 

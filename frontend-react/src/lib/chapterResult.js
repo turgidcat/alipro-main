@@ -145,6 +145,9 @@ export async function persistChapterResultCycle({
     usedLocalFallback: false,
     feedbackGenerationError: '',
     feedbackSaveError: '',
+    storylineProgressUpdated: false,
+    storylineProgressError: '',
+    storylineProgress: null,
     chapterFeedback: null,
     feedbackPlan: null,
     qualityCheck: null
@@ -185,6 +188,9 @@ export async function persistChapterResultCycle({
     const canPersistFeedback = canPersistFormalFeedback(cycleResult.chapterFeedback);
     cycleResult.feedbackSaved = canPersistFeedback && !!metadata.feedbackSaved;
     cycleResult.qualityCheckSaved = canPersistFeedback && !!metadata.qualityCheckSaved;
+    cycleResult.storylineProgressUpdated = !!metadata.storylineProgressUpdated;
+    cycleResult.storylineProgressError = normalizeText(metadata.storylineProgressError || '');
+    cycleResult.storylineProgress = metadata.storylineProgress || cycleResult.chapterFeedback?.storyline_progress || null;
   } else {
     cycleResult.usedLocalFallback = true;
     cycleResult.chapterFeedback = ensureFeedbackQualityCheck(
@@ -204,6 +210,8 @@ export async function persistChapterResultCycle({
     );
     cycleResult.feedbackSaved = false;
     cycleResult.qualityCheckSaved = false;
+    cycleResult.storylineProgressUpdated = false;
+    cycleResult.storylineProgress = cycleResult.chapterFeedback?.storyline_progress || null;
   }
 
   cycleResult.qualityCheck = cycleResult.chapterFeedback?.quality_check || null;

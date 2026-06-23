@@ -1,7 +1,7 @@
 require('dotenv').config();
 
 const dbPromise = require('./database/init');
-const { execQueryOne } = require('./services/database');
+const { execQuery, execQueryOne } = require('./services/database');
 
 const DEFAULT_BASE_URL = process.env.BATCH_VERIFY_BASE_URL || 'http://localhost:3000';
 const DEFAULT_BOOK_ID = process.env.BATCH_VERIFY_BOOK_ID || 'b8bd76b6-170f-4666-9233-36e86b1f8b1d';
@@ -69,6 +69,7 @@ function hasMeaningfulOutlineStructure(value) {
 function normalizeQualityCheck(value = {}) {
   const qualityCheck = value && typeof value === 'object' ? value : {};
   const planAnchorAudit = parseJsonObject(qualityCheck.plan_anchor_audit || qualityCheck.planAnchorAudit);
+  const storylineAudit = parseJsonObject(qualityCheck.storyline_audit || qualityCheck.storylineAudit);
   return {
     status: normalizeText(qualityCheck.status || ''),
     source: normalizeText(qualityCheck.source || ''),
@@ -78,18 +79,47 @@ function normalizeQualityCheck(value = {}) {
     needsHumanReview: Boolean(qualityCheck.needs_human_review),
     planAnchorAudit: {
       status: normalizeText(planAnchorAudit.status || '')
+    },
+    storylineAudit: {
+      status: normalizeText(storylineAudit.status || ''),
+      usedStorylineIds: parseJsonArray(storylineAudit.used_storyline_ids || storylineAudit.usedStorylineIds),
+      usedBeatIds: parseJsonArray(storylineAudit.used_beat_ids || storylineAudit.usedBeatIds),
+      requiresReview: Boolean(storylineAudit.requires_review || storylineAudit.requiresReview)
     }
   };
 }
 
-function buildSnapshotFromRows({ chapter, plan }) {
+function buildStorylineProgressSnapshot(storylineRows = []) {
+  return (Array.isArray(storylineRows) ? storylineRows : []).map((row) => {
+    const structured = parseJsonObject(row.structured_content);
+    const currentProgress = parseJsonObject(structured.currentProgress);
+    const chapterProgress = parseJsonArray(structured.chapter_progress);
+    return {
+      id: row.id,
+      status: normalizeText(row.status || ''),
+      lifecycleStatus: normalizeText(currentProgress.lifecycleStatus || structured.lifecycleStatus || ''),
+      lastUpdatedChapterNumber: Number(currentProgress.lastUpdatedChapterNumber || 0) || 0,
+      lastProgressSummary: normalizeText(currentProgress.lastProgressSummary || structured?.last_chapter_feedback?.story_progress || ''),
+      lastUsedBeatIds: parseJsonArray(currentProgress.lastUsedBeatIds),
+      chapterProgressNumbers: chapterProgress.map((item) => Number(item.chapter_number || item.chapterNumber || 0)).filter(Boolean),
+      chapterProgressCount: chapterProgress.length,
+      requiresReview: Boolean(currentProgress.requiresReview)
+    };
+  });
+}
+
+function buildSnapshotFromRows({ chapter, plan, storylineRows = [] }) {
   const structuredContent = parseJsonObject(plan?.structured_content);
   const feedback = parseJsonObject(structuredContent.chapter_feedback);
+  const storylineContext = parseJsonObject(structuredContent.storyline_context);
   return {
     chapter,
     plan,
     structuredContent,
+    storylineContext,
     feedback,
+    storylineProgress: feedback.storyline_progress || null,
+    storylineRows: buildStorylineProgressSnapshot(storylineRows),
     feedbackSource: normalizeText(feedback.source || ''),
     qualityCheck: normalizeQualityCheck(feedback.quality_check)
   };
@@ -104,6 +134,22 @@ function evaluateChapterSnapshot(chapterNumber, snapshot, previousSnapshot = nul
   const qualityStatus = normalizeText(snapshot?.qualityCheck?.status || '');
   const qualitySource = normalizeText(snapshot?.qualityCheck?.source || '');
   const planAnchorAuditStatus = normalizeText(snapshot?.qualityCheck?.planAnchorAudit?.status || '');
+  const storylineAuditStatus = normalizeText(snapshot?.qualityCheck?.storylineAudit?.status || '');
+  const targetStorylineIds = [
+    normalizeText(snapshot?.plan?.main_storyline_id || ''),
+    ...parseJsonArray(snapshot?.plan?.target_storylines).map((item) => normalizeText(item))
+  ].filter(Boolean);
+  const usedStorylineIds = parseJsonArray(snapshot?.storylineContext?.usedStorylineIds).map((item) => normalizeText(item)).filter(Boolean);
+  const usedBeatIds = parseJsonArray(snapshot?.storylineContext?.usedBeatIds).map((item) => normalizeText(item)).filter(Boolean);
+  const hasStorylineTarget = targetStorylineIds.length > 0;
+  const storylinePromptOk = !hasStorylineTarget || usedStorylineIds.length > 0;
+  const storylineBeatOk = !hasStorylineTarget || usedBeatIds.length > 0;
+  const storylineFeedbackOk = !hasStorylineTarget || !!snapshot?.storylineProgress?.summary;
+  const storylineWritebackOk = !hasStorylineTarget || snapshot?.storylineRows?.some((item) =>
+    (Array.isArray(item.chapterProgressNumbers) && item.chapterProgressNumbers.includes(chapterNumber))
+    || item.lastUpdatedChapterNumber === chapterNumber
+  );
+  const storylineQualityOk = !hasStorylineTarget || ['advanced', 'needs_review', 'passed'].includes(storylineAuditStatus);
   const needsHumanReview = !!snapshot?.qualityCheck?.needsHumanReview;
   const previousSummary = chapterNumber > 1
     ? normalizeText(previousSnapshot?.feedback?.chapter_summary || '')
@@ -128,6 +174,9 @@ function evaluateChapterSnapshot(chapterNumber, snapshot, previousSnapshot = nul
   const checks = chapterNumber === 1
     ? [hasContent, formalFeedbackOk, hasSummary, formalQualityCheckOk]
     : [!!canReadPreviousSummary, hasContent, formalFeedbackOk, hasSummary, formalQualityCheckOk];
+  if (hasStorylineTarget) {
+    checks.push(storylinePromptOk, storylineBeatOk, storylineFeedbackOk, storylineWritebackOk, storylineQualityOk);
+  }
 
   return {
     chapterNumber,
@@ -140,6 +189,14 @@ function evaluateChapterSnapshot(chapterNumber, snapshot, previousSnapshot = nul
     qualityStatus,
     qualitySource,
     planAnchorAuditStatus,
+    storylineAuditStatus,
+    hasStorylineTarget,
+    usedStorylineIds: usedStorylineIds.join(','),
+    usedBeatIds: usedBeatIds.join(','),
+    storylinePromptOk,
+    storylineBeatOk,
+    storylineFeedbackOk,
+    storylineWritebackOk,
     formalFeedbackOk,
     formalQualityCheckOk,
     planAnchorAuditOk,
@@ -175,16 +232,17 @@ async function requestJson(path, options = {}) {
 }
 
 async function fetchApiSnapshot(bookId, chapterNumber) {
-  const [chapterList, plan] = await Promise.all([
+  const [chapterList, plan, storylineRows] = await Promise.all([
     requestJson(`/api/books/${bookId}/chapters`).catch(() => []),
-    requestJson(`/api/books/${bookId}/chapter-plans/${chapterNumber}`).catch(() => null)
+    requestJson(`/api/books/${bookId}/chapter-plans/${chapterNumber}`).catch(() => null),
+    requestJson(`/api/storyline-workbench/${bookId}/storylines`).catch(() => [])
   ]);
 
   const chapter = Array.isArray(chapterList)
     ? chapterList.find((item) => Number(item.chapter_number || 0) === Number(chapterNumber)) || null
     : null;
 
-  return buildSnapshotFromRows({ chapter, plan });
+  return buildSnapshotFromRows({ chapter, plan, storylineRows });
 }
 
 async function runInspectMode() {
@@ -217,7 +275,20 @@ async function runInspectMode() {
         )
       : null;
 
-    const snapshot = buildSnapshotFromRows({ chapter, plan });
+    const targetIds = [
+      normalizeText(plan?.main_storyline_id || ''),
+      ...parseJsonArray(plan?.target_storylines).map((item) => normalizeText(item)).filter(Boolean)
+    ].filter(Boolean);
+    let matchedStorylineRows = [];
+    if (targetIds.length > 0) {
+      const placeholders = targetIds.map(() => '?').join(',');
+      matchedStorylineRows = execQuery(
+        db,
+        `SELECT id, status, structured_content FROM storylines WHERE book_id = ? AND id IN (${placeholders})`,
+        [BOOK_ID, ...targetIds]
+      );
+    }
+    const snapshot = buildSnapshotFromRows({ chapter, plan, storylineRows: matchedStorylineRows });
     const previousSnapshot = buildSnapshotFromRows({ chapter: null, plan: previousPlan });
     rows.push(evaluateChapterSnapshot(chapterNumber, snapshot, previousSnapshot));
   }

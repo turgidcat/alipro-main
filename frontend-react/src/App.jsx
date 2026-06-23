@@ -6,6 +6,7 @@ import {
   polishChapterContent,
   saveChapterPlan,
   saveStoryline,
+  streamChapterContent,
   upsertGeneratedChapter
 } from './workbenchApi.js';
 import './app-shell.css';
@@ -234,6 +235,13 @@ export default function App() {
       successText
     });
     setGenerationState(nextGenerationState);
+    try {
+      const refreshedBundle = await fetchChapterSetupBundle(selectedBookId, chapterNumber);
+      const refreshed = normalizeChapterBundle(refreshedBundle, chapterNumber);
+      setStorylineOptions(refreshed.storylineOptions);
+      setChapterView(refreshed.view);
+      setChapterContext(refreshed.context);
+    } catch (_) {}
     setRevisionOriginal(String(content || ''));
     setRevisionDraft(String(content || ''));
     setRevisionSuggestions(null);
@@ -553,7 +561,7 @@ export default function App() {
         ? `第 ${chapterNumber} 章 ${draftChapterPlan.chapter_name}`
         : `第 ${chapterNumber} 章`;
       const targetWordCount = getPlanWordCount(normalizedPlan);
-      const response = await generateChapterContent({
+      const generationPayload = {
         bookId: selectedBookId,
         bookTitle: planningState.currentBook.title,
         genre: planningState.currentBook.genre,
@@ -583,7 +591,33 @@ export default function App() {
           constraintBrief: ''
         },
         promptType: 'chapter'
-      });
+      };
+      let streamedContent = '';
+      let response = null;
+      try {
+        response = await streamChapterContent(generationPayload, {
+          onDelta: ({ content: nextContent }) => {
+            streamedContent = nextContent;
+            setGenerationState((prev) => ({
+              ...prev,
+              hasContent: true,
+              content: nextContent,
+              statusKind: 'info',
+              statusTitle: '正在流式生成正文',
+              statusText: `已实时接收约 ${String(nextContent || '').length} 字，生成完成后会继续写回摘要、质检和剧情线进度。`,
+              wordCountLabel: `生成中约 ${String(nextContent || '').length} 字 / 目标 ${targetWordCount} 字`,
+              previewText: String(nextContent || '').replace(/\s+/g, ' ').slice(0, 520)
+            }));
+            setRevisionDraft(String(nextContent || ''));
+          }
+        });
+      } catch (streamError) {
+        if (streamedContent) {
+          throw streamError;
+        }
+        pushPlanningNotice('warning', '流式生成不可用，已切换同步生成', streamError.message);
+        response = await generateChapterContent(generationPayload);
+      }
       const content = response?.content || response?.text || response || '';
       const cycleResult = await handlePersistChapterResult({
         content,
@@ -593,7 +627,7 @@ export default function App() {
         targetWordCount,
         successTitle: '正文已生成',
         successText: '正文、摘要和质量检查都已写回，下一章会自动读取这份承接信息。',
-        generationAudit: response?.metadata?.continuityAudit || null,
+        generationAudit: response?.metadata?.continuityAudit || response?.audit?.audit || null,
         openResultModal: true
       });
       pushPlanningNotice(

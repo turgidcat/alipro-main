@@ -52,6 +52,11 @@ function normalizeBook(book) {
 
 function normalizeStoryline(storyline) {
   const normalizedType = String(storyline.storyline_type || '').trim().toLowerCase() === 'main' ? 'main' : 'branch';
+  const structuredContent = parseJsonObject(storyline.structured_content || storyline.structuredContent);
+  const currentProgress = parseJsonObject(structuredContent.currentProgress);
+  const chapterProgress = Array.isArray(structuredContent.chapter_progress)
+    ? structuredContent.chapter_progress
+    : [];
   return {
     id: storyline.id,
     volumeNumber: Number(storyline.volume_number || 1),
@@ -62,7 +67,14 @@ function normalizeStoryline(storyline) {
     coreConflict: storyline.core_conflict || '',
     startChapter: Number(storyline.start_chapter || 1),
     endChapter: Number(storyline.end_chapter || 10),
-    status: storyline.status || 'draft'
+    status: storyline.status || structuredContent.lifecycleStatus || 'draft',
+    structuredContent,
+    currentProgress,
+    chapterProgress,
+    lastProgressSummary: currentProgress.lastProgressSummary || structuredContent?.last_chapter_feedback?.story_progress || '',
+    lastUpdatedChapterNumber: Number(currentProgress.lastUpdatedChapterNumber || 0) || null,
+    lastUsedBeatIds: Array.isArray(currentProgress.lastUsedBeatIds) ? currentProgress.lastUsedBeatIds : [],
+    requiresReview: Boolean(currentProgress.requiresReview || storyline.status === 'needs_review')
   };
 }
 
@@ -946,9 +958,10 @@ export async function streamChapterContent(payload, {
     }
 
     if (eventType === 'done') {
+      const finalContent = typeof eventPayload.content === 'string' ? eventPayload.content : fullContent;
       donePayload = {
         ...eventPayload,
-        content: fullContent,
+        content: finalContent,
         usage: eventPayload.usage || latestUsage,
         audit: latestAudit
       };
