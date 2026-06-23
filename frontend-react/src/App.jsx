@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import {
+  createBook,
   fetchChapterSetupBundle,
   generateChapterContent,
   generateChapterFeedback,
+  persistCurrentBookId,
   polishChapterContent,
   saveChapterPlan,
   saveStoryline,
@@ -43,6 +45,7 @@ import ContentWorkspace from './components/workbench/ContentWorkspace.jsx';
 import RevisionEditor from './components/workbench/RevisionEditor.jsx';
 import StatusNotice from './components/workbench/StatusNotice.jsx';
 import ContextDrawer from './components/workbench/ContextDrawer.jsx';
+import ProjectEntry from './components/app/ProjectEntry.jsx';
 import BookSettingDrawer from './components/workbench/drawers/BookSettingDrawer.jsx';
 import StorylineDrawer from './components/workbench/drawers/StorylineDrawer.jsx';
 import CharacterDrawer from './components/workbench/drawers/CharacterDrawer.jsx';
@@ -50,6 +53,76 @@ import VolumeDrawer from './components/workbench/drawers/VolumeDrawer.jsx';
 import { useWorkbench } from './hooks/useWorkbench.js';
 
 const DRAWER_MEMORY_PREFIX = 'alipro-workbench-drawer';
+const RECENT_WORKSPACE_PAGE_KEY = 'alipro-recent-workspace-page';
+const WORKBENCH_ENTRY_INTENT_KEY = 'alipro-open-current-workbench';
+
+const bookStatusLabels = {
+  writing: '连载中',
+  completed: '已完结',
+  paused: '暂停中',
+  draft: '草稿'
+};
+
+function getStoredWorkspacePage() {
+  try {
+    const stored = window.localStorage.getItem(RECENT_WORKSPACE_PAGE_KEY);
+    return stored === 'workbench' ? 'workbench' : 'library';
+  } catch (_) {
+    return 'library';
+  }
+}
+
+function persistWorkspacePage(page) {
+  try {
+    window.localStorage.setItem(RECENT_WORKSPACE_PAGE_KEY, page === 'workbench' ? 'workbench' : 'library');
+  } catch (_) {}
+}
+
+function syncAppPath(page, replace = false, bookId = '') {
+  if (typeof window === 'undefined') return;
+  const safeBookId = bookId ? encodeURIComponent(bookId) : '';
+  const pathname =
+    page === 'workbench'
+      ? '/workbench'
+      : page === 'library'
+        ? safeBookId ? `/books/${safeBookId}` : '/books'
+        : '/';
+  if (pathname.startsWith('/books')) {
+    window.location.href = pathname;
+    return;
+  }
+  if (window.location.pathname === pathname) return;
+  const nextUrl = `${pathname}${window.location.search || ''}${window.location.hash || ''}`;
+  const method = replace ? 'replaceState' : 'pushState';
+  window.history[method](null, '', nextUrl);
+}
+
+function persistBookContext(bookId) {
+  persistCurrentBookId(bookId);
+  try {
+    if (bookId) {
+      window.localStorage.setItem('currentBookId', bookId);
+      window.localStorage.setItem('current_book_id', bookId);
+    } else {
+      window.localStorage.removeItem('currentBookId');
+      window.localStorage.removeItem('current_book_id');
+    }
+  } catch (_) {}
+}
+
+function consumeWorkbenchEntryIntent() {
+  try {
+    const hasIntent = window.sessionStorage.getItem(WORKBENCH_ENTRY_INTENT_KEY) === '1';
+    window.sessionStorage.removeItem(WORKBENCH_ENTRY_INTENT_KEY);
+    return hasIntent;
+  } catch (_) {
+    return false;
+  }
+}
+
+function getBookStatusLabel(status) {
+  return bookStatusLabels[status] || status || '未设置状态';
+}
 
 function serializeChapterPlanDraft(plan) {
   return JSON.stringify(plan || emptyChapterPlan);
@@ -69,9 +142,48 @@ function getDrawerMemoryKey(bookId, chapterNumber) {
   return `${DRAWER_MEMORY_PREFIX}:${bookId}:${Number(chapterNumber || 1)}`;
 }
 
+function CurrentBookHeader({
+  book,
+  activeSurface,
+  onSwitchSurface,
+  onSwitchBook
+}) {
+  if (!book) return null;
+
+  return (
+    <section className="global-banner">
+      <div>
+        <p className="meta-kicker">CURRENT BOOK</p>
+        <strong>《{book.title}》</strong>
+        <span className="ml-2 text-[13px] text-[color:var(--muted)]">{getBookStatusLabel(book.status)}</span>
+      </div>
+      <div className="modal-actions-row mt-3">
+        <button
+          type="button"
+          className={activeSurface === 'library' ? 'solid-btn' : 'ghost-btn'}
+          onClick={() => onSwitchSurface('library')}
+        >
+          资料库
+        </button>
+        <button
+          type="button"
+          className={activeSurface === 'workbench' ? 'solid-btn' : 'ghost-btn'}
+          onClick={() => onSwitchSurface('workbench')}
+        >
+          创作台
+        </button>
+        <button type="button" className="ghost-btn" onClick={onSwitchBook}>
+          切换作品
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
   const {
     books,
+    currentBook,
     selectedBookId,
     setSelectedBookId,
     planningState,
@@ -111,6 +223,90 @@ export default function App() {
     savedChapterPlanSnapshot, setSavedChapterPlanSnapshot
   } = useWorkbench();
   const [drawerMemoryLoadedKey, setDrawerMemoryLoadedKey] = useState('');
+  const [activeSurface, setActiveSurface] = useState(getStoredWorkspacePage);
+  const [hasEnteredBookSession, setHasEnteredBookSession] = useState(consumeWorkbenchEntryIntent);
+  const [createDraft, setCreateDraft] = useState({
+    title: '',
+    genre: '都市异能',
+    author: '',
+    description: ''
+  });
+  const [createState, setCreateState] = useState({ loading: false, error: '' });
+
+  useEffect(() => {
+    if (!hasEnteredBookSession) {
+      syncAppPath('entry', true);
+    }
+  }, [hasEnteredBookSession]);
+
+  function switchSurface(page, bookId = selectedBookId || currentBook?.id || '') {
+    const nextPage = page === 'workbench' ? 'workbench' : 'library';
+    setActiveSurface(nextPage);
+    persistWorkspacePage(nextPage);
+    syncAppPath(nextPage, false, bookId);
+  }
+
+  function selectBookForSurface(bookId, page = 'library') {
+    if (!bookId) return;
+    persistBookContext(bookId);
+    setSelectedBookId(bookId);
+    setHasEnteredBookSession(true);
+    switchSurface(page, bookId);
+  }
+
+  function handleSwitchBook() {
+    persistBookContext('');
+    setSelectedBookId('');
+    setHasEnteredBookSession(false);
+    syncAppPath('entry', true);
+  }
+
+  function updateCreateDraft(field, value) {
+    setCreateDraft((draft) => ({
+      ...draft,
+      [field]: value
+    }));
+  }
+
+  async function handleCreateBook(event) {
+    event.preventDefault();
+    const title = createDraft.title.trim();
+    if (!title) {
+      setCreateState({ loading: false, error: '请先填写书名。' });
+      return;
+    }
+
+    setCreateState({ loading: true, error: '' });
+    try {
+      const created = await createBook({
+        title,
+        genre: createDraft.genre.trim() || '都市异能',
+        author: createDraft.author.trim(),
+        description: createDraft.description.trim(),
+        status: 'writing'
+      });
+      const createdId = created?.id || '';
+      if (createdId) {
+        persistBookContext(createdId);
+        setSelectedBookId(createdId);
+        setHasEnteredBookSession(true);
+        switchSurface('library', createdId);
+        await reloadBooks(createdId);
+      } else {
+        await reloadBooks();
+      }
+      setCreateDraft({
+        title: '',
+        genre: '都市异能',
+        author: '',
+        description: ''
+      });
+    } catch (createError) {
+      setCreateState({ loading: false, error: createError.message });
+      return;
+    }
+    setCreateState({ loading: false, error: '' });
+  }
 
   function pushPlanningNotice(kind, title, text) {
     setPlanningNotice({ kind, title, text });
@@ -1027,22 +1223,32 @@ export default function App() {
       };
     });
 
+  if (!currentBook || !hasEnteredBookSession) {
+    return (
+      <ProjectEntry
+        books={books}
+        loadingBooks={loadingBooks}
+        error={error}
+        createDraft={createDraft}
+        createState={createState}
+        onCreateDraftChange={updateCreateDraft}
+        onCreateBook={handleCreateBook}
+        onSelectBook={selectBookForSurface}
+      />
+    );
+  }
+
   return (
     <main className="app-shell">
-      <GlobalBar
-        bookTitle={planningState?.currentBook?.title || ''}
-        chapterNumber={chapterNumber}
-        chapterName={draftChapterPlan.chapter_name}
-        mainStorylineLabel={chapterView.mainStoryline}
-        totalChapterCount={chapterContext.totalChapterCount}
-        chapterListItems={chapterContext.chapterListItems}
-        onPrevChapter={goToPreviousChapter}
-        onNextChapter={goToNextChapter}
-        onSelectChapter={requestChapterChange}
+      <CurrentBookHeader
+        book={currentBook}
+        activeSurface={activeSurface}
+        onSwitchSurface={switchSurface}
+        onSwitchBook={handleSwitchBook}
       />
 
       {error ? <div className="global-banner is-error">{error}</div> : null}
-      {loadingBooks ? <div className="global-banner">正在读取书籍列表...</div> : null}
+      {loadingBooks ? <div className="global-banner">正在读取作品列表...</div> : null}
       {planningNotice ? (
         <StatusNotice
           kind={planningNotice.kind}
@@ -1051,10 +1257,24 @@ export default function App() {
           className="mb-4"
         />
       ) : null}
-      <section className="workbench-stage">
-        <div className="workbench-dual-pane">
-          <div className="workbench-dual-pane-left">
-            <ChapterConfigPanel
+      <>
+          <section className="workbench-stage workbench-app-shell">
+            <div className="workbench-dual-pane">
+              <div className="workbench-dual-pane-left">
+                <aside className="workbench-sidebar-shell" aria-label="创作台导航">
+                  <GlobalBar
+                    bookTitle={planningState?.currentBook?.title || currentBook.title || ''}
+                    chapterNumber={chapterNumber}
+                    chapterName={draftChapterPlan.chapter_name}
+                    mainStorylineLabel={chapterView.mainStoryline}
+                    totalChapterCount={chapterContext.totalChapterCount}
+                    chapterListItems={chapterContext.chapterListItems}
+                    onPrevChapter={goToPreviousChapter}
+                    onNextChapter={goToNextChapter}
+                    onSelectChapter={requestChapterChange}
+                  />
+                  <div className="workbench-sidebar-config">
+                    <ChapterConfigPanel
               chapterNumber={chapterNumber}
               draftChapterPlan={draftChapterPlan}
               chapterContext={chapterContext}
@@ -1080,9 +1300,11 @@ export default function App() {
               onContextChipClick={handleContextChipClick}
               activeDrawer={activeDrawer}
             />
-          </div>
-          <div className="workbench-dual-pane-right">
-            <ContentWorkspace
+                  </div>
+                </aside>
+              </div>
+              <div className="workbench-dual-pane-right">
+                <ContentWorkspace
               chapterNumber={chapterNumber}
               draftChapterPlan={draftChapterPlan}
               chapterContext={chapterContext}
@@ -1103,9 +1325,10 @@ export default function App() {
               onChapterNumberChange={requestChapterChange}
               onUpdateGenerationSetting={updateGenerationSetting}
             />
-          </div>
-        </div>
-      </section>
+              </div>
+            </div>
+          </section>
+        </>
       <ContextDrawer
         open={activeDrawer === 'book'}
         title="📖 全书设定"

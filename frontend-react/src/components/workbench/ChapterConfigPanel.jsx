@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import WorkbenchSection from './WorkbenchSection.jsx';
 import MetaCode from './MetaCode.jsx';
 import StatusNotice from './StatusNotice.jsx';
 import {
@@ -34,6 +33,29 @@ function splitParagraphs(text) {
     .split(/\n+/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function SidebarSection({
+  code,
+  title,
+  badge,
+  children,
+  className = ''
+}) {
+  return (
+    <section className={joinClasses('workbench-sidebar-section', className)}>
+      <div className="workbench-sidebar-section-heading">
+        <span className="workbench-sidebar-group-title">
+          {code ? <MetaCode>{code}</MetaCode> : null}
+          <strong>{title}</strong>
+        </span>
+        {badge ? <span className="workbench-sidebar-group-badge">{badge}</span> : null}
+      </div>
+      <div className="workbench-sidebar-group-body">
+        {children}
+      </div>
+    </section>
+  );
 }
 
 export default function ChapterConfigPanel(props) {
@@ -109,8 +131,12 @@ export default function ChapterConfigPanel(props) {
   }, [latestOutline, draftChapterPlan.source]);
 
   return (
-    <div className="grid min-w-0 max-w-full gap-6 overflow-x-hidden px-4 py-4">
-      <WorkbenchSection code="PROJECT" title="基础信息" contentClassName="gap-4">
+    <div className="workbench-sidebar-groups">
+      <SidebarSection
+        code="PROJECT"
+        title="基础信息"
+        badge={chapterView.volumeLabel || '第 1 卷'}
+      >
         <div className="grid min-w-0 gap-4 overflow-x-hidden">
           <section className="min-w-0 border-l border-[color:color-mix(in_srgb,var(--brand-soft-strong)_52%,var(--line))] pl-4">
             <MetaCode>VOLUME</MetaCode>
@@ -128,41 +154,40 @@ export default function ChapterConfigPanel(props) {
             </p>
           </section>
         </div>
-      </WorkbenchSection>
+      </SidebarSection>
 
-      <WorkbenchSection
+      <SidebarSection
         code="CHAPTER CONFIG"
         title="章节配置"
-        contentClassName="gap-5"
-        actions={
-          <div className="flex min-w-0 flex-wrap items-center justify-end gap-3">
-            <button
-              type="button"
-              className={ghostButtonClass}
-              onClick={onOpenStorylineCreator}
-              disabled={!selectedBookId}
-            >
-              新建剧情线
-            </button>
-            <button
-              type="button"
-              className={ghostButtonClass}
-              onClick={onClearStorylineSelection}
-              disabled={!selectedBookId || selectedTargetStorylines.length === 0}
-            >
-              清空选择
-            </button>
-            <button
-              type="button"
-              className={primaryButtonClass}
-              onClick={onSaveChapterPlan}
-              disabled={!selectedBookId || savingState.loading}
-            >
-              保存本章挂载
-            </button>
-          </div>
-        }
+        badge={hasMainStoryline ? '已主推' : '待主推'}
       >
+        <div className="workbench-sidebar-action-row">
+          <button
+            type="button"
+            className={ghostButtonClass}
+            onClick={onOpenStorylineCreator}
+            disabled={!selectedBookId}
+          >
+            新建剧情线
+          </button>
+          <button
+            type="button"
+            className={ghostButtonClass}
+            onClick={onClearStorylineSelection}
+            disabled={!selectedBookId || selectedTargetStorylines.length === 0}
+          >
+            清空选择
+          </button>
+          <button
+            type="button"
+            className={primaryButtonClass}
+            onClick={onSaveChapterPlan}
+            disabled={!selectedBookId || savingState.loading}
+          >
+            保存本章挂载
+          </button>
+        </div>
+
         <StatusNotice
           kind={storylineStatusNotice.kind}
           title={storylineStatusNotice.title}
@@ -200,7 +225,7 @@ export default function ChapterConfigPanel(props) {
         ) : null}
 
         {storylineOptions.length > 0 ? (
-          <div className="min-w-0 overflow-x-hidden border-t border-[color:color-mix(in_srgb,var(--line)_58%,transparent)]">
+          <div className="workbench-sidebar-storyline-list">
             {storylineOptions.map((storyline) => {
               const isSelected =
                 Array.isArray(draftChapterPlan.target_storylines) &&
@@ -211,10 +236,10 @@ export default function ChapterConfigPanel(props) {
                 <label
                   key={storyline.id}
                   className={
-                    'grid min-w-0 gap-3 border-b py-4 last:border-b-0 ' +
+                    'workbench-sidebar-storyline-item ' +
                     (isSelected
-                      ? 'border-[color:color-mix(in_srgb,var(--brand-soft-strong)_44%,var(--line))] bg-[color:color-mix(in_srgb,var(--brand)_6%,transparent)]'
-                      : 'border-[color:color-mix(in_srgb,var(--line)_48%,transparent)]')
+                      ? 'is-selected'
+                      : '')
                   }
                 >
                   <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
@@ -257,7 +282,7 @@ export default function ChapterConfigPanel(props) {
                     </div>
                   </div>
 
-                  <div className="flex min-w-0 flex-wrap items-center gap-2 pl-7">
+                  <div className="workbench-sidebar-storyline-actions">
                     {isSelected && hint?.actionLabel && hint?.actionField !== 'start' ? (
                       <button
                         type="button"
@@ -307,17 +332,19 @@ export default function ChapterConfigPanel(props) {
         ) : (
           <p className="text-[14px] leading-7 text-[color:var(--muted)]">当前还没有剧情线，可先用演示书测试。</p>
         )}
-      </WorkbenchSection>
+      </SidebarSection>
 
-      <WorkbenchSection
+      <SidebarSection
         code="OUTLINE"
         title="章节细纲"
-        actions={
+        badge={latestOutline ? `${latestOutline.length} 字` : '未填写'}
+      >
+        <div className="workbench-sidebar-action-row">
           <button type="button" className={primaryButtonClass} onClick={onOpenOutlineModal}>
             编辑细纲
           </button>
-        }
-      >
+        </div>
+
         <div className="flex min-w-0 flex-wrap items-center gap-3 overflow-x-hidden">
           <span className={statusChipClass}>{latestOutline ? `${latestOutline.length} 字` : '未填写'}</span>
           <span className={statusChipClass}>{outlineSourceLabel}</span>
@@ -348,17 +375,19 @@ export default function ChapterConfigPanel(props) {
             })}
           </div>
         </section>
-      </WorkbenchSection>
+      </SidebarSection>
 
-      <WorkbenchSection
+      <SidebarSection
         code="CAST"
         title="角色相关配置"
-        actions={
+        badge={draftChapterPlan.character_notes ? '已补充' : '可留空'}
+      >
+        <div className="workbench-sidebar-action-row">
           <button type="button" className={primaryButtonClass} onClick={onOpenCharacterModal}>
             编辑角色
           </button>
-        }
-      >
+        </div>
+
         <div className="flex min-w-0 flex-wrap items-center gap-3 overflow-x-hidden">
           <span className={statusChipClass}>章内要点</span>
           <span className="text-[13px] font-medium leading-6 text-[color:var(--brand-deep)]">
@@ -392,10 +421,10 @@ export default function ChapterConfigPanel(props) {
             ))}
           </div>
         ) : null}
-      </WorkbenchSection>
+      </SidebarSection>
 
-      <WorkbenchSection code="TOOLS" title="资料入口">
-        <div className="flex min-w-0 flex-wrap gap-3 overflow-x-hidden">
+      <SidebarSection code="TOOLS" title="资料入口">
+        <div className="workbench-sidebar-tool-list">
           {[
             ['book', '全书设定'],
             ['storyline', '剧情线'],
@@ -406,10 +435,10 @@ export default function ChapterConfigPanel(props) {
               key={key}
               type="button"
               className={joinClasses(
-                'appearance-none inline-flex min-h-9 items-center justify-center rounded-md border px-3.5 text-[13px] font-medium transition',
+                'workbench-sidebar-tool-button',
                 activeDrawer === key
-                  ? 'border-[color:color-mix(in_srgb,var(--brand-soft-strong)_72%,var(--line))] bg-[color:color-mix(in_srgb,var(--brand)_12%,var(--surface))] text-[color:var(--brand-deep)]'
-                  : 'border-[color:color-mix(in_srgb,var(--line)_72%,transparent)] bg-[color:color-mix(in_srgb,var(--surface)_84%,transparent)] text-[color:var(--text)] hover:border-[color:color-mix(in_srgb,var(--brand-soft-strong)_45%,var(--line))] hover:text-[color:var(--brand-deep)]'
+                  ? 'is-active'
+                  : ''
               )}
               onClick={() => onContextChipClick(key)}
             >
@@ -417,7 +446,7 @@ export default function ChapterConfigPanel(props) {
             </button>
           ))}
         </div>
-      </WorkbenchSection>
+      </SidebarSection>
     </div>
   );
 }

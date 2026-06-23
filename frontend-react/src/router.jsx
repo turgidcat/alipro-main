@@ -25,6 +25,8 @@ export const router = createBrowserRouter([
       { path: 'books/storylines', element: <StorylineManagementPage /> },
       { path: 'books/characters', element: <BooksPage /> },
       { path: 'books/chapters', element: <BooksPage /> },
+      { path: 'books/chapters/:chapterNumber', element: <BooksPage /> },
+      { path: 'books/:bookId', element: <BooksPage /> },
       { path: 'changelog', element: <ChangelogPage /> },
       { path: 'generation-logic', element: <GenerationLogicPage /> },
       { path: 'style-manager', element: <Navigate to="/workbench" replace /> },

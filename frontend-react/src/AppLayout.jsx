@@ -10,6 +10,8 @@ const NAV_ITEMS = [
   { path: '/changelog', label: '更新日志' }
 ];
 
+const WORKBENCH_ENTRY_INTENT_KEY = 'alipro-open-current-workbench';
+
 function joinClasses(...values) {
   return values.filter(Boolean).join(' ');
 }
@@ -27,6 +29,15 @@ export default function AppLayout() {
     return currentPath === path || currentPath.startsWith(`${path}/`);
   }
 
+  function navigateTo(path) {
+    if (path === '/workbench') {
+      try {
+        window.sessionStorage.setItem(WORKBENCH_ENTRY_INTENT_KEY, '1');
+      } catch (_) {}
+    }
+    navigate(path);
+  }
+
   return (
     <>
       <nav className="sticky top-0 z-50 border-b border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--nav-surface)_92%,transparent)] backdrop-blur-xl">
@@ -34,7 +45,7 @@ export default function AppLayout() {
           <button
             type="button"
             className="flex items-center gap-2 font-serif text-[1.55rem] font-semibold tracking-[-0.03em] text-[var(--text)] transition hover:text-[var(--brand-deep)]"
-            onClick={() => navigate('/workbench')}
+            onClick={() => navigateTo('/workbench')}
           >
             <span className="text-[var(--brand)]">~</span>
             <span>Alipro</span>
@@ -44,7 +55,7 @@ export default function AppLayout() {
               <button
                 key={item.path}
                 type="button"
-                onClick={() => navigate(item.path)}
+                onClick={() => navigateTo(item.path)}
                 className={joinClasses(
                   'min-h-10 rounded-[var(--radius-button)] px-3.5 text-[14px] font-medium transition',
                   'border border-[color:transparent] text-[color:var(--muted)] hover:bg-[color:rgba(243,237,225,0.75)] hover:text-[color:var(--text)]',

@@ -196,6 +196,32 @@ function formatDate(value) {
   return new Date(value).toLocaleString('zh-CN');
 }
 
+function getTextWordCount(text) {
+  const value = String(text || '').replace(/\s+/g, '');
+  return value.length;
+}
+
+function getChapterTitle(entry) {
+  if (!entry) return '未命名章节';
+  return entry.plan?.chapter_name || entry.chapter?.chapter_name || entry.chapter?.title || '未命名章节';
+}
+
+function splitReadableParagraphs(text) {
+  return String(text || '')
+    .split(/\n+/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+}
+
+function getBookCoverInitials(book = {}) {
+  const title = String(book.title || '书籍').trim() || '书籍';
+  return Array.from(title).slice(0, 2).join('');
+}
+
+function getBookCoverGenreLabel(book = {}) {
+  return genreLabels[book.genre] || book.genre || 'Novel';
+}
+
 function getPlatformLabel(value) {
   if (!value) return '未设置';
   if (value === 'qidian') return '起点中文网';
@@ -215,6 +241,7 @@ function openWorkbench(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
+  window.sessionStorage.setItem('alipro-open-current-workbench', '1');
   window.location.href = '/workbench';
 }
 
@@ -222,7 +249,7 @@ function openBooksSummaryPage(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
-  window.location.href = '/books';
+  window.location.href = bookId ? `/books/${encodeURIComponent(bookId)}` : '/books';
 }
 
 function openBooksOutlinePage(bookId) {
@@ -325,13 +352,19 @@ function createCharacterBadgeDataUrl(name = '角色') {
 
 export default function BooksPage() {
   const currentPath = window.location.pathname;
+  const routeBookIdMatch = currentPath.match(/^\/books\/(?!outlines$|storylines$|characters$|chapters$)([^/?#]+)$/);
+  const routeBookId = routeBookIdMatch ? decodeURIComponent(routeBookIdMatch[1]) : '';
+  const routeChapterReaderMatch = currentPath.match(/^\/books\/chapters\/(\d+)$/);
+  const routeChapterNumber = routeChapterReaderMatch ? Number(routeChapterReaderMatch[1]) : 0;
   const initialSearchParams = new URLSearchParams(window.location.search);
   const initialRouteAction = initialSearchParams.get('action') || '';
-  const initialRouteBookId = initialSearchParams.get('bookId') || '';
+  const initialRouteBookId = initialSearchParams.get('bookId') || routeBookId;
   const isOutlinePage = currentPath === '/books/outlines';
   const isCharacterPage = currentPath === '/books/characters';
   const isChapterPage = currentPath === '/books/chapters';
-  const isSubPage = isOutlinePage || isCharacterPage || isChapterPage;
+  const isChapterReaderPage = Boolean(routeChapterReaderMatch);
+  const isChapterSectionPage = isChapterPage || isChapterReaderPage;
+  const isSubPage = isOutlinePage || isCharacterPage || isChapterSectionPage;
   const [books, setBooks] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -346,6 +379,7 @@ export default function BooksPage() {
   const [detailCharacters, setDetailCharacters] = useState([]);
   const [detailChapters, setDetailChapters] = useState([]);
   const [detailChapterPlans, setDetailChapterPlans] = useState([]);
+  const [readerChapterNumber, setReaderChapterNumber] = useState(Number.isFinite(routeChapterNumber) ? routeChapterNumber : 0);
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -389,11 +423,47 @@ export default function BooksPage() {
   const [avatarCropState, setAvatarCropState] = useState(null);
   const [pendingRouteAction, setPendingRouteAction] = useState(initialRouteAction);
   const [pendingRouteBookId, setPendingRouteBookId] = useState(initialRouteBookId);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('alipro-library-sidebar-collapsed') === '1');
+  const [sidebarPeek, setSidebarPeek] = useState(false);
 
   const currentBook = useMemo(
     () => books.find((book) => book.id === currentBookId) || null,
     [books, currentBookId]
   );
+  const isBookDetailPage = Boolean(routeBookId) || (view === 'detail' && detailBook && !isSubPage);
+  const pageName = isOutlinePage
+    ? '资料库 · 大纲链页'
+    : isCharacterPage
+      ? '资料库 · 角色资料页'
+      : isChapterReaderPage
+        ? '正文阅读页'
+        : isChapterPage
+          ? '资料库 · 章节与正文页'
+        : isBookDetailPage
+          ? '资料库 · 书籍详情页'
+          : '资料库 · 书籍列表页';
+  const pageDescription = isOutlinePage
+    ? `当前大纲链：${detailBook?.title || currentBook?.title || '未命名书籍'}`
+    : isCharacterPage
+      ? `当前角色档案：${detailBook?.title || currentBook?.title || '未命名书籍'}`
+      : isChapterReaderPage
+        ? `当前正文阅读：${detailBook?.title || currentBook?.title || '未命名书籍'}`
+        : isChapterPage
+          ? `当前章节与正文：${detailBook?.title || currentBook?.title || '未命名书籍'}`
+        : isBookDetailPage
+          ? `当前书籍详情：${detailBook?.title || currentBook?.title || '未命名书籍'}`
+          : '书籍列表页：选择一本书进入详情，或先筛选再批量管理。';
+  const shellBook = detailBook || currentBook;
+  const shellBookId = shellBook?.id || currentBookId;
+  const activePageLabel = isOutlinePage
+    ? '大纲链'
+    : isCharacterPage
+      ? '角色'
+      : isChapterSectionPage
+        ? '章节'
+        : isBookDetailPage
+          ? '详情'
+          : '列表';
 
   useEffect(() => {
     if (pendingRouteBookId) {
@@ -401,6 +471,13 @@ export default function BooksPage() {
       setCurrentBookId(pendingRouteBookId);
     }
   }, [pendingRouteBookId]);
+
+  useEffect(() => {
+    localStorage.setItem('alipro-library-sidebar-collapsed', sidebarCollapsed ? '1' : '0');
+    if (!sidebarCollapsed) {
+      setSidebarPeek(false);
+    }
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     if (loading) return;
@@ -455,6 +532,33 @@ export default function BooksPage() {
       plan: planMap.get(chapterNumber) || null
     }));
   }, [detailChapters, detailChapterPlans]);
+
+  const readerChapterIndex = chapterEntries.findIndex((entry) => entry.chapterNumber === readerChapterNumber);
+  const readerEntry = readerChapterIndex >= 0 ? chapterEntries[readerChapterIndex] : null;
+  const previousReaderEntry = readerChapterIndex > 0 ? chapterEntries[readerChapterIndex - 1] : null;
+  const nextReaderEntry = readerChapterIndex >= 0 && readerChapterIndex < chapterEntries.length - 1 ? chapterEntries[readerChapterIndex + 1] : null;
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const nextReaderMatch = window.location.pathname.match(/^\/books\/chapters\/(\d+)$/);
+      const nextChapter = nextReaderMatch ? Number(nextReaderMatch[1]) : 0;
+      setReaderChapterNumber(Number.isFinite(nextChapter) ? nextChapter : 0);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  function openChapterReader(chapterNumber) {
+    setReaderChapterNumber(chapterNumber);
+    window.history.pushState({}, '', `/books/chapters/${encodeURIComponent(chapterNumber)}`);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function closeChapterReader() {
+    setReaderChapterNumber(0);
+    window.history.pushState({}, '', '/books/chapters');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 
   useEffect(() => {
     const nextDrafts = {};
@@ -641,11 +745,19 @@ export default function BooksPage() {
     setDetailChapterPlans([]);
     setCharacterNotice('');
     setCharacterError('');
+    window.history.pushState({}, '', '/books');
   }
 
   function setCurrentBook(bookId) {
     persistCurrentBookId(bookId);
     setCurrentBookId(bookId);
+  }
+
+  function openBookDetail(bookId) {
+    if (!bookId) return;
+    setCurrentBook(bookId);
+    window.history.pushState({}, '', `/books/${encodeURIComponent(bookId)}`);
+    loadDetail(bookId);
   }
 
   function resetNewCharacterDraft(nextValues = {}) {
@@ -991,6 +1103,15 @@ export default function BooksPage() {
     }
   }
 
+  function toggleBookSelected(bookId) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(bookId)) next.delete(bookId);
+      else next.add(bookId);
+      return next;
+    });
+  }
+
   async function handleSaveOutline() {
     if (!detailBook?.id) return;
     setOutlineSaving(true);
@@ -1075,52 +1196,97 @@ export default function BooksPage() {
     }
   }
 
-  return (
-    <div className="mx-auto w-[min(var(--layout-max-width),calc(100%-1.5rem))] pb-[var(--page-shell-pad-bottom)] pt-8">
-      <header className="grid gap-6 rounded-[36px] border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-strong)_92%,white)] px-6 py-7 shadow-[0_18px_52px_rgba(15,23,42,0.05)] xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] xl:px-8">
-        <div className="space-y-4">
-          <span className="inline-flex rounded-full border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_78%,white)] px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.16em] text-[color:var(--brand)]">
-            Library
-          </span>
-          <h1 className="font-serif text-[clamp(2.25rem,4vw,3.6rem)] font-black leading-[0.98] tracking-[-0.04em] text-[color:var(--text)]">
-            {isOutlinePage ? '大纲链页面' : isCharacterPage ? '角色资料页' : isChapterPage ? '章节与正文页' : '资料库管理台'}
-          </h1>
-          <p className="max-w-[60ch] text-[16px] leading-8 text-[color:var(--muted)]">
-            {isOutlinePage
-              ? `当前大纲链：${detailBook?.title || currentBook?.title || '未命名书籍'}`
-              : isCharacterPage
-              ? `当前角色档案：${detailBook?.title || currentBook?.title || '未命名书籍'}`
-              : isChapterPage
-              ? `当前章节与正文：${detailBook?.title || currentBook?.title || '未命名书籍'}`
-              : (view === 'list' ? '先整理书，再回创作台。' : `当前档案：${detailBook?.title || '未命名书籍'}`)}
-          </p>
-        </div>
-        <div className="flex flex-col justify-between gap-5 rounded-[30px] border border-[color:var(--line)] bg-[var(--panel)] p-6 shadow-[0_14px_38px_rgba(15,23,42,0.04)]">
-          <div className="space-y-2">
-            <strong className="block text-[12px] font-bold uppercase tracking-[0.14em] text-[color:var(--muted)]">当前创作书籍</strong>
-            <p className="font-serif text-[2rem] font-black leading-none tracking-[-0.03em] text-[color:var(--brand)]">
-              {currentBook ? currentBook.title : '尚未选择'}
-            </p>
-          </div>
-          {view === 'list' && !isSubPage ? (
-            <span className="current-book-badge">列表模式</span>
-          ) : isSubPage ? (
-            <div className="flex flex-wrap gap-3">
-              <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksSummaryPage(currentBookId)}>返回汇总页</button>
-              <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(currentBookId)} disabled={!currentBookId}>进入创作台</button>
-            </div>
-          ) : (
-            <span className="current-book-badge">详情模式</span>
-          )}
-        </div>
-      </header>
+  const readerTitle = getChapterTitle(readerEntry);
+  const readerContent = readerEntry?.chapter?.content || '';
+  const readerParagraphs = splitReadableParagraphs(readerContent);
+  const readerWordCount = readerEntry?.chapter?.word_count || getTextWordCount(readerContent);
 
-      {error ? <div className="global-banner is-error">{error}</div> : null}
+  return (
+    <div className={joinClasses('books-admin-page library-app-shell mx-auto w-[min(var(--layout-max-width),calc(100%-1.5rem))] pb-[var(--page-shell-pad-bottom)] pt-8', sidebarCollapsed ? 'is-sidebar-collapsed' : '', sidebarCollapsed && sidebarPeek ? 'is-sidebar-peek' : '', isChapterReaderPage ? 'is-chapter-reader-page' : '')}>
+      {!isChapterReaderPage ? (
+        <>
+          <div
+            className="library-sidebar-hotzone"
+            onMouseEnter={() => {
+              if (sidebarCollapsed) setSidebarPeek(true);
+            }}
+            aria-hidden="true"
+          />
+          <aside
+            className="library-sidebar"
+            aria-label="资料库导航"
+            onMouseEnter={() => {
+              if (sidebarCollapsed) setSidebarPeek(true);
+            }}
+            onMouseLeave={() => {
+              if (sidebarCollapsed) setSidebarPeek(false);
+            }}
+          >
+        <button
+          type="button"
+          className="library-sidebar-toggle"
+          onClick={(event) => {
+            setSidebarCollapsed((value) => !value);
+            event.currentTarget.blur();
+          }}
+          title={sidebarCollapsed ? '展开资料库导航' : '折叠资料库导航'}
+          aria-label={sidebarCollapsed ? '展开资料库导航' : '折叠资料库导航'}
+        >
+          {sidebarCollapsed ? '›' : '‹'}
+        </button>
+        <div className="library-sidebar-head">
+          <span className="library-sidebar-kicker">Library</span>
+          <h1>资料库</h1>
+          <div className="library-sidebar-context">
+            <span>{activePageLabel}页</span>
+            <strong>{shellBook?.title || '尚未选择书籍'}</strong>
+          </div>
+        </div>
+
+        <nav className="library-sidebar-nav" aria-label="资料库页面">
+          <button type="button" data-short="列" className={joinClasses('library-nav-item', view === 'list' && !isSubPage ? 'is-active' : '')} onClick={goBackToList} title="书籍列表">
+            书籍列表
+          </button>
+          <button type="button" data-short="总" className={joinClasses('library-nav-item', isBookDetailPage && !isSubPage ? 'is-active' : '')} onClick={() => openBooksSummaryPage(shellBookId)} disabled={!shellBookId} title="全书汇总">
+            全书汇总
+          </button>
+          <button type="button" data-short="纲" className={joinClasses('library-nav-item', isOutlinePage ? 'is-active' : '')} onClick={() => openBooksOutlinePage(shellBookId)} disabled={!shellBookId} title="大纲链">
+            大纲链
+          </button>
+          <button type="button" data-short="线" className="library-nav-item" onClick={() => openBooksStorylinePage(shellBookId)} disabled={!shellBookId} title="剧情线">
+            剧情线
+          </button>
+          <button type="button" data-short="角" className={joinClasses('library-nav-item', isCharacterPage ? 'is-active' : '')} onClick={() => openBooksCharacterPage(shellBookId)} disabled={!shellBookId} title="角色资料">
+            角色资料
+          </button>
+          <button type="button" data-short="章" className={joinClasses('library-nav-item', isChapterPage ? 'is-active' : '')} onClick={() => openBooksChapterPage(shellBookId)} disabled={!shellBookId} title="章节与正文">
+            章节与正文
+          </button>
+        </nav>
+
+        <div className="library-sidebar-section">
+          <span className="library-sidebar-label">快捷操作</span>
+          <div className="library-sidebar-actions">
+            <button type="button" className="solid-btn" onClick={openCreateEditor}>新建书籍</button>
+            {shellBookId ? <button type="button" className="ghost-btn" onClick={() => openWorkbench(shellBookId)}>进入创作台</button> : null}
+            {detailBook && detailBook.id !== currentBookId ? <button type="button" className="ghost-btn" onClick={() => setCurrentBook(detailBook.id)}>设为当前</button> : null}
+          </div>
+        </div>
+
+          </aside>
+        </>
+      ) : null}
+
+      <main className="library-main">
+        <div className="library-page-title">
+          <h2>{pageName}</h2>
+        </div>
+        {error ? <div className="global-banner is-error">{error}</div> : null}
 
       {view === 'list' && !isCharacterPage ? (
         <>
           {stats ? (
-            <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="library-stats-row mt-6 grid gap-3 xl:grid-cols-5">
               {[
                 ['书籍总数', stats.totalBooks || 0],
                 ['章节总数', stats.totalChapters || 0],
@@ -1139,107 +1305,61 @@ export default function BooksPage() {
             </div>
           ) : null}
 
-          <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-            <div className="rounded-[28px] border border-[color:var(--line)] bg-[var(--panel)] px-5 py-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)]">
-              <h3 className="mb-4 font-serif text-[1.85rem] font-black leading-none tracking-[-0.03em] text-[color:var(--text)]">列表快捷操作</h3>
-              <div className="flex flex-wrap gap-3">
-                <button type="button" className="solid-btn" onClick={openCreateEditor}>新建书籍</button>
-                <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(currentBookId)} disabled={!currentBookId}>进入创作台</button>
+          <section className="library-list-filter library-filter-box">
+            <div className="library-list-filter-head">
+              <div>
+                <span className="library-sidebar-label">列表筛选</span>
+                <span className="library-sidebar-note">显示 {filteredBooks.length}/{books.length} 本 · 筛选 {activeFilterCount} 项</span>
+              </div>
+              <div className="library-list-filter-actions">
+                <button type="button" className="ghost-btn" onClick={toggleSelectAll}>
+                  {selectedIds.size === filteredBooks.length && filteredBooks.length > 0 ? '取消全选' : '全选当前'}
+                </button>
+                <button type="button" className="ghost-btn" onClick={focusCurrentBook} disabled={!currentBookId}>定位当前书</button>
+                <button type="button" className="ghost-btn" onClick={loadLibrary}>刷新列表</button>
+                <button type="button" className="ghost-btn" onClick={() => {
+                  setSearchText('');
+                  setStatusFilter('all');
+                  setGenreFilter('all');
+                  setSortBy('updated_desc');
+                }}>清空筛选</button>
+                <button type="button" className="solid-btn danger-solid-btn" onClick={batchDelete} disabled={selectedIds.size === 0 || deleteLoading}>
+                  {deleteLoading ? '删除中...' : `删除已选 ${selectedIds.size || ''}`}
+                </button>
               </div>
             </div>
 
-            <div className="rounded-[28px] border border-[color:var(--line)] bg-[var(--panel)] px-5 py-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)]">
-              <h3 className="mb-4 font-serif text-[1.85rem] font-black leading-none tracking-[-0.03em] text-[color:var(--text)]">当前状态</h3>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-[22px] border border-[color:color-mix(in_srgb,var(--line)_78%,transparent)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_74%,white)] px-4 py-4">
-                  <strong className="block text-[1.7rem] font-black leading-none tracking-[-0.03em] text-[color:var(--text)]">{filteredBooks.length}</strong>
-                  <span className="mt-2 block text-[12px] font-semibold text-[color:var(--muted)]">当前显示</span>
-                </div>
-                <div className="rounded-[22px] border border-[color:color-mix(in_srgb,var(--line)_78%,transparent)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_74%,white)] px-4 py-4">
-                  <strong className="block text-[1.7rem] font-black leading-none tracking-[-0.03em] text-[color:var(--text)]">{books.length}</strong>
-                  <span className="mt-2 block text-[12px] font-semibold text-[color:var(--muted)]">书籍总数</span>
-                </div>
-                <div className="rounded-[22px] border border-[color:color-mix(in_srgb,var(--line)_78%,transparent)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_74%,white)] px-4 py-4">
-                  <strong className="block text-[1.7rem] font-black leading-none tracking-[-0.03em] text-[color:var(--text)]">{selectedIds.size}</strong>
-                  <span className="mt-2 block text-[12px] font-semibold text-[color:var(--muted)]">已选书籍</span>
-                </div>
-                <div className="rounded-[22px] border border-[color:color-mix(in_srgb,var(--line)_78%,transparent)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_74%,white)] px-4 py-4">
-                  <strong className="block text-[1.7rem] font-black leading-none tracking-[-0.03em] text-[color:var(--text)]">{activeFilterCount}</strong>
-                  <span className="mt-2 block text-[12px] font-semibold text-[color:var(--muted)]">启用筛选</span>
-                </div>
-              </div>
-              <div className="mt-4 text-[13px] font-semibold text-[color:var(--muted)]">
-                <span>当前书：{currentBook?.title || '尚未选择'}</span>
-              </div>
+            <div className="library-list-filter-fields">
+              <label>
+                <span>搜索</span>
+                <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="书名 / 作者 / 简介" />
+              </label>
+              <label>
+                <span>状态</span>
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                  <option value="all">全部状态</option>
+                  {statusOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>题材</span>
+                <select value={genreFilter} onChange={(e) => setGenreFilter(e.target.value)}>
+                  <option value="all">全部题材</option>
+                  {genreOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>排序</span>
+                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                  <option value="updated_desc">最近更新</option>
+                  <option value="updated_asc">最早更新</option>
+                  <option value="created_desc">最近创建</option>
+                  <option value="created_asc">最早创建</option>
+                  <option value="title_asc">书名 A-Z</option>
+                </select>
+              </label>
             </div>
-          </div>
-
-          <div className="mt-6 grid gap-4 rounded-[28px] border border-[color:var(--line)] bg-[var(--panel)] px-5 py-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)] md:grid-cols-2 xl:grid-cols-4">
-            <label className="block">
-              <span className="mb-2 block text-[13px] font-bold uppercase tracking-[0.14em] text-[color:var(--muted)]">搜索</span>
-              <input
-                className="min-h-12 w-full rounded-2xl border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_78%,white)] px-4 text-[16px] text-[color:var(--text)] outline-none transition focus:border-[color:var(--brand-soft-strong)] focus:bg-[var(--panel)]"
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                placeholder="按书名、作者、简介、题材搜索"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-2 block text-[13px] font-bold uppercase tracking-[0.14em] text-[color:var(--muted)]">状态</span>
-              <select
-                className="min-h-12 w-full rounded-2xl border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_78%,white)] px-4 text-[16px] text-[color:var(--text)] outline-none transition focus:border-[color:var(--brand-soft-strong)] focus:bg-[var(--panel)]"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="all">全部状态</option>
-                {statusOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-            </label>
-            <label className="block">
-              <span className="mb-2 block text-[13px] font-bold uppercase tracking-[0.14em] text-[color:var(--muted)]">题材</span>
-              <select
-                className="min-h-12 w-full rounded-2xl border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_78%,white)] px-4 text-[16px] text-[color:var(--text)] outline-none transition focus:border-[color:var(--brand-soft-strong)] focus:bg-[var(--panel)]"
-                value={genreFilter}
-                onChange={(e) => setGenreFilter(e.target.value)}
-              >
-                <option value="all">全部题材</option>
-                {genreOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-            </label>
-            <label className="block">
-              <span className="mb-2 block text-[13px] font-bold uppercase tracking-[0.14em] text-[color:var(--muted)]">排序</span>
-              <select
-                className="min-h-12 w-full rounded-2xl border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-note-bg)_78%,white)] px-4 text-[16px] text-[color:var(--text)] outline-none transition focus:border-[color:var(--brand-soft-strong)] focus:bg-[var(--panel)]"
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-              >
-                <option value="updated_desc">最近更新</option>
-                <option value="updated_asc">最早更新</option>
-                <option value="created_desc">最近创建</option>
-                <option value="created_asc">最早创建</option>
-                <option value="title_asc">书名 A-Z</option>
-              </select>
-            </label>
-          </div>
-
-          <div className="mt-4 rounded-[28px] border border-[color:var(--line)] bg-[var(--panel)] px-5 py-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)]">
-            <div className="flex flex-wrap gap-3">
-              <button type="button" className="ghost-btn" onClick={toggleSelectAll}>
-                {selectedIds.size === filteredBooks.length && filteredBooks.length > 0 ? '取消全选' : '全选当前'}
-              </button>
-              <button type="button" className="solid-btn danger-solid-btn" onClick={batchDelete} disabled={selectedIds.size === 0 || deleteLoading}>
-                {deleteLoading ? '删除中...' : '批量删除'}
-              </button>
-              <button type="button" className="ghost-btn action-btn" onClick={focusCurrentBook} disabled={!currentBookId}>定位当前书</button>
-              <button type="button" className="ghost-btn action-btn" onClick={loadLibrary}>刷新列表</button>
-              <button type="button" className="ghost-btn action-btn" onClick={() => {
-                setSearchText('');
-                setStatusFilter('all');
-                setGenreFilter('all');
-                setSortBy('updated_desc');
-              }}>清空筛选</button>
-            </div>
-          </div>
+          </section>
 
           {loading ? (
             <div className="global-banner">正在加载书籍列表...</div>
@@ -1252,34 +1372,43 @@ export default function BooksPage() {
               ) : (
                 filteredBooks.map((book) => {
                   const isCurrent = book.id === currentBookId;
+                  const isSelected = selectedIds.has(book.id);
                   return (
                     <div
                       key={book.id}
                       data-book-id={book.id}
                       className={joinClasses(
-                        'grid grid-cols-[20px_minmax(0,1fr)] gap-4 rounded-[30px] border p-5 shadow-[0_12px_30px_rgba(15,23,42,0.04)] transition duration-150 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_color-mix(in_srgb,var(--brand)_12%,transparent)]',
-                        selectedIds.has(book.id)
+                        'book-list-card relative grid grid-cols-[minmax(96px,3fr)_minmax(0,7fr)] gap-4 rounded-[30px] border p-5 pl-16 shadow-[0_12px_30px_rgba(15,23,42,0.04)] transition duration-150 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_color-mix(in_srgb,var(--brand)_12%,transparent)]',
+                        isSelected
                           ? 'border-[color:color-mix(in_srgb,var(--brand)_24%,var(--line))] bg-[color:color-mix(in_srgb,var(--brand-soft)_58%,var(--panel-strong))]'
                           : 'border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel)_90%,var(--panel-strong))]',
                         isCurrent ? 'ring-1 ring-[color:color-mix(in_srgb,var(--brand)_18%,transparent)]' : ''
                       )}
-                      onClick={() => loadDetail(book.id)}
+                      onClick={() => openBookDetail(book.id)}
                     >
-                      <input
-                        type="checkbox"
-                        className="mt-1 h-4 w-4 accent-[var(--brand)]"
-                        checked={selectedIds.has(book.id)}
-                        onChange={(e) => {
+                      <button
+                        type="button"
+                        className={joinClasses('book-card-select-zone', isSelected ? 'is-selected' : '')}
+                        aria-pressed={isSelected}
+                        aria-label={isSelected ? `取消选择《${book.title || '未命名书籍'}》` : `选择《${book.title || '未命名书籍'}》`}
+                        onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedIds((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(book.id)) next.delete(book.id);
-                            else next.add(book.id);
-                            return next;
-                          });
+                          toggleBookSelected(book.id);
                         }}
-                        onClick={(e) => e.stopPropagation()}
-                      />
+                      >
+                        <span className="book-card-select-box" aria-hidden="true">{isSelected ? '✓' : ''}</span>
+                        <span className="book-card-select-label">选择</span>
+                      </button>
+                      <div className={joinClasses('book-list-cover', book.cover_image ? 'has-image' : 'is-placeholder')} aria-label={`${book.title || '书籍'}封面`}>
+                        {book.cover_image ? (
+                          <img src={book.cover_image} alt={`${book.title || '书籍'}封面`} />
+                        ) : (
+                          <div className="book-cover-placeholder book-list-cover-placeholder" aria-hidden="true">
+                            <span>{getBookCoverInitials(book)}</span>
+                            <em>{getBookCoverGenreLabel(book)}</em>
+                          </div>
+                        )}
+                      </div>
                       <div className="flex min-w-0 flex-col gap-3">
                         <div className="flex items-start justify-between gap-3">
                           <h3 className="font-serif text-[1.5rem] font-black leading-tight tracking-[-0.03em] text-[color:var(--text)]">{book.title}</h3>
@@ -1616,23 +1745,6 @@ export default function BooksPage() {
                 </div>
               </div>
 
-              <div className="detail-side">
-                <div className="detail-panel">
-                  <h3>快捷入口</h3>
-                  <div className="detail-action-grid">
-                    <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>进入创作台</button>
-                    <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksSummaryPage(detailBook.id)}>查看汇总页</button>
-                    <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksOutlinePage(detailBook.id)}>大纲链页</button>
-                    <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksStorylinePage(detailBook.id)}>剧情线页</button>
-                    <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksChapterPage(detailBook.id)}>章节与正文页</button>
-                    {detailBook.id !== currentBookId ? (
-                      <button type="button" className="ghost-btn action-btn" onClick={() => setCurrentBook(detailBook.id)}>设为当前</button>
-                    ) : (
-                      <span className="current-book-badge">当前使用中</span>
-                    )}
-                  </div>
-                </div>
-              </div>
             </div>
           )}
         </section>
@@ -1657,13 +1769,6 @@ export default function BooksPage() {
             <div className="detail-grid">
               <div className="detail-main">
                 <div className="detail-panel">
-                  <h3>大纲链档案</h3>
-                  <div className="detail-panel-actions">
-                    <button type="button" className="solid-btn" onClick={outlineEditing ? stopOutlineEditing : startOutlineEditing}>
-                      {outlineEditing ? '收起编辑' : '编辑大纲'}
-                    </button>
-                    <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>去工作台写章节</button>
-                  </div>
                   {outlineError ? <div className="global-banner is-error">{outlineError}</div> : null}
                   {outlineNotice ? <div className="global-banner">{outlineNotice}</div> : null}
                   <div className="detail-outline-grid">
@@ -1725,82 +1830,85 @@ export default function BooksPage() {
                               const volumeKey = String(volumeNumber);
                               const isSavingCurrent = volumePlanSavingKey === volumeKey;
                               const isEditingCurrent = editingVolumeKey === volumeKey;
+                              const volumeCoverImage = isEditingCurrent ? draft.cover_image : plan.cover_image;
                               return (
-                                <article key={plan.id || `${plan.book_id}-${plan.volume_number}`} className="detail-outline-volume">
-                                  <div className="detail-section-head">
-                                    <strong>第 {volumeNumber} 卷 · {draft.volume_name || plan.volume_name || '未命名分卷'}</strong>
-                                    <div className="detail-inline-actions">
+                                <article key={plan.id || `${plan.book_id}-${plan.volume_number}`} className={`detail-outline-volume detail-volume-card${volumeCoverImage ? ' has-volume-cover' : ''}`}>
+                                  {volumeCoverImage ? (
+                                    <aside className="detail-volume-cover-rail" aria-label={`第${volumeNumber}卷封面`}>
+                                      <img src={volumeCoverImage} alt={`第${volumeNumber}卷封面`} className="detail-volume-cover-side" />
+                                    </aside>
+                                  ) : null}
+                                  <div className="detail-volume-content">
+                                    <div className="detail-section-head">
+                                      <div className="detail-volume-title-line">
+                                        <span className="detail-volume-index">VOL.{String(volumeNumber).padStart(2, '0')}</span>
+                                        <strong>第 {volumeNumber} 卷 · {draft.volume_name || plan.volume_name || '未命名分卷'}</strong>
+                                      </div>
+                                      <div className="detail-inline-actions">
+                                        {isEditingCurrent ? (
+                                          <>
+                                            <button type="button" className="ghost-btn" onClick={() => setEditingVolumeKey('')} disabled={isSavingCurrent}>
+                                              取消
+                                            </button>
+                                            <button type="button" className="ghost-btn" onClick={() => handleSaveVolumePlan(volumeNumber)} disabled={isSavingCurrent || outlineSaving}>
+                                              {isSavingCurrent ? '保存中...' : '保存本卷'}
+                                            </button>
+                                          </>
+                                        ) : (
+                                          <button type="button" className="ghost-btn" onClick={() => setEditingVolumeKey(volumeKey)} disabled={outlineSaving}>
+                                            编辑
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="detail-volume-copy">
                                       {isEditingCurrent ? (
-                                        <>
-                                          <button type="button" className="ghost-btn" onClick={() => setEditingVolumeKey('')} disabled={isSavingCurrent}>
-                                            取消
-                                          </button>
-                                          <button type="button" className="ghost-btn" onClick={() => handleSaveVolumePlan(volumeNumber)} disabled={isSavingCurrent || outlineSaving}>
-                                            {isSavingCurrent ? '保存中...' : '保存本卷'}
-                                          </button>
-                                        </>
+                                        <div className="detail-inline-editor">
+                                          <label className="detail-inline-field">
+                                            <span>分卷封面</span>
+                                            <input
+                                              type="file"
+                                              accept="image/*"
+                                              onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (!file) return;
+                                                try {
+                                                  const dataUrl = await readImageFileAsDataUrl(file);
+                                                  updateVolumePlanDraft(volumeNumber, 'cover_image', dataUrl);
+                                                } catch (fileError) {
+                                                  setOutlineError(fileError.message);
+                                                } finally {
+                                                  e.target.value = '';
+                                                }
+                                              }}
+                                            />
+                                          </label>
+                                          <label className="detail-inline-field">
+                                            <span>卷名</span>
+                                            <input value={draft.volume_name} onChange={(e) => updateVolumePlanDraft(volumeNumber, 'volume_name', e.target.value)} placeholder="输入分卷名" />
+                                          </label>
+                                          <label className="detail-inline-field">
+                                            <span>阶段目标</span>
+                                            <textarea rows={3} value={draft.stage_goal} onChange={(e) => updateVolumePlanDraft(volumeNumber, 'stage_goal', e.target.value)} placeholder="这一卷要完成什么推进" />
+                                          </label>
+                                          <label className="detail-inline-field">
+                                            <span>核心冲突</span>
+                                            <textarea rows={3} value={draft.core_conflict} onChange={(e) => updateVolumePlanDraft(volumeNumber, 'core_conflict', e.target.value)} placeholder="这一卷最核心的冲突" />
+                                          </label>
+                                          <label className="detail-inline-field">
+                                            <span>卷内说明</span>
+                                            <textarea rows={4} value={draft.notes} onChange={(e) => updateVolumePlanDraft(volumeNumber, 'notes', e.target.value)} placeholder="写卷内推进、关键转折和收束方向" />
+                                          </label>
+                                        </div>
                                       ) : (
-                                        <button type="button" className="ghost-btn" onClick={() => setEditingVolumeKey(volumeKey)} disabled={outlineSaving}>
-                                          编辑
-                                        </button>
+                                        <div className="detail-inline-display">
+                                          {plan.stage_goal ? <p className="excerpt-text"><b>阶段目标：</b>{plan.stage_goal}</p> : null}
+                                          {plan.core_conflict ? <p className="excerpt-text"><b>核心冲突：</b>{plan.core_conflict}</p> : null}
+                                          {plan.notes ? <p className="excerpt-text"><b>卷内说明：</b>{plan.notes}</p> : null}
+                                        </div>
                                       )}
                                     </div>
                                   </div>
-                                  {isEditingCurrent ? (
-                                    <div className="detail-inline-editor">
-                                      <label className="detail-inline-field">
-                                        <span>分卷封面</span>
-                                        <input
-                                          type="file"
-                                          accept="image/*"
-                                          onChange={async (e) => {
-                                            const file = e.target.files?.[0];
-                                            if (!file) return;
-                                            try {
-                                              const dataUrl = await readImageFileAsDataUrl(file);
-                                              updateVolumePlanDraft(volumeNumber, 'cover_image', dataUrl);
-                                            } catch (fileError) {
-                                              setOutlineError(fileError.message);
-                                            } finally {
-                                              e.target.value = '';
-                                            }
-                                          }}
-                                        />
-                                      </label>
-                                      {draft.cover_image ? (
-                                        <div className="detail-cover-preview">
-                                          <img src={draft.cover_image} alt={`第${volumeNumber}卷封面预览`} className="detail-cover-preview-image" />
-                                        </div>
-                                      ) : null}
-                                      <label className="detail-inline-field">
-                                        <span>卷名</span>
-                                        <input value={draft.volume_name} onChange={(e) => updateVolumePlanDraft(volumeNumber, 'volume_name', e.target.value)} placeholder="输入分卷名" />
-                                      </label>
-                                      <label className="detail-inline-field">
-                                        <span>阶段目标</span>
-                                        <textarea rows={3} value={draft.stage_goal} onChange={(e) => updateVolumePlanDraft(volumeNumber, 'stage_goal', e.target.value)} placeholder="这一卷要完成什么推进" />
-                                      </label>
-                                      <label className="detail-inline-field">
-                                        <span>核心冲突</span>
-                                        <textarea rows={3} value={draft.core_conflict} onChange={(e) => updateVolumePlanDraft(volumeNumber, 'core_conflict', e.target.value)} placeholder="这一卷最核心的冲突" />
-                                      </label>
-                                      <label className="detail-inline-field">
-                                        <span>卷内说明</span>
-                                        <textarea rows={4} value={draft.notes} onChange={(e) => updateVolumePlanDraft(volumeNumber, 'notes', e.target.value)} placeholder="写卷内推进、关键转折和收束方向" />
-                                      </label>
-                                    </div>
-                                  ) : (
-                                    <div className="detail-inline-display">
-                                      {plan.cover_image ? (
-                                        <div className="detail-cover-preview">
-                                          <img src={plan.cover_image} alt={`第${volumeNumber}卷封面`} className="detail-cover-preview-image" />
-                                        </div>
-                                      ) : null}
-                                      {plan.stage_goal ? <p className="excerpt-text"><b>阶段目标：</b>{plan.stage_goal}</p> : null}
-                                      {plan.core_conflict ? <p className="excerpt-text"><b>核心冲突：</b>{plan.core_conflict}</p> : null}
-                                      {plan.notes ? <p className="excerpt-text"><b>卷内说明：</b>{plan.notes}</p> : null}
-                                    </div>
-                                  )}
                                 </article>
                               );
                             })}
@@ -1815,125 +1923,118 @@ export default function BooksPage() {
                         <p className="excerpt-text">暂无分卷大纲。</p>
                       )}
                     </div>
-                    <div className="detail-outline-section">
-                      <div className="detail-section-head">
-                        <strong>细节补充</strong>
-                      </div>
-                      {outlineEditing ? (
-                        <textarea
-                          className="detail-inline-textarea"
-                          rows={5}
-                          value={outlineDraft.detailed_outline}
-                          onChange={(e) => setOutlineDraft((prev) => ({ ...prev, detailed_outline: e.target.value }))}
-                          placeholder="补充关键伏笔、限制条件、风格提醒等。"
-                        />
-                      ) : detailOutline?.detailed_outline ? (
-                        <IndentedTextBlock
-                          text={detailOutline.detailed_outline}
-                          className="detail-pre"
-                          paragraphClassName="detail-pre-paragraph"
-                        />
-                      ) : null}
-                    </div>
-                    <div className="detail-outline-section">
-                      <div className="detail-section-head">
-                        <strong>剧情线管理</strong>
-                        <button type="button" className="ghost-btn" onClick={() => openBooksStorylinePage(detailBook.id)}>进入剧情线页</button>
-                      </div>
-                      <p className="excerpt-text">剧情线已从大纲链页拆分为独立页面，后续的剧情线集合生成、批量确认与分卷管理都放到剧情线页处理。</p>
-                    </div>
                   </div>
                 </div>
               </div>
 
-              <div className="detail-side">
-                <div className="detail-panel">
-                  <h3>分页面入口</h3>
-                  <div className="detail-action-grid">
-                    <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksSummaryPage(detailBook.id)}>汇总页</button>
-                    <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksStorylinePage(detailBook.id)}>剧情线页</button>
-                    <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksCharacterPage(detailBook.id)}>角色页</button>
-                    <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksChapterPage(detailBook.id)}>章节与正文页</button>
-                    <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>进入创作台</button>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
         </section>
       ) : null}
 
-      {view === 'detail' && detailBook && isChapterPage ? (
-        <section className="mt-8">
-          <div className="detail-header">
-            <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksSummaryPage(detailBook.id)}>返回汇总页</button>
-            <div className="detail-header-main">
-              <h2>{detailBook.title}</h2>
-              <div className="detail-header-meta">
-                <span className="detail-meta-chip">章节与正文页</span>
-                {detailBook.id === currentBookId ? <span className="detail-meta-chip">当前使用中</span> : null}
-              </div>
-            </div>
-          </div>
-
+      {view === 'detail' && detailBook && isChapterSectionPage ? (
+        <section className="chapter-library-page mt-8">
           {detailLoading ? (
             <div className="global-banner">正在加载章节与正文...</div>
-          ) : (
-            <div className="detail-grid">
-              <div className="detail-main">
-                <div className="detail-panel">
-                  <div className="detail-panel-actions">
-                    <h3>章节细纲与正文</h3>
-                    <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>去创作台继续写</button>
-                  </div>
-                  {chapterEntries.length > 0 ? (
-                    <div className="chapter-entry-list">
-                      {chapterEntries.map(({ chapterNumber, chapter, plan }) => (
-                        <article key={`chapter-entry-${chapterNumber}`} className="chapter-entry-card">
-                          <div className="detail-section-head">
-                            <strong>第 {chapterNumber} 章 · {plan?.chapter_name || chapter?.chapter_name || chapter?.title || '未命名章节'}</strong>
-                            <span className="detail-entry-meta">
-                              {chapter?.word_count ? `${formatWords(chapter.word_count)} · ` : ''}
-                              {formatDate((chapter?.updated_at || plan?.updated_at || chapter?.created_at || plan?.created_at))}
-                            </span>
-                          </div>
-                          {plan?.chapter_mission ? <p className="excerpt-text"><b>本章目标：</b>{plan.chapter_mission}</p> : null}
-                          {plan?.summary ? <p className="excerpt-text"><b>章节摘要：</b>{plan.summary}</p> : null}
-                          {plan?.outline_text ? (
-                            <IndentedTextBlock
-                              text={`${String(plan.outline_text).slice(0, 260)}${String(plan.outline_text).length > 260 ? '...' : ''}`}
-                              className="detail-pre"
-                              paragraphClassName="detail-pre-paragraph"
-                            />
-                          ) : null}
-                          {chapter?.content ? (
-                            <IndentedTextBlock
-                              text={`${String(chapter.content).slice(0, 320)}${String(chapter.content).length > 320 ? '...' : ''}`}
-                              className="detail-pre"
-                              paragraphClassName="detail-pre-paragraph"
-                            />
-                          ) : <p className="excerpt-text">正文尚未生成。</p>}
-                        </article>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="excerpt-text">暂无章节细纲和正文记录。</p>
-                  )}
+          ) : isChapterReaderPage ? (
+            readerEntry ? (
+            <article className="chapter-reader-shell">
+              <div className="chapter-reader-toolbar">
+                <button type="button" className="ghost-btn nav-btn" onClick={closeChapterReader}>返回目录</button>
+                <div className="chapter-reader-switch">
+                  <button type="button" className="ghost-btn nav-btn" onClick={() => previousReaderEntry && openChapterReader(previousReaderEntry.chapterNumber)} disabled={!previousReaderEntry}>上一章</button>
+                  <button type="button" className="ghost-btn nav-btn" onClick={() => nextReaderEntry && openChapterReader(nextReaderEntry.chapterNumber)} disabled={!nextReaderEntry}>下一章</button>
                 </div>
               </div>
 
-              <div className="detail-side">
-                <div className="detail-panel">
-                  <h3>分页面入口</h3>
-                  <div className="detail-action-grid">
-                    <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksSummaryPage(detailBook.id)}>汇总页</button>
-                    <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksOutlinePage(detailBook.id)}>大纲链页</button>
-                    <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksStorylinePage(detailBook.id)}>剧情线页</button>
-                    <button type="button" className="ghost-btn nav-btn" onClick={() => openBooksCharacterPage(detailBook.id)}>角色页</button>
-                    <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>进入创作台</button>
-                  </div>
+              <header className="chapter-reader-head">
+                <span className="chapter-reader-kicker">CHAPTER {String(readerEntry.chapterNumber).padStart(2, '0')}</span>
+                <h2>第 {readerEntry.chapterNumber} 章 · {readerTitle}</h2>
+                <div className="chapter-reader-meta">
+                  <span>{formatWords(readerWordCount)}</span>
+                  <span>{formatDate(readerEntry.chapter?.updated_at || readerEntry.plan?.updated_at || readerEntry.chapter?.created_at || readerEntry.plan?.created_at)}</span>
+                  {readerEntry.chapter?.content ? <span>正文已保存</span> : <span>仅有章节资料</span>}
                 </div>
+              </header>
+
+              {readerEntry.plan?.chapter_mission || readerEntry.plan?.summary ? (
+                <aside className="chapter-reader-note">
+                  {readerEntry.plan?.chapter_mission ? <p><b>本章目标：</b>{readerEntry.plan.chapter_mission}</p> : null}
+                  {readerEntry.plan?.summary ? <p><b>章节摘要：</b>{readerEntry.plan.summary}</p> : null}
+                </aside>
+              ) : null}
+
+              {readerParagraphs.length > 0 ? (
+                <div className="chapter-reader-prose">
+                  {readerParagraphs.map((paragraph, index) => (
+                    <p key={`reader-paragraph-${readerEntry.chapterNumber}-${index}`}>{paragraph}</p>
+                  ))}
+                </div>
+              ) : (
+                <div className="chapter-reader-empty">
+                  <strong>正文尚未生成</strong>
+                  <p>这一章目前只有细纲或摘要，可以回到创作台继续生成正文。</p>
+                  <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>去创作台继续写</button>
+                </div>
+              )}
+
+              <footer className="chapter-reader-footer">
+                <button type="button" className="ghost-btn nav-btn" onClick={() => previousReaderEntry && openChapterReader(previousReaderEntry.chapterNumber)} disabled={!previousReaderEntry}>
+                  {previousReaderEntry ? `上一章：${getChapterTitle(previousReaderEntry)}` : '已是第一章'}
+                </button>
+                <button type="button" className="ghost-btn nav-btn" onClick={closeChapterReader}>目录</button>
+                <button type="button" className="ghost-btn nav-btn" onClick={() => nextReaderEntry && openChapterReader(nextReaderEntry.chapterNumber)} disabled={!nextReaderEntry}>
+                  {nextReaderEntry ? `下一章：${getChapterTitle(nextReaderEntry)}` : '已是最后一章'}
+                </button>
+              </footer>
+            </article>
+            ) : (
+              <div className="chapter-reader-empty">
+                <strong>没有找到这一章</strong>
+                <p>当前作品里还没有对应章节，或者章节编号已经变化。</p>
+                <button type="button" className="ghost-btn nav-btn" onClick={closeChapterReader}>返回章节目录</button>
               </div>
+            )
+          ) : (
+            <div className="chapter-flow-board">
+              <div className="chapter-flow-head">
+                <div>
+                  <span className="chapter-reader-kicker">Chapter Index</span>
+                  <h2>{detailBook.title}</h2>
+                  <p>按章节浏览资料，点击章节名称进入正文阅读。</p>
+                </div>
+                <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>去创作台继续写</button>
+              </div>
+
+              {chapterEntries.length > 0 ? (
+                <div className="chapter-waterfall">
+                  {chapterEntries.map((entry) => {
+                    const chapterWordCount = entry.chapter?.word_count || getTextWordCount(entry.chapter?.content);
+                    return (
+                      <article
+                        key={`chapter-entry-${entry.chapterNumber}`}
+                        className="chapter-flow-card"
+                      >
+                        <span className="chapter-flow-number">CH.{String(entry.chapterNumber).padStart(2, '0')}</span>
+                        <button type="button" className="chapter-title-link" onClick={() => openChapterReader(entry.chapterNumber)}>
+                          第 {entry.chapterNumber} 章 · {getChapterTitle(entry)}
+                        </button>
+                        <span className="chapter-flow-meta">
+                          {chapterWordCount ? `${formatWords(chapterWordCount)} · ` : ''}
+                          {entry.chapter?.content ? '正文已保存' : '待生成正文'}
+                        </span>
+                        {entry.plan?.chapter_mission ? <em>目标：{entry.plan.chapter_mission}</em> : null}
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="chapter-reader-empty">
+                  <strong>暂无章节细纲和正文记录</strong>
+                  <p>可以先进入创作台生成章节，再回到这里按目录阅读。</p>
+                  <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>去创作台继续写</button>
+                </div>
+              )}
             </div>
           )}
         </section>
@@ -1959,31 +2060,68 @@ export default function BooksPage() {
             <div className="global-banner">正在加载书籍汇总...</div>
           ) : (
             <div className="summary-hub">
-              <div className="detail-panel summary-overview-panel">
-                <div className="summary-overview-head">
-                  <div>
-                    <h3>全书汇总</h3>
-                    <p>先看整体，再进分页面。</p>
+              <div className="summary-hub-top">
+                <div className="summary-hub-main">
+                  <div className="detail-panel book-info-panel">
+                    <div className="book-info-main">
+                      <div className="detail-panel-actions">
+                        <h3>书籍信息</h3>
+                        <button type="button" className="ghost-btn" onClick={openEditEditor}>编辑书籍信息</button>
+                      </div>
+                      <ul className="meta-list">
+                        <li>题材：{genreLabels[detailBook.genre] || detailBook.genre}</li>
+                        <li>子分类：{subgenreLabels[detailBook.subgenre] || detailBook.subgenre || '未设置'}</li>
+                        <li>平台：{getPlatformLabel(detailBook.target_platform)}</li>
+                        <li>状态：{statusLabels[detailBook.status] || detailBook.status}</li>
+                        <li>作者：{detailBook.author || '未知'}</li>
+                        <li>简介：{detailBook.description || '暂无简介'}</li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="detail-panel summary-overview-panel">
+                    <div className="summary-overview-head">
+                      <div>
+                        <h3>全书汇总</h3>
+                        <p>先看整体，再进分页面。</p>
+                      </div>
+                    </div>
+                    <div className="summary-metric-grid">
+                      <div className="summary-metric-card">
+                        <strong>{detailVolumePlans.length}</strong>
+                        <span>分卷</span>
+                      </div>
+                      <div className="summary-metric-card">
+                        <strong>{detailStorylines.length}</strong>
+                        <span>剧情线</span>
+                      </div>
+                      <div className="summary-metric-card">
+                        <strong>{detailCharacters.length}</strong>
+                        <span>角色</span>
+                      </div>
+                      <div className="summary-metric-card">
+                        <strong>{detailChapters.length}</strong>
+                        <span>章节</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div className="summary-metric-grid">
-                  <div className="summary-metric-card">
-                    <strong>{detailVolumePlans.length}</strong>
-                    <span>分卷</span>
+
+                <aside className="detail-panel book-cover-card" aria-label="书籍封面">
+                  <div className="book-cover-card-head">
+                    <span className="summary-nav-kicker">Book Cover</span>
+                    <h3>书籍封面</h3>
                   </div>
-                  <div className="summary-metric-card">
-                    <strong>{detailStorylines.length}</strong>
-                    <span>剧情线</span>
-                  </div>
-                  <div className="summary-metric-card">
-                    <strong>{detailCharacters.length}</strong>
-                    <span>角色</span>
-                  </div>
-                  <div className="summary-metric-card">
-                    <strong>{detailChapters.length}</strong>
-                    <span>章节</span>
-                  </div>
-                </div>
+                  {detailBook.cover_image ? (
+                    <img src={detailBook.cover_image} alt={`${detailBook.title || '书籍'}封面`} />
+                  ) : (
+                    <div className="book-cover-placeholder book-cover-placeholder-large" aria-hidden="true">
+                      <span>{getBookCoverInitials(detailBook)}</span>
+                      <strong>{detailBook.title || '未命名书籍'}</strong>
+                      <em>{getBookCoverGenreLabel(detailBook)}</em>
+                    </div>
+                  )}
+                </aside>
               </div>
 
               <div className="detail-panel">
@@ -2013,34 +2151,6 @@ export default function BooksPage() {
                     <span>章节细纲、章节记录、正文预览</span>
                     <em>进入执行区</em>
                   </button>
-                </div>
-              </div>
-
-              <div className="summary-bottom-grid">
-                <div className="detail-panel">
-                  <h3>书籍信息</h3>
-                  <ul className="meta-list">
-                    <li>题材：{genreLabels[detailBook.genre] || detailBook.genre}</li>
-                    <li>子分类：{subgenreLabels[detailBook.subgenre] || detailBook.subgenre || '未设置'}</li>
-                    <li>平台：{getPlatformLabel(detailBook.target_platform)}</li>
-                    <li>状态：{statusLabels[detailBook.status] || detailBook.status}</li>
-                    <li>作者：{detailBook.author || '未知'}</li>
-                    <li>简介：{detailBook.description || '暂无简介'}</li>
-                  </ul>
-                </div>
-                <div className="detail-panel">
-                  <h3>快捷操作</h3>
-                  <div className="detail-action-grid">
-                    <button type="button" className="ghost-btn nav-btn" onClick={goBackToList}>返回列表</button>
-                    <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>进入创作台</button>
-                    <button type="button" className="solid-btn" onClick={openEditEditor}>编辑基础信息</button>
-                    {detailBook.id !== currentBookId ? (
-                      <button type="button" className="ghost-btn action-btn" onClick={() => setCurrentBook(detailBook.id)}>设为当前</button>
-                    ) : (
-                      <span className="current-book-badge">当前使用中</span>
-                    )}
-                    <button type="button" className="ghost-btn action-btn" onClick={() => deleteBook(detailBook.id)} disabled={deleteLoading}>删除书籍</button>
-                  </div>
                 </div>
               </div>
             </div>
@@ -2183,7 +2293,567 @@ export default function BooksPage() {
         </div>
       ) : null}
 
+      </main>
+
       <style>{`
+        .books-admin-page {
+          --books-admin-radius: 18px;
+          --books-admin-radius-sm: 12px;
+          --books-admin-gap: 12px;
+          width: min(1480px, calc(100% - 1rem)) !important;
+          padding-top: 14px !important;
+          padding-bottom: 36px !important;
+          font-size: 14px;
+        }
+        .library-app-shell {
+          position: relative;
+          display: grid;
+          grid-template-columns: 268px minmax(0, 1fr);
+          align-items: start;
+          gap: 16px;
+          transition: grid-template-columns 160ms ease;
+        }
+        .library-app-shell.is-sidebar-collapsed {
+          grid-template-columns: 12px minmax(0, 1fr);
+          gap: 10px;
+        }
+        .library-app-shell.is-sidebar-collapsed.is-sidebar-peek,
+        .library-app-shell.is-sidebar-collapsed:has(.library-sidebar-hotzone:hover),
+        .library-app-shell.is-sidebar-collapsed:has(.library-sidebar:hover),
+        .library-app-shell.is-sidebar-collapsed:has(.library-sidebar:focus-within) {
+          grid-template-columns: 268px minmax(0, 1fr);
+          gap: 16px;
+        }
+        .library-sidebar-hotzone {
+          display: none;
+        }
+        .library-app-shell.is-sidebar-collapsed .library-sidebar-hotzone {
+          position: absolute;
+          top: 14px;
+          left: 0;
+          z-index: 21;
+          display: block;
+          width: 24px;
+          height: min(520px, calc(100vh - 120px));
+          cursor: pointer;
+        }
+        .library-app-shell.is-sidebar-collapsed .library-sidebar-hotzone::after {
+          content: '';
+          position: absolute;
+          top: 34px;
+          left: 5px;
+          width: 3px;
+          height: 64px;
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--brand) 72%, transparent);
+        }
+        .library-app-shell.is-sidebar-peek .library-sidebar-hotzone {
+          display: none;
+        }
+        .library-sidebar {
+          position: sticky;
+          top: 82px;
+          display: grid;
+          gap: 14px;
+          max-height: calc(100vh - 104px);
+          overflow: auto;
+          border-right: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+          padding: 6px 14px 18px 0;
+          scrollbar-width: thin;
+          scrollbar-color: color-mix(in srgb, var(--brand) 24%, transparent) transparent;
+          transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+        }
+        .library-sidebar::-webkit-scrollbar {
+          width: 6px;
+        }
+        .library-sidebar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .library-sidebar::-webkit-scrollbar-thumb {
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--brand) 22%, transparent);
+        }
+        .library-sidebar-toggle {
+          width: 34px;
+          min-height: 30px;
+          border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--panel-strong) 90%, white);
+          color: var(--brand-deep);
+          font-size: 18px;
+          font-weight: 900;
+          line-height: 1;
+          cursor: pointer;
+          justify-self: end;
+        }
+        .library-sidebar-toggle:hover {
+          border-color: color-mix(in srgb, var(--brand) 30%, var(--line));
+          background: color-mix(in srgb, var(--brand-soft) 48%, white);
+        }
+        .library-main {
+          min-width: 0;
+        }
+        .library-page-title {
+          margin: 2px 0 12px;
+          border-bottom: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+          padding-bottom: 10px;
+        }
+        .library-page-title h2 {
+          margin: 0;
+          color: var(--text);
+          font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+          font-size: clamp(1.18rem, 1.7vw, 1.45rem);
+          font-weight: 900;
+          line-height: 1.15;
+          letter-spacing: -0.035em;
+        }
+        .library-stats-row {
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+        @media (max-width: 980px) {
+          .library-stats-row {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+        @media (max-width: 560px) {
+          .library-stats-row {
+            grid-template-columns: 1fr;
+          }
+        }
+        .library-sidebar-head {
+          display: grid;
+          gap: 6px;
+          padding-bottom: 10px;
+          border-bottom: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+        }
+        .library-sidebar-kicker,
+        .library-sidebar-label {
+          color: var(--brand);
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+        }
+        .library-sidebar-head h1 {
+          margin: 0;
+          font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+          font-size: 1.3rem;
+          font-weight: 900;
+          line-height: 1.08;
+          letter-spacing: -0.04em;
+          color: var(--text);
+        }
+        .library-sidebar-context {
+          display: grid;
+          gap: 3px;
+          padding-top: 2px;
+        }
+        .library-sidebar-context span {
+          color: var(--muted);
+          font-size: 13px;
+          line-height: 1.35;
+        }
+        .library-sidebar-context strong {
+          color: var(--text);
+          font-size: 14px;
+          font-weight: 800;
+          line-height: 1.35;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .library-sidebar-section {
+          display: grid;
+          gap: 9px;
+          padding: 12px 0;
+          border-bottom: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+        }
+        .library-sidebar-book {
+          color: var(--text);
+          font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+          font-size: 1.14rem;
+          font-weight: 900;
+          line-height: 1.24;
+        }
+        .library-sidebar-note {
+          color: var(--muted);
+          font-size: 13px;
+          line-height: 1.45;
+        }
+        .library-sidebar-nav,
+        .library-sidebar-actions {
+          display: grid;
+          gap: 7px;
+        }
+        .library-nav-item {
+          min-height: 34px;
+          border: 0;
+          border-left: 2px solid transparent;
+          border-radius: 0 10px 10px 0;
+          background: transparent;
+          padding: 0 10px;
+          color: var(--muted);
+          font: inherit;
+          font-size: 14px;
+          font-weight: 700;
+          text-align: left;
+          cursor: pointer;
+        }
+        .library-nav-item:hover:not(:disabled),
+        .library-nav-item.is-active {
+          border-left-color: var(--brand);
+          background: color-mix(in srgb, var(--brand-soft) 42%, transparent);
+          color: var(--brand-deep);
+        }
+        .library-nav-item:disabled {
+          cursor: not-allowed;
+          opacity: 0.45;
+        }
+        .library-app-shell.is-sidebar-collapsed .library-sidebar {
+          width: 260px;
+          min-height: 240px;
+          overflow: hidden;
+          transform: translateX(-248px);
+          z-index: 20;
+          border-right-color: color-mix(in srgb, var(--brand) 28%, var(--line));
+          border-radius: 0 16px 16px 0;
+          background: color-mix(in srgb, var(--panel) 96%, white);
+          box-shadow: none;
+          padding: 8px 12px 14px 0;
+        }
+        .library-app-shell.is-sidebar-collapsed.is-sidebar-peek .library-sidebar,
+        .library-app-shell.is-sidebar-collapsed:has(.library-sidebar-hotzone:hover) .library-sidebar,
+        .library-app-shell.is-sidebar-collapsed .library-sidebar:hover,
+        .library-app-shell.is-sidebar-collapsed .library-sidebar:focus-within {
+          overflow: auto;
+          transform: translateX(0);
+          box-shadow: 18px 0 36px color-mix(in srgb, var(--text) 10%, transparent);
+          padding-left: 12px;
+        }
+        .library-app-shell.is-sidebar-collapsed:not(.is-sidebar-peek):not(:has(.library-sidebar-hotzone:hover)) .library-sidebar:not(:hover):not(:focus-within) .library-sidebar-head,
+        .library-app-shell.is-sidebar-collapsed:not(.is-sidebar-peek):not(:has(.library-sidebar-hotzone:hover)) .library-sidebar:not(:hover):not(:focus-within) .library-sidebar-section,
+        .library-app-shell.is-sidebar-collapsed:not(.is-sidebar-peek):not(:has(.library-sidebar-hotzone:hover)) .library-sidebar:not(:hover):not(:focus-within) .library-sidebar-nav {
+          display: none;
+        }
+        .library-app-shell.is-sidebar-collapsed:not(.is-sidebar-peek):not(:has(.library-sidebar-hotzone:hover)) .library-sidebar:not(:hover):not(:focus-within)::after {
+          content: '';
+          position: absolute;
+          top: 46px;
+          right: 2px;
+          width: 3px;
+          height: 56px;
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--brand) 72%, transparent);
+        }
+        .library-app-shell.is-sidebar-collapsed .library-sidebar-toggle {
+          width: 24px;
+          min-height: 44px;
+          border-radius: 999px;
+          padding: 0;
+          transform: translateX(4px);
+        }
+        .library-list-filter {
+          display: grid;
+          gap: 12px;
+          margin-top: 12px;
+          border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+          border-radius: var(--books-admin-radius);
+          background: color-mix(in srgb, var(--panel) 86%, var(--panel-strong));
+          padding: 14px;
+        }
+        .library-list-filter-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+          min-width: 0;
+        }
+        .library-list-filter-fields {
+          display: grid;
+          grid-template-columns: minmax(180px, 1.45fr) repeat(3, minmax(120px, 0.8fr));
+          gap: 10px;
+          min-width: 0;
+        }
+        .library-list-filter-actions {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+          gap: 7px;
+          min-width: 0;
+        }
+        .library-list-filter-actions button {
+          min-height: 32px !important;
+          padding-inline: 10px !important;
+          font-size: 13px !important;
+        }
+        .library-filter-box label {
+          display: grid;
+          gap: 5px;
+        }
+        .library-filter-box label span {
+          color: var(--muted);
+          font-size: 13px !important;
+          font-weight: 700;
+          letter-spacing: 0 !important;
+          text-transform: none;
+        }
+        .library-filter-box input,
+        .library-filter-box select {
+          width: 100%;
+          min-height: 36px !important;
+          border: 1px solid var(--line);
+          border-radius: 10px !important;
+          background: color-mix(in srgb, var(--panel-strong) 92%, white);
+          color: var(--text);
+          padding: 7px 9px !important;
+          font: inherit;
+          font-size: 14px !important;
+        }
+        @media (max-width: 1100px) {
+          .library-list-filter-head {
+            display: grid;
+          }
+          .library-list-filter-actions {
+            justify-content: flex-start;
+          }
+          .library-list-filter-fields {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+        @media (max-width: 720px) {
+          .library-list-filter-fields {
+            grid-template-columns: 1fr;
+          }
+        }
+        .books-admin-page .global-banner {
+          margin: 10px 0 !important;
+          border-radius: var(--books-admin-radius-sm) !important;
+          padding: 10px 12px !important;
+          font-size: 14px !important;
+        }
+        .books-admin-page .mt-6 {
+          margin-top: 12px !important;
+        }
+        .books-admin-page .mt-4 {
+          margin-top: 10px !important;
+        }
+        .books-admin-page .gap-4 {
+          gap: 12px !important;
+        }
+        .books-admin-page .gap-3 {
+          gap: 8px !important;
+        }
+        .books-admin-page .rounded-\\[36px\\],
+        .books-admin-page .rounded-\\[30px\\],
+        .books-admin-page .rounded-\\[28px\\],
+        .books-admin-page .rounded-\\[24px\\],
+        .books-admin-page .rounded-\\[22px\\] {
+          border-radius: var(--books-admin-radius) !important;
+        }
+        .books-admin-page .shadow-\\[0_18px_52px_rgba\\(15\\,23\\,42\\,0\\.05\\)\\],
+        .books-admin-page .shadow-\\[0_14px_38px_rgba\\(15\\,23\\,42\\,0\\.04\\)\\],
+        .books-admin-page .shadow-\\[0_14px_34px_rgba\\(15\\,23\\,42\\,0\\.04\\)\\],
+        .books-admin-page .shadow-\\[0_12px_30px_rgba\\(15\\,23\\,42\\,0\\.04\\)\\],
+        .books-admin-page .shadow-\\[0_10px_26px_rgba\\(15\\,23\\,42\\,0\\.04\\)\\] {
+          box-shadow: none !important;
+        }
+        .books-admin-page [class*="px-5"][class*="py-5"] {
+          padding: 14px !important;
+        }
+        .books-admin-page [class*="px-5"][class*="py-4"],
+        .books-admin-page [class*="px-4"][class*="py-4"] {
+          padding: 12px !important;
+        }
+        .books-admin-page h3 {
+          letter-spacing: -0.02em !important;
+        }
+        .books-admin-page .font-serif.text-\\[1\\.85rem\\] {
+          margin-bottom: 10px !important;
+          font-size: 1.25rem !important;
+          line-height: 1.1 !important;
+        }
+        .books-admin-page strong.text-\\[2rem\\],
+        .books-admin-page strong.text-\\[1\\.7rem\\] {
+          font-size: 1.25rem !important;
+        }
+        .books-admin-page label span {
+          margin-bottom: 5px !important;
+          font-size: 11px !important;
+          letter-spacing: 0.1em !important;
+        }
+        .books-admin-page input,
+        .books-admin-page select,
+        .books-admin-page textarea {
+          min-height: 38px !important;
+          border-radius: 10px !important;
+          padding: 8px 10px !important;
+          font-size: 14px !important;
+        }
+        .books-admin-page .solid-btn,
+        .books-admin-page .ghost-btn {
+          min-height: 34px !important;
+          border-radius: 10px !important;
+          padding: 0 12px !important;
+          font-size: 13px !important;
+        }
+        .books-admin-page .current-book-badge {
+          min-height: 20px;
+          padding: 0 8px;
+          font-size: 11px;
+        }
+        .books-admin-page [data-book-id] {
+          gap: 10px !important;
+          grid-template-columns: minmax(96px, 3fr) minmax(0, 7fr) !important;
+          border-radius: var(--books-admin-radius) !important;
+          padding: 12px !important;
+          padding-left: 54px !important;
+          box-shadow: none !important;
+          cursor: pointer;
+          position: relative;
+        }
+        .book-card-select-zone {
+          position: absolute;
+          inset: 0 auto 0 0;
+          width: 42px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 7px;
+          border: 0;
+          border-right: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+          border-radius: var(--books-admin-radius) 0 0 var(--books-admin-radius);
+          background: color-mix(in srgb, var(--panel-strong) 72%, transparent);
+          color: var(--muted);
+          cursor: pointer;
+          transition: background 140ms ease, color 140ms ease;
+        }
+        .book-card-select-zone:hover,
+        .book-card-select-zone.is-selected {
+          background: color-mix(in srgb, var(--brand-soft) 64%, var(--panel));
+          color: var(--brand);
+        }
+        .book-card-select-box {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 18px;
+          height: 18px;
+          border: 1px solid color-mix(in srgb, var(--line-strong) 80%, var(--line));
+          border-radius: 6px;
+          background: var(--panel);
+          color: var(--brand);
+          font-size: 13px;
+          font-weight: 900;
+          line-height: 1;
+        }
+        .book-card-select-zone.is-selected .book-card-select-box {
+          border-color: color-mix(in srgb, var(--brand) 72%, var(--line));
+          background: color-mix(in srgb, var(--brand-soft) 82%, white);
+        }
+        .book-card-select-label {
+          color: inherit;
+          font-size: 13px;
+          font-weight: 750;
+          line-height: 1;
+          writing-mode: vertical-rl;
+          letter-spacing: 0.08em;
+        }
+        .book-list-cover {
+          width: 100%;
+          max-width: 148px;
+          aspect-ratio: 9 / 14;
+          align-self: start;
+          justify-self: stretch;
+          overflow: hidden;
+          border-radius: 14px;
+          border: 1px solid var(--line);
+          background: color-mix(in srgb, var(--panel-strong) 88%, white);
+          box-shadow: 0 10px 22px color-mix(in srgb, var(--text) 9%, transparent);
+        }
+        .book-list-cover img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+        }
+        .book-list-cover-placeholder {
+          width: 100%;
+          height: 100%;
+        }
+        .books-admin-page [data-book-id]:hover {
+          box-shadow: 0 8px 18px color-mix(in srgb, var(--brand) 9%, transparent) !important;
+        }
+        .books-admin-page [data-book-id] h3 {
+          font-size: 1.12rem !important;
+          line-height: 1.25 !important;
+        }
+        .books-admin-page [data-book-id] .gap-3 {
+          gap: 7px !important;
+        }
+        .books-admin-page [data-book-id] .pt-4 {
+          padding-top: 10px !important;
+        }
+        .books-admin-page .detail-header {
+          display: none !important;
+        }
+        .books-admin-page .detail-header h2 {
+          margin-bottom: 6px !important;
+          font-size: clamp(1.4rem, 2.2vw, 2rem) !important;
+          line-height: 1.12 !important;
+        }
+        .books-admin-page .detail-meta-chip {
+          min-height: 22px;
+          padding: 0 8px;
+          font-size: 11px;
+        }
+        .books-admin-page .summary-hub,
+        .books-admin-page .summary-overview-panel,
+        .books-admin-page .detail-main,
+        .books-admin-page .detail-side {
+          gap: 12px !important;
+        }
+        .books-admin-page .summary-bottom-grid {
+          grid-template-columns: minmax(0, 1fr) !important;
+        }
+        .books-admin-page .detail-grid {
+          grid-template-columns: minmax(0, 1fr) !important;
+        }
+        .books-admin-page .detail-panel {
+          border-radius: var(--books-admin-radius) !important;
+          padding: 14px !important;
+        }
+        .books-admin-page .detail-panel h3 {
+          margin-bottom: 10px !important;
+          font-size: 1.15rem !important;
+        }
+        .books-admin-page .summary-metric-card {
+          border-radius: var(--books-admin-radius-sm) !important;
+          padding: 12px !important;
+        }
+        .books-admin-page .summary-metric-card strong {
+          font-size: 1.35rem !important;
+        }
+        .books-admin-page .summary-nav-grid {
+          gap: 10px !important;
+        }
+        .books-admin-page .summary-nav-card {
+          min-height: 132px !important;
+          border-radius: var(--books-admin-radius) !important;
+          gap: 7px !important;
+          padding: 14px 14px 12px !important;
+        }
+        .books-admin-page .summary-nav-card strong {
+          font-size: 1.18rem !important;
+        }
+        .books-admin-page .summary-nav-card span {
+          font-size: 12px !important;
+          line-height: 1.55 !important;
+        }
+        .books-admin-page .summary-nav-card em {
+          font-size: 12px !important;
+        }
         .danger-solid-btn {
           --btn-solid-bg: var(--btn-danger-solid-bg);
           --btn-solid-text: var(--btn-danger-solid-text);
@@ -2232,6 +2902,80 @@ export default function BooksPage() {
         .detail-grid-character { grid-template-columns: minmax(0, 1.8fr) minmax(260px, 0.8fr); }
         .detail-main, .detail-side { display: grid; gap: 16px; }
         .summary-hub { display: grid; gap: 16px; }
+        .summary-hub-top {
+          display: grid;
+          grid-template-columns: minmax(0, 7fr) minmax(220px, 3fr);
+          gap: 16px;
+          align-items: start;
+        }
+        .summary-hub-main { display: grid; gap: 16px; min-width: 0; }
+        .book-info-main {
+          min-width: 0;
+        }
+        .book-cover-card {
+          display: grid;
+          gap: 14px;
+          justify-items: stretch;
+        }
+        .book-cover-card-head h3 { margin-bottom: 0; }
+        .book-cover-card img {
+          width: min(100%, 230px);
+          aspect-ratio: 9 / 14;
+          object-fit: cover;
+          justify-self: center;
+          border-radius: 18px;
+          border: 1px solid var(--line);
+          background: color-mix(in srgb, var(--panel-strong) 86%, white);
+          box-shadow: 0 14px 32px color-mix(in srgb, var(--text) 10%, transparent);
+        }
+        .book-cover-placeholder {
+          display: grid;
+          place-items: center;
+          align-content: center;
+          gap: 8px;
+          background:
+            radial-gradient(circle at 28% 18%, color-mix(in srgb, var(--brand-soft) 82%, white) 0 22%, transparent 23%),
+            linear-gradient(145deg, color-mix(in srgb, var(--panel-note-bg) 74%, white), color-mix(in srgb, var(--brand-soft) 36%, var(--panel)));
+          color: var(--text);
+          text-align: center;
+        }
+        .book-cover-placeholder span {
+          font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+          font-size: 1.25rem;
+          font-weight: 900;
+          line-height: 1;
+          letter-spacing: -0.05em;
+          color: var(--brand-deep);
+        }
+        .book-cover-placeholder em {
+          max-width: 88%;
+          color: var(--muted);
+          font-size: 13px;
+          font-style: normal;
+          font-weight: 750;
+          line-height: 1.25;
+        }
+        .book-cover-placeholder-large {
+          width: min(100%, 230px);
+          aspect-ratio: 9 / 14;
+          justify-self: center;
+          border: 1px solid var(--line);
+          border-radius: 18px;
+          box-shadow: 0 14px 32px color-mix(in srgb, var(--text) 10%, transparent);
+          padding: 18px;
+        }
+        .book-cover-placeholder-large span {
+          font-size: clamp(2.25rem, 4vw, 3.6rem);
+        }
+        .book-cover-placeholder-large strong {
+          max-width: 100%;
+          color: var(--text);
+          font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+          font-size: 1.05rem;
+          font-weight: 900;
+          line-height: 1.25;
+          letter-spacing: -0.04em;
+        }
         .summary-overview-panel { display: grid; gap: 16px; }
         .summary-overview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
         .summary-overview-head h3 { margin: 0 0 6px; }
@@ -2244,6 +2988,70 @@ export default function BooksPage() {
         .detail-panel { box-shadow: none; }
         .detail-panel { padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--panel) 92%, white); }
         .detail-panel h3 { margin: 0 0 12px; font-size: var(--font-size-panel-title); }
+        .detail-volume-card {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+          align-content: start;
+          gap: 0;
+          min-height: 360px;
+          padding: 0;
+          overflow: hidden;
+          background: color-mix(in srgb, var(--panel) 94%, white);
+        }
+        .detail-volume-card.has-volume-cover {
+          grid-template-columns: minmax(205px, 0.58fr) minmax(0, 0.82fr);
+        }
+        .detail-volume-content {
+          min-width: 0;
+          padding: 16px;
+        }
+        .detail-volume-card.has-volume-cover .detail-volume-content {
+          padding-right: 16px;
+        }
+        .detail-volume-title-line {
+          display: flex;
+          align-items: center;
+          gap: 9px;
+          min-width: 0;
+        }
+        .detail-volume-title-line strong {
+          min-width: 0;
+          margin-bottom: 0;
+          color: var(--text);
+        }
+        .detail-volume-index {
+          flex: 0 0 auto;
+          color: var(--brand);
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          font-size: 11px;
+          font-weight: 850;
+          letter-spacing: 0.12em;
+        }
+        .detail-volume-copy {
+          min-width: 0;
+          display: grid;
+          gap: 8px;
+          margin-top: 10px;
+        }
+        .detail-volume-cover-rail {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 100%;
+          border-right: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+          background: transparent;
+          padding: 18px 14px;
+        }
+        .detail-volume-cover-side {
+          width: min(204px, 88%);
+          aspect-ratio: 9 / 14;
+          flex: 0 0 auto;
+          object-fit: cover;
+          border-radius: 16px;
+          border: 1px solid var(--line);
+          background: color-mix(in srgb, var(--panel-strong) 84%, transparent);
+          box-shadow: 0 12px 26px color-mix(in srgb, var(--text) 10%, transparent);
+        }
         .detail-cover-preview {
           display: flex;
           justify-content: flex-start;
@@ -2399,8 +3207,13 @@ export default function BooksPage() {
         .detail-character-metric-strip { display: flex; flex-wrap: wrap; gap: 8px; }
         .detail-character-metric-strip span { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border-radius: 999px; background: color-mix(in srgb, var(--panel-strong) 90%, white); color: var(--brand); font-size: 12px; font-weight: 600; }
         .detail-character-metric-list { display: grid; gap: 6px; margin-top: 6px; }
-        .detail-volume-plan-list { display: grid; gap: 10px; }
+        .detail-volume-plan-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
         .detail-outline-volume { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel) 88%, var(--panel-note-bg)); }
+        .detail-outline-volume.detail-volume-card {
+          padding: 0;
+          border-radius: 18px;
+          background: color-mix(in srgb, var(--panel) 94%, white);
+        }
         .detail-outline-volume strong { display: block; margin-bottom: 6px; color: var(--brand); }
         .detail-storyline-list { display: grid; gap: 8px; }
         .detail-storyline-item { padding-top: 8px; border-top: 1px dashed color-mix(in srgb, var(--line-strong) 72%, transparent); }
@@ -2408,8 +3221,207 @@ export default function BooksPage() {
         .detail-pre { margin: 0; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--panel-note-bg) 72%, var(--panel)); display: grid; gap: 10px; }
         .detail-pre-paragraph { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 14px; line-height: 1.7; color: var(--text); text-indent: 2em; }
         .detail-chapter-list, .detail-character-list { display: grid; gap: 8px; }
-        .chapter-entry-list { display: grid; gap: 12px; }
-        .chapter-entry-card { padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--panel-strong) 90%, white); display: grid; gap: 8px; }
+        .chapter-library-page { min-width: 0; }
+        .chapter-flow-board {
+          display: grid;
+          gap: 18px;
+        }
+        .chapter-flow-head {
+          display: flex;
+          align-items: flex-end;
+          justify-content: space-between;
+          gap: 18px;
+          border-bottom: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+          padding-bottom: 14px;
+        }
+        .chapter-flow-head h2 {
+          margin: 4px 0 0;
+          font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+          font-size: clamp(1.35rem, 2vw, 1.95rem);
+          font-weight: 900;
+          line-height: 1.15;
+          letter-spacing: -0.04em;
+          color: var(--text);
+        }
+        .chapter-flow-head p {
+          margin: 8px 0 0;
+          color: var(--muted);
+          font-size: 15px;
+          line-height: 1.65;
+        }
+        .chapter-waterfall {
+          column-count: 3;
+          column-gap: 14px;
+        }
+        .library-app-shell.is-chapter-reader-page {
+          grid-template-columns: minmax(0, 1fr);
+          width: min(1120px, calc(100% - 1.5rem));
+        }
+        .chapter-flow-card {
+          width: 100%;
+          break-inside: avoid;
+          margin: 0 0 14px;
+          border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+          border-radius: 16px;
+          background: color-mix(in srgb, var(--panel-strong) 88%, white);
+          padding: 15px;
+          color: inherit;
+          text-align: left;
+          display: grid;
+          gap: 8px;
+          box-shadow: none;
+          transition: border-color 140ms ease, transform 140ms ease, background 140ms ease;
+        }
+        .chapter-flow-card:hover {
+          border-color: color-mix(in srgb, var(--brand) 34%, var(--line));
+          background: color-mix(in srgb, var(--brand-soft) 22%, var(--panel-strong));
+        }
+        .chapter-flow-number,
+        .chapter-reader-kicker {
+          color: var(--brand);
+          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          font-size: 12px;
+          font-weight: 850;
+          letter-spacing: 0.13em;
+          text-transform: uppercase;
+        }
+        .chapter-title-link {
+          appearance: none;
+          border: 0;
+          background: transparent;
+          padding: 0;
+          color: var(--text);
+          font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+          font-size: 1.05rem;
+          font-weight: 900;
+          line-height: 1.35;
+          letter-spacing: -0.02em;
+          text-align: left;
+          cursor: pointer;
+        }
+        .chapter-title-link:hover {
+          color: var(--brand-deep);
+          text-decoration: underline;
+          text-underline-offset: 4px;
+        }
+        .chapter-flow-meta {
+          color: var(--muted);
+          font-size: 13px;
+          font-weight: 700;
+          line-height: 1.45;
+        }
+        .chapter-flow-card em {
+          color: color-mix(in srgb, var(--text) 76%, var(--muted));
+          font-style: normal;
+          font-size: 14px;
+          line-height: 1.7;
+        }
+        .chapter-flow-card p {
+          margin: 0;
+          color: var(--muted);
+          font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+          font-size: 15px;
+          line-height: 1.8;
+        }
+        .chapter-reader-shell {
+          width: min(940px, 100%);
+          margin: 0 auto;
+          display: grid;
+          gap: 20px;
+        }
+        .chapter-reader-toolbar,
+        .chapter-reader-footer {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+        .chapter-reader-switch {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .chapter-reader-head {
+          text-align: center;
+          padding: 16px 0 8px;
+          border-bottom: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+        }
+        .chapter-reader-head h2 {
+          margin: 8px 0 10px;
+          color: var(--text);
+          font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+          font-size: clamp(1.65rem, 3vw, 2.45rem);
+          font-weight: 900;
+          line-height: 1.2;
+          letter-spacing: -0.045em;
+        }
+        .chapter-reader-meta {
+          display: flex;
+          justify-content: center;
+          gap: 10px;
+          flex-wrap: wrap;
+          color: var(--muted);
+          font-size: 13px;
+          font-weight: 700;
+        }
+        .chapter-reader-meta span {
+          display: inline-flex;
+          align-items: center;
+          min-height: 24px;
+          border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+          border-radius: 999px;
+          padding: 0 10px;
+          background: color-mix(in srgb, var(--panel) 76%, transparent);
+        }
+        .chapter-reader-note {
+          border-left: 3px solid color-mix(in srgb, var(--brand) 58%, var(--line));
+          background: color-mix(in srgb, var(--brand-soft) 20%, transparent);
+          padding: 10px 14px;
+          color: var(--muted);
+          font-size: 14px;
+          line-height: 1.75;
+        }
+        .chapter-reader-note p {
+          margin: 0;
+        }
+        .chapter-reader-note p + p {
+          margin-top: 6px;
+        }
+        .chapter-reader-prose {
+          width: min(760px, 100%);
+          margin: 0 auto;
+          padding: 10px 0 18px;
+          color: var(--text);
+          font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+          font-size: 17px;
+          line-height: 2.05;
+        }
+        .chapter-reader-prose p {
+          margin: 0 0 1.05em;
+          text-indent: 2em;
+        }
+        .chapter-reader-empty {
+          display: grid;
+          justify-items: start;
+          gap: 8px;
+          border: 1px dashed color-mix(in srgb, var(--line-strong) 72%, transparent);
+          border-radius: 16px;
+          background: color-mix(in srgb, var(--panel) 82%, transparent);
+          padding: 18px;
+          color: var(--muted);
+        }
+        .chapter-reader-empty strong {
+          color: var(--text);
+          font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+          font-size: 1.14rem;
+          font-weight: 900;
+        }
+        .chapter-reader-empty p {
+          margin: 0;
+          font-size: 15px;
+          line-height: 1.7;
+        }
         .detail-chapter-item, .detail-character-item { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel) 82%, var(--panel-note-bg)); }
         .detail-character-item-editing { margin-bottom: 12px; background: color-mix(in srgb, var(--brand-soft) 26%, var(--panel)); }
         .detail-character-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -2502,8 +3514,19 @@ export default function BooksPage() {
         .form-grid-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
         .modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; position: sticky; bottom: 0; background: color-mix(in srgb, var(--panel) 96%, white); }
         @media (max-width: 900px) {
-          .form-grid-two, .detail-grid, .detail-summary-row, .detail-summary-row-quad, .summary-nav-grid, .summary-metric-grid, .summary-bottom-grid, .detail-character-role-grid { grid-template-columns: 1fr; }
+          .form-grid-two, .detail-grid, .detail-summary-row, .detail-summary-row-quad, .summary-nav-grid, .summary-metric-grid, .summary-bottom-grid, .summary-hub-top, .detail-character-role-grid { grid-template-columns: 1fr; }
           .detail-header, .modal-head, .summary-overview-head { align-items: stretch; flex-direction: column; }
+          .book-cover-card img { width: min(160px, 70%); justify-self: flex-start; }
+          .detail-volume-plan-list { grid-template-columns: 1fr; }
+          .detail-volume-card.has-volume-cover { grid-template-columns: 1fr; }
+          .detail-volume-card.has-volume-cover .detail-volume-content { padding-right: 16px; }
+          .detail-volume-cover-rail { min-height: 220px; border-right: 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 78%, transparent); }
+          .detail-volume-cover-side { width: min(150px, 60%); }
+          .chapter-waterfall { column-count: 1; }
+          .chapter-flow-head { align-items: stretch; flex-direction: column; }
+          .chapter-reader-prose { font-size: 16px; line-height: 1.95; }
+          .chapter-reader-footer { align-items: stretch; flex-direction: column; }
+          .chapter-reader-footer .ghost-btn { width: 100%; justify-content: center; }
         }
       `}</style>
     </div>

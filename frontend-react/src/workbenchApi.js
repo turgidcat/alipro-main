@@ -2,7 +2,8 @@ import { formatStorylineTypeLabel } from './lib/storylineLabel.js';
 import { normalizeNarrativeOutlineText } from './lib/chapterPlan.js';
 
 const API_BASE = '/api';
-const CURRENT_BOOK_KEY = 'current_book_id';
+const CURRENT_BOOK_KEY = 'currentBookId';
+const LEGACY_CURRENT_BOOK_KEY = 'current_book_id';
 const CURRENT_BOOK_EVENT = 'alipro:current-book-changed';
 
 function getAuthToken() {
@@ -270,7 +271,7 @@ function normalizeRoleList(value) {
 
 export function getStoredCurrentBookId() {
   try {
-    return localStorage.getItem(CURRENT_BOOK_KEY) || '';
+    return localStorage.getItem(CURRENT_BOOK_KEY) || localStorage.getItem(LEGACY_CURRENT_BOOK_KEY) || '';
   } catch (_) {
     return '';
   }
@@ -280,8 +281,10 @@ export function persistCurrentBookId(bookId) {
   try {
     if (bookId) {
       localStorage.setItem(CURRENT_BOOK_KEY, bookId);
+      localStorage.setItem(LEGACY_CURRENT_BOOK_KEY, bookId);
     } else {
       localStorage.removeItem(CURRENT_BOOK_KEY);
+      localStorage.removeItem(LEGACY_CURRENT_BOOK_KEY);
     }
     if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
       window.dispatchEvent(new CustomEvent(CURRENT_BOOK_EVENT, {
