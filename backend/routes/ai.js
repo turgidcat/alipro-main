@@ -3150,6 +3150,106 @@ function buildCleanPolishPrompt(content, requirements, options = {}) {
   return parts.join('\n');
 }
 
+function splitRevisionParagraphs(content) {
+  return normalizeText(content)
+    .split(/\n{2,}|\r?\n/)
+    .map((item) => normalizeText(item))
+    .filter(Boolean);
+}
+
+function buildRevisionSuggestionsPrompt(content, requirements) {
+  const paragraphs = splitRevisionParagraphs(content);
+  const numberedParagraphs = paragraphs
+    .map((paragraph, index) => `【第 ${index + 1} 段】${paragraph}`)
+    .join('\n\n');
+
+  return [
+    '你是网文正文校改审稿助手。请像代码审查一样，只输出局部修改建议，不要整章重写。',
+    '',
+    '【校改目标】',
+    requirements || '增强画面感和爽点，保持原剧情不变。',
+    '',
+    '【正文分段】',
+    numberedParagraphs || content,
+    '',
+    '【输出 JSON】',
+    '只输出 JSON 对象，不要 Markdown，不要解释。',
+    '字段格式：',
+    '{',
+    '  "summary": "一句话说明本轮校改重点",',
+    '  "suggestions": [',
+    '    {',
+    '      "id": "rev-001",',
+    '      "action": "replace | insert_after | delete",',
+    '      "paragraph": 1,',
+    '      "afterParagraph": 1,',
+    '      "category": "节奏 | 人物 | 逻辑 | 文风 | 画面 | 钩子",',
+    '      "severity": "suggestion | important",',
+    '      "original_text": "对应原文片段，insert_after 可为空",',
+    '      "suggested_text": "建议替换/新增文本，delete 可为空",',
+    '      "reason": "为什么这样改"',
+    '    }',
+    '  ]',
+    '}',
+    '',
+    '约束：',
+    '1. paragraph 必须对应上方段落编号。',
+    '2. 建议 3-8 条即可，优先挑最值得改的位置。',
+    '3. replace 的 suggested_text 必须可直接替换原段或原片段。',
+    '4. 不要改变主线事实，不要新增大设定。',
+    '5. 如果原文已较好，也要返回 suggestions: []。'
+  ].join('\n');
+}
+
+function normalizeRevisionSuggestionItem(item, index, paragraphs) {
+  const rawAction = normalizeText(item?.action || 'replace').toLowerCase();
+  const action = ['replace', 'insert_after', 'delete'].includes(rawAction) ? rawAction : 'replace';
+  const paragraph = Math.max(1, Number.parseInt(item?.paragraph || item?.afterParagraph || index + 1, 10) || index + 1);
+  const afterParagraph = Math.max(1, Number.parseInt(item?.afterParagraph || paragraph, 10) || paragraph);
+  const paragraphIndex = Math.min(Math.max(paragraph - 1, 0), Math.max(paragraphs.length - 1, 0));
+  const fallbackOriginal = action === 'insert_after' ? '' : normalizeText(paragraphs[paragraphIndex] || '');
+  const originalText = normalizeText(item?.original_text || item?.originalText || fallbackOriginal);
+  const suggestedText = normalizeText(item?.suggested_text || item?.suggestedText || item?.suggestion || '');
+
+  return {
+    id: normalizeText(item?.id || `rev-${String(index + 1).padStart(3, '0')}`),
+    action,
+    paragraph,
+    afterParagraph,
+    category: normalizeText(item?.category || '文风') || '文风',
+    severity: normalizeText(item?.severity || 'suggestion') || 'suggestion',
+    original_text: originalText,
+    suggested_text: suggestedText,
+    reason: normalizeText(item?.reason || item?.note || '')
+  };
+}
+
+function normalizeRevisionSuggestionsResponse(rawContent, originalContent) {
+  const paragraphs = splitRevisionParagraphs(originalContent);
+  const parsed = tryParseJsonObject(rawContent);
+  if (!parsed || typeof parsed !== 'object') {
+    return {
+      summary: '模型返回了非结构化校改内容。',
+      suggestions: [],
+      raw_content: normalizeText(rawContent)
+    };
+  }
+
+  const suggestions = Array.isArray(parsed.suggestions)
+    ? parsed.suggestions
+      .map((item, index) => normalizeRevisionSuggestionItem(item, index, paragraphs))
+      .filter((item) => item.action === 'delete' || item.suggested_text)
+      .slice(0, 12)
+    : [];
+
+  return {
+    summary: normalizeText(parsed.summary || parsed.regeneration_notes || ''),
+    regeneration_notes: normalizeText(parsed.summary || parsed.regeneration_notes || ''),
+    suggestions,
+    raw_content: normalizeText(parsed.raw_content || '')
+  };
+}
+
 function buildContinuePrompt(content, continueWordCount = 1000) {
   return [
     '请根据以下内容继续创作：',
@@ -4001,14 +4101,32 @@ router.post('/polish', async (req, res) => {
   try {
     const content = normalizeText(req.body.content || '');
     const requirements = normalizeText(req.body.requirements || '');
+    const options = req.body.options || {};
     if (!content) {
       return res.status(400).json({ success: false, error: 'Please provide the content to revise' });
     }
 
-    const prompt = buildCleanPolishPrompt(content, requirements, req.body.options || {});
-    const result = await runTextGeneration(prompt, { temperature: 0.6, maxTokens: 4000 });
+    const isRevisionSuggestionsMode = normalizeText(options.mode) === 'revision_suggestions';
+    const prompt = isRevisionSuggestionsMode
+      ? buildRevisionSuggestionsPrompt(content, requirements)
+      : buildCleanPolishPrompt(content, requirements, options);
+    const result = await runTextGeneration(prompt, {
+      temperature: isRevisionSuggestionsMode ? 0.35 : 0.6,
+      maxTokens: isRevisionSuggestionsMode ? 3200 : 4000
+    });
     if (!result.success) {
       return res.status(result.statusCode || 500).json({ success: false, error: result.error });
+    }
+
+    if (isRevisionSuggestionsMode) {
+      const revisionPayload = normalizeRevisionSuggestionsResponse(result.content, content);
+      return res.json({
+        success: true,
+        data: {
+          ...revisionPayload,
+          usage: result.usage
+        }
+      });
     }
 
     return res.json({ success: true, data: { content: normalizeText(result.content), usage: result.usage } });

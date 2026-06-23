@@ -279,11 +279,29 @@ export default function StorylineManagementPage() {
           {sidebarCollapsed ? '›' : '‹'}
         </button>
         <div className="library-sidebar-head">
-          <span className="library-sidebar-kicker">Library</span>
-          <h1>资料库</h1>
-          <div className="library-sidebar-context">
-            <span>剧情线页</span>
-            <strong>{book?.title || '尚未选择书籍'}</strong>
+          <div className="library-surface-switcher">
+            <button
+              type="button"
+              className="library-surface-entry is-primary"
+              onClick={() => openBooksSummaryPage('')}
+              title="返回资料库列表"
+              aria-current="page"
+            >
+              <span className="library-sidebar-kicker">Library</span>
+              <span className="library-surface-state">当前区域</span>
+              <strong>资料库</strong>
+            </button>
+            <button
+              type="button"
+              className="library-surface-entry is-secondary"
+              onClick={() => openWorkbench(bookId)}
+              disabled={!bookId}
+              title="切换到创作台"
+            >
+              <span className="library-sidebar-kicker">Workbench</span>
+              <span className="library-surface-state">前往创作</span>
+              <strong>创作台 <em>↗</em></strong>
+            </button>
           </div>
         </div>
         <nav className="library-sidebar-nav" aria-label="资料库页面">
@@ -294,13 +312,6 @@ export default function StorylineManagementPage() {
           <button type="button" data-short="角" className="library-nav-item" onClick={() => openBooksCharacterPage(bookId)} disabled={!bookId} title="角色资料">角色资料</button>
           <button type="button" data-short="章" className="library-nav-item" onClick={() => openBooksChapterPage(bookId)} disabled={!bookId} title="章节与正文">章节与正文</button>
         </nav>
-        <div className="library-sidebar-section">
-          <span className="library-sidebar-label">快捷操作</span>
-          <div className="library-sidebar-actions">
-            <button type="button" className="ghost-btn" onClick={() => openBooksOutlinePage(bookId)} disabled={!bookId}>查看分卷大纲</button>
-            <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(bookId)} disabled={!bookId}>进入创作台</button>
-          </div>
-        </div>
       </aside>
 
       <main className="library-main">
@@ -589,9 +600,79 @@ export default function StorylineManagementPage() {
         }
         .library-sidebar-head {
           display: grid;
-          gap: 6px;
+          gap: 12px;
           padding-bottom: 10px;
           border-bottom: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+        }
+        .library-surface-switcher {
+          display: grid;
+          grid-template-columns: minmax(0, 1.8fr) minmax(92px, 0.95fr);
+          gap: 14px;
+          align-items: end;
+        }
+        .library-surface-entry {
+          appearance: none;
+          border: 0;
+          background: transparent;
+          padding: 0;
+          display: grid;
+          gap: 3px;
+          min-width: 0;
+          cursor: pointer;
+        }
+        .library-surface-entry.is-primary {
+          padding: 2px 0 12px;
+          border-bottom: 1px solid color-mix(in srgb, var(--brand) 24%, var(--line));
+          justify-items: start;
+          text-align: left;
+        }
+        .library-surface-entry.is-secondary {
+          margin-top: 10px;
+          padding: 8px 0 6px 12px;
+          border-left: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+          justify-items: end;
+          text-align: right;
+        }
+        .library-surface-entry strong {
+          margin: 0;
+          color: var(--text);
+          font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+          font-weight: 900;
+          line-height: 0.96;
+          letter-spacing: -0.05em;
+        }
+        .library-surface-entry.is-primary strong {
+          font-size: clamp(34px, 4vw, 52px);
+        }
+        .library-surface-entry.is-secondary strong {
+          font-size: clamp(18px, 2vw, 26px);
+          color: color-mix(in srgb, var(--text) 82%, var(--muted));
+        }
+        .library-surface-entry strong em {
+          font-style: normal;
+          font-size: 0.72em;
+          color: var(--brand);
+          vertical-align: 0.08em;
+        }
+        .library-surface-state {
+          color: color-mix(in srgb, var(--muted) 88%, white);
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          line-height: 1;
+        }
+        .library-surface-entry.is-primary .library-surface-state {
+          color: color-mix(in srgb, var(--brand-deep) 72%, var(--muted));
+        }
+        .library-surface-entry.is-secondary .library-surface-state {
+          color: color-mix(in srgb, var(--brand) 78%, var(--muted));
+        }
+        .library-surface-entry:hover strong {
+          color: var(--brand-deep);
+        }
+        .library-surface-entry:disabled {
+          cursor: not-allowed;
+          opacity: 0.42;
         }
         .library-sidebar-kicker,
         .library-sidebar-label {
@@ -601,15 +682,6 @@ export default function StorylineManagementPage() {
           font-weight: 800;
           letter-spacing: 0.14em;
           text-transform: uppercase;
-        }
-        .library-sidebar-head h1 {
-          margin: 0;
-          font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
-          font-size: 1.3rem;
-          font-weight: 900;
-          line-height: 1.08;
-          letter-spacing: -0.04em;
-          color: var(--text);
         }
         .library-sidebar-context {
           display: grid;

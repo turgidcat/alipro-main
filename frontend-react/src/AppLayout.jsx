@@ -10,8 +10,6 @@ const NAV_ITEMS = [
   { path: '/changelog', label: '更新日志' }
 ];
 
-const WORKBENCH_ENTRY_INTENT_KEY = 'alipro-open-current-workbench';
-
 function joinClasses(...values) {
   return values.filter(Boolean).join(' ');
 }
@@ -30,11 +28,6 @@ export default function AppLayout() {
   }
 
   function navigateTo(path) {
-    if (path === '/workbench') {
-      try {
-        window.sessionStorage.setItem(WORKBENCH_ENTRY_INTENT_KEY, '1');
-      } catch (_) {}
-    }
     navigate(path);
   }
 

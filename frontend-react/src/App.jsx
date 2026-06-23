@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   createBook,
   fetchChapterSetupBundle,
@@ -45,6 +45,9 @@ import ContentWorkspace from './components/workbench/ContentWorkspace.jsx';
 import RevisionEditor from './components/workbench/RevisionEditor.jsx';
 import StatusNotice from './components/workbench/StatusNotice.jsx';
 import ContextDrawer from './components/workbench/ContextDrawer.jsx';
+import MetaCode from './components/workbench/MetaCode.jsx';
+import IndentedTextBlock from './components/IndentedTextBlock.jsx';
+import ThemePopover from './components/theme/ThemePopover.jsx';
 import ProjectEntry from './components/app/ProjectEntry.jsx';
 import BookSettingDrawer from './components/workbench/drawers/BookSettingDrawer.jsx';
 import StorylineDrawer from './components/workbench/drawers/StorylineDrawer.jsx';
@@ -54,7 +57,6 @@ import { useWorkbench } from './hooks/useWorkbench.js';
 
 const DRAWER_MEMORY_PREFIX = 'alipro-workbench-drawer';
 const RECENT_WORKSPACE_PAGE_KEY = 'alipro-recent-workspace-page';
-const WORKBENCH_ENTRY_INTENT_KEY = 'alipro-open-current-workbench';
 
 const bookStatusLabels = {
   writing: '连载中',
@@ -110,22 +112,64 @@ function persistBookContext(bookId) {
   } catch (_) {}
 }
 
-function consumeWorkbenchEntryIntent() {
-  try {
-    const hasIntent = window.sessionStorage.getItem(WORKBENCH_ENTRY_INTENT_KEY) === '1';
-    window.sessionStorage.removeItem(WORKBENCH_ENTRY_INTENT_KEY);
-    return hasIntent;
-  } catch (_) {
-    return false;
-  }
-}
-
 function getBookStatusLabel(status) {
   return bookStatusLabels[status] || status || '未设置状态';
 }
 
 function serializeChapterPlanDraft(plan) {
   return JSON.stringify(plan || emptyChapterPlan);
+}
+
+function WorkbenchNavSelect({ label, valueLabel, items, onSelect }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(event) {
+      if (ref.current && !ref.current.contains(event.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="workbench-nav-select">
+      <span className="workbench-nav-select-label">{label}</span>
+      <button
+        type="button"
+        className={`workbench-nav-select-trigger${open ? ' is-open' : ''}`}
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+      >
+        <strong>{valueLabel}</strong>
+        <em>⌄</em>
+      </button>
+      {open ? (
+        <div className="workbench-nav-select-menu" role="listbox">
+          {items.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              className={`workbench-nav-select-option${item.status ? ' has-status' : ''}${item.active ? ' is-active' : ''}`}
+              aria-selected={item.active}
+              onClick={() => {
+                onSelect(item.value);
+                setOpen(false);
+              }}
+            >
+              {item.status ? <span className={`chapter-list-dot ${item.status}`} aria-hidden="true" /> : null}
+              <span>{item.label}</span>
+              {item.meta ? <small>{item.meta}</small> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function isTypingTarget(target) {
@@ -140,44 +184,6 @@ function isTypingTarget(target) {
 function getDrawerMemoryKey(bookId, chapterNumber) {
   if (!bookId) return '';
   return `${DRAWER_MEMORY_PREFIX}:${bookId}:${Number(chapterNumber || 1)}`;
-}
-
-function CurrentBookHeader({
-  book,
-  activeSurface,
-  onSwitchSurface,
-  onSwitchBook
-}) {
-  if (!book) return null;
-
-  return (
-    <section className="global-banner">
-      <div>
-        <p className="meta-kicker">CURRENT BOOK</p>
-        <strong>《{book.title}》</strong>
-        <span className="ml-2 text-[13px] text-[color:var(--muted)]">{getBookStatusLabel(book.status)}</span>
-      </div>
-      <div className="modal-actions-row mt-3">
-        <button
-          type="button"
-          className={activeSurface === 'library' ? 'solid-btn' : 'ghost-btn'}
-          onClick={() => onSwitchSurface('library')}
-        >
-          资料库
-        </button>
-        <button
-          type="button"
-          className={activeSurface === 'workbench' ? 'solid-btn' : 'ghost-btn'}
-          onClick={() => onSwitchSurface('workbench')}
-        >
-          创作台
-        </button>
-        <button type="button" className="ghost-btn" onClick={onSwitchBook}>
-          切换作品
-        </button>
-      </div>
-    </section>
-  );
 }
 
 export default function App() {
@@ -224,7 +230,8 @@ export default function App() {
   } = useWorkbench();
   const [drawerMemoryLoadedKey, setDrawerMemoryLoadedKey] = useState('');
   const [activeSurface, setActiveSurface] = useState(getStoredWorkspacePage);
-  const [hasEnteredBookSession, setHasEnteredBookSession] = useState(consumeWorkbenchEntryIntent);
+  const [workbenchSidebarCollapsed, setWorkbenchSidebarCollapsed] = useState(false);
+  const [workbenchSidebarPeek, setWorkbenchSidebarPeek] = useState(false);
   const [createDraft, setCreateDraft] = useState({
     title: '',
     genre: '都市异能',
@@ -234,10 +241,10 @@ export default function App() {
   const [createState, setCreateState] = useState({ loading: false, error: '' });
 
   useEffect(() => {
-    if (!hasEnteredBookSession) {
-      syncAppPath('entry', true);
+    if (!workbenchSidebarCollapsed) {
+      setWorkbenchSidebarPeek(false);
     }
-  }, [hasEnteredBookSession]);
+  }, [workbenchSidebarCollapsed]);
 
   function switchSurface(page, bookId = selectedBookId || currentBook?.id || '') {
     const nextPage = page === 'workbench' ? 'workbench' : 'library';
@@ -250,14 +257,12 @@ export default function App() {
     if (!bookId) return;
     persistBookContext(bookId);
     setSelectedBookId(bookId);
-    setHasEnteredBookSession(true);
     switchSurface(page, bookId);
   }
 
   function handleSwitchBook() {
     persistBookContext('');
     setSelectedBookId('');
-    setHasEnteredBookSession(false);
     syncAppPath('entry', true);
   }
 
@@ -289,7 +294,6 @@ export default function App() {
       if (createdId) {
         persistBookContext(createdId);
         setSelectedBookId(createdId);
-        setHasEnteredBookSession(true);
         switchSurface('library', createdId);
         await reloadBooks(createdId);
       } else {
@@ -1066,6 +1070,12 @@ export default function App() {
   const hasStorylineAnchor = hasMountedStorylineAnchor(draftChapterPlan);
   const hasOutlineAnchor = hasUsableChapterOutline(draftChapterPlan);
   const chapterStructure = draftChapterPlan.chapter_structure || emptyChapterStructure;
+  const drawerOutlineText = String(
+    draftChapterPlan.outline_text
+    || composeStructuredOutline(chapterStructure)
+    || draftChapterPlan.summary
+    || ''
+  ).trim() || '尚未建立章节细纲。';
   const generationRequiredItems = [
     { key: 'goal', label: '本章目标', value: chapterStructure.chapter_goal },
     { key: 'scenes', label: '关键场景', value: chapterStructure.key_scenes },
@@ -1106,6 +1116,70 @@ export default function App() {
         : '完成任务表保存后，这里的按钮会自动亮起。'
     }
   ];
+  const chapterNavigationItems = Array.isArray(chapterContext.chapterListItems) && chapterContext.chapterListItems.length > 0
+    ? chapterContext.chapterListItems
+    : [{
+        chapterNumber,
+        chapterName: draftChapterPlan.chapter_name,
+        volumeNumber: draftChapterPlan.volume_number || 1,
+        volumeLabel: chapterView.volumeLabel || '第 1 卷',
+        status: 'empty'
+      }];
+  const currentChapterNavigationItem = chapterNavigationItems.find((item) => Number(item.chapterNumber || 0) === Number(chapterNumber));
+  const currentNavigationVolumeNumber = Number(
+    currentChapterNavigationItem?.volumeNumber
+    || draftChapterPlan.volume_number
+    || 1
+  );
+  const volumeNavigationItems = Array.isArray(chapterContext.volumeList) && chapterContext.volumeList.length > 0
+    ? chapterContext.volumeList
+    : [{
+        volumeNumber: currentNavigationVolumeNumber,
+        volumeLabel: chapterView.volumeLabel || `第 ${currentNavigationVolumeNumber} 卷`,
+        startChapter: Math.min(...chapterNavigationItems.map((item) => Number(item.chapterNumber || chapterNumber))),
+        endChapter: Math.max(...chapterNavigationItems.map((item) => Number(item.chapterNumber || chapterNumber)))
+      }];
+  const currentVolumeNavigationItem = volumeNavigationItems.find((volume) => Number(volume.volumeNumber || 0) === currentNavigationVolumeNumber)
+    || volumeNavigationItems[0];
+  const currentVolumeChapters = chapterNavigationItems.filter((item) => Number(item.volumeNumber || currentNavigationVolumeNumber) === currentNavigationVolumeNumber);
+  const visibleVolumeChapters = currentVolumeChapters.length > 0
+    ? currentVolumeChapters
+    : chapterNavigationItems;
+  function getVolumeLocalChapterNumber(item, volume = currentVolumeNavigationItem) {
+    const startChapter = Number(volume?.startChapter || visibleVolumeChapters[0]?.chapterNumber || 1);
+    return Math.max(1, Number(item?.chapterNumber || 1) - startChapter + 1);
+  }
+  function handleVolumeNavigationChange(nextVolumeNumber) {
+    const nextVolume = volumeNavigationItems.find((volume) => Number(volume.volumeNumber || 0) === Number(nextVolumeNumber));
+    const firstChapterInVolume = chapterNavigationItems.find((item) => Number(item.volumeNumber || 0) === Number(nextVolumeNumber));
+    const targetChapter = Number(firstChapterInVolume?.chapterNumber || nextVolume?.startChapter || chapterNumber);
+    requestChapterChange(targetChapter);
+  }
+  const currentVolumeSelectLabel = currentVolumeNavigationItem?.volumeLabel || `第 ${currentNavigationVolumeNumber} 卷`;
+  const volumeSelectItems = volumeNavigationItems.map((volume) => ({
+    value: Number(volume.volumeNumber || 1),
+    label: volume.volumeLabel || `第 ${volume.volumeNumber || 1} 卷`,
+    meta: volume.estimatedChapters
+      ? `${volume.estimatedChapters} 章`
+      : `${volume.startChapter || '?'}-${volume.endChapter || '?'} 章`,
+    active: Number(volume.volumeNumber || 0) === currentNavigationVolumeNumber
+  }));
+  const currentLocalChapterNumber = getVolumeLocalChapterNumber(currentChapterNavigationItem || visibleVolumeChapters[0]);
+  const currentChapterSelectLabel = `第 ${currentLocalChapterNumber} 章${draftChapterPlan.chapter_name ? ` · ${draftChapterPlan.chapter_name}` : ''}`;
+  const chapterSelectItems = visibleVolumeChapters.map((item) => ({
+    value: Number(item.chapterNumber || 1),
+    label: `第 ${getVolumeLocalChapterNumber(item)} 章${item.chapterName ? ` · ${item.chapterName}` : ''}`,
+    meta: `全书第 ${item.chapterNumber} 章`,
+    status: item.status || 'empty',
+    active: Number(item.chapterNumber || 0) === Number(chapterNumber)
+  }));
+  const currentBookTitle = planningState?.currentBook?.title || currentBook.title || '未选择书籍';
+  const bookSelectItems = books.map((book) => ({
+    value: book.id,
+    label: book.title || '未命名作品',
+    meta: getBookStatusLabel(book.status),
+    active: book.id === currentBook.id
+  }));
   const revisionOriginalParagraphs = normalizeParagraphs(revisionOriginal);
   const revisionSuggestionItems = Array.isArray(revisionSuggestions?.suggestions) ? revisionSuggestions.suggestions : [];
   const revisionSuggestionMarks = revisionSuggestionItems.reduce((acc, item) => {
@@ -1223,7 +1297,9 @@ export default function App() {
       };
     });
 
-  if (!currentBook || !hasEnteredBookSession) {
+  const isEntryPath = typeof window !== 'undefined' && window.location.pathname === '/';
+
+  if (!currentBook || isEntryPath) {
     return (
       <ProjectEntry
         books={books}
@@ -1240,13 +1316,6 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <CurrentBookHeader
-        book={currentBook}
-        activeSurface={activeSurface}
-        onSwitchSurface={switchSurface}
-        onSwitchBook={handleSwitchBook}
-      />
-
       {error ? <div className="global-banner is-error">{error}</div> : null}
       {loadingBooks ? <div className="global-banner">正在读取作品列表...</div> : null}
       {planningNotice ? (
@@ -1258,53 +1327,159 @@ export default function App() {
         />
       ) : null}
       <>
-          <section className="workbench-stage workbench-app-shell">
-            <div className="workbench-dual-pane">
-              <div className="workbench-dual-pane-left">
-                <aside className="workbench-sidebar-shell" aria-label="创作台导航">
-                  <GlobalBar
-                    bookTitle={planningState?.currentBook?.title || currentBook.title || ''}
-                    chapterNumber={chapterNumber}
-                    chapterName={draftChapterPlan.chapter_name}
-                    mainStorylineLabel={chapterView.mainStoryline}
-                    totalChapterCount={chapterContext.totalChapterCount}
-                    chapterListItems={chapterContext.chapterListItems}
-                    onPrevChapter={goToPreviousChapter}
-                    onNextChapter={goToNextChapter}
-                    onSelectChapter={requestChapterChange}
-                  />
-                  <div className="workbench-sidebar-config">
-                    <ChapterConfigPanel
+          <section className={`workbench-stage workbench-app-shell${workbenchSidebarCollapsed ? ' is-workbench-sidebar-collapsed' : ''}${workbenchSidebarCollapsed && workbenchSidebarPeek ? ' is-workbench-sidebar-peek' : ''}`}>
+            <GlobalBar
+              bookTitle={planningState?.currentBook?.title || currentBook.title || ''}
+              volumeLabel={chapterView.volumeLabel || '第 1 卷'}
               chapterNumber={chapterNumber}
-              draftChapterPlan={draftChapterPlan}
-              chapterContext={chapterContext}
-              chapterView={chapterView}
-              storylineOptions={storylineOptions}
-              selectedMainStorylineLabel={selectedMainStorylineLabel}
-              selectedTargetStorylineLabel={selectedTargetStorylineLabel}
-              selectedTargetStorylines={selectedTargetStorylines}
-              storylineRhythmHints={storylineRhythmHints}
-              savingState={savingState}
-              loadingChapter={loadingChapter}
-              selectedBookId={selectedBookId}
-              onChapterNumberChange={requestChapterChange}
-              onSaveChapterPlan={handleSaveMountedStorylines}
-              onOpenOutlineModal={() => setChapterModal('outline')}
-              onOpenCharacterModal={() => setChapterModal('character')}
-              onOpenStorylineCreator={openStorylineCreator}
-              onOpenStorylineEditor={openStorylineEditor}
-              onClearStorylineSelection={clearStorylineSelection}
-              onSelectMainStoryline={selectMainStoryline}
-              onToggleTargetStoryline={toggleTargetStoryline}
-              onAdjustStorylineRange={adjustStorylineRange}
-              onContextChipClick={handleContextChipClick}
-              activeDrawer={activeDrawer}
+              chapterName={draftChapterPlan.chapter_name}
+              mainStorylineLabel={chapterView.mainStoryline}
+              totalChapterCount={chapterContext.totalChapterCount}
+              chapterListItems={chapterContext.chapterListItems}
+              onPrevChapter={goToPreviousChapter}
+              onNextChapter={goToNextChapter}
+              onSelectChapter={requestChapterChange}
+              onSwitchBook={handleSwitchBook}
+              showNavigation={false}
             />
+            <div className="workbench-dual-pane">
+              <div
+                className="workbench-sidebar-hotzone"
+                onMouseEnter={() => {
+                  if (workbenchSidebarCollapsed) setWorkbenchSidebarPeek(true);
+                }}
+                aria-hidden="true"
+              />
+              <div className="workbench-dual-pane-left">
+                <aside
+                  className="workbench-sidebar-shell"
+                  aria-label="创作台导航"
+                  onMouseEnter={() => {
+                    if (workbenchSidebarCollapsed) setWorkbenchSidebarPeek(true);
+                  }}
+                  onMouseLeave={() => {
+                    if (workbenchSidebarCollapsed) setWorkbenchSidebarPeek(false);
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="workbench-sidebar-toggle"
+                    onClick={(event) => {
+                      setWorkbenchSidebarCollapsed((value) => !value);
+                      event.currentTarget.blur();
+                    }}
+                    title={workbenchSidebarCollapsed ? '展开创作台导航' : '折叠创作台导航'}
+                    aria-label={workbenchSidebarCollapsed ? '展开创作台导航' : '折叠创作台导航'}
+                  >
+                    {workbenchSidebarCollapsed ? '›' : '‹'}
+                  </button>
+                  <div className="workbench-sidebar-head">
+                    <div className="workbench-sidebar-surface-switcher workbench-global-bar-head">
+                      <button
+                        type="button"
+                        className="workbench-surface-entry is-primary"
+                        onClick={() => switchSurface('workbench')}
+                        title="当前位于创作台"
+                        aria-current="page"
+                      >
+                        <span className="workbench-surface-kicker">Workbench</span>
+                        <span className="workbench-surface-state">当前区域</span>
+                        <strong>创作台</strong>
+                      </button>
+                      <button
+                        type="button"
+                        className="workbench-surface-entry is-secondary"
+                        onClick={() => switchSurface('library')}
+                        title="切换到资料库"
+                      >
+                        <span className="workbench-surface-kicker">Library</span>
+                        <span className="workbench-surface-state">前往资料</span>
+                        <strong>资料库 <em>↗</em></strong>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="workbench-sidebar-config">
+                    <section className="workbench-nav-section">
+                      <div className="workbench-nav-section-head">
+                        <MetaCode>BOOK</MetaCode>
+                      </div>
+                      <WorkbenchNavSelect
+                        label="书籍"
+                        valueLabel={currentBookTitle}
+                        items={bookSelectItems}
+                        onSelect={(bookId) => selectBookForSurface(bookId, 'workbench')}
+                      />
+                      <button
+                        type="button"
+                        className="workbench-nav-link"
+                        onClick={() => switchSurface('library')}
+                      >
+                        资料库
+                      </button>
+                    </section>
+
+                    <section className="workbench-nav-section">
+                      <div className="workbench-nav-section-head">
+                        <MetaCode>CHAPTERS</MetaCode>
+                        <span>{chapterNumber} / {chapterContext.totalChapterCount || '?'}</span>
+                      </div>
+                      <WorkbenchNavSelect
+                        label="卷"
+                        valueLabel={currentVolumeSelectLabel}
+                        items={volumeSelectItems}
+                        onSelect={handleVolumeNavigationChange}
+                      />
+                      <WorkbenchNavSelect
+                        label="章"
+                        valueLabel={currentChapterSelectLabel}
+                        items={chapterSelectItems}
+                        onSelect={requestChapterChange}
+                      />
+                      <div className="workbench-nav-chapter-switch">
+                        <button
+                          type="button"
+                          onClick={goToPreviousChapter}
+                          disabled={chapterNumber <= 1}
+                        >
+                          上一章
+                        </button>
+                        <button type="button" onClick={goToNextChapter}>
+                          下一章
+                        </button>
+                      </div>
+                      <div className="workbench-nav-theme-control">
+                        <MetaCode>THEME</MetaCode>
+                        <ThemePopover triggerLabel="页面氛围" compact />
+                      </div>
+                    </section>
                   </div>
                 </aside>
               </div>
               <div className="workbench-dual-pane-right">
                 <ContentWorkspace
+              chapterConfigPanel={
+                <ChapterConfigPanel
+                  sectionMode="config"
+                  draftChapterPlan={draftChapterPlan}
+                  chapterView={chapterView}
+                  storylineOptions={storylineOptions}
+                  selectedTargetStorylines={selectedTargetStorylines}
+                  storylineRhythmHints={storylineRhythmHints}
+                  savingState={savingState}
+                  selectedBookId={selectedBookId}
+                  onSaveChapterPlan={handleSaveMountedStorylines}
+                  onOpenOutlineModal={() => setChapterModal('outline')}
+                  onOpenCharacterModal={() => setChapterModal('character')}
+                  onOpenStorylineCreator={openStorylineCreator}
+                  onOpenStorylineEditor={openStorylineEditor}
+                  onClearStorylineSelection={clearStorylineSelection}
+                  onSelectMainStoryline={selectMainStoryline}
+                  onToggleTargetStoryline={toggleTargetStoryline}
+                  onAdjustStorylineRange={adjustStorylineRange}
+                  onContextChipClick={handleContextChipClick}
+                  activeDrawer={activeDrawer}
+                />
+              }
               chapterNumber={chapterNumber}
               draftChapterPlan={draftChapterPlan}
               chapterContext={chapterContext}
@@ -1324,11 +1499,91 @@ export default function App() {
               onNextChapter={goToNextChapter}
               onChapterNumberChange={requestChapterChange}
               onUpdateGenerationSetting={updateGenerationSetting}
+              onContextChipClick={handleContextChipClick}
+              onOpenOutlineModal={() => setChapterModal('outline')}
+              onOpenCharacterModal={() => setChapterModal('character')}
+              onOpenStorylinePicker={() => setChapterModal('storyline-picker')}
             />
               </div>
             </div>
           </section>
         </>
+      <ContextDrawer
+        open={activeDrawer === 'outline'}
+        title="章节细纲"
+        onClose={handleCloseDrawer}
+      >
+        <div className="drawer-detail-stack">
+          <section className="drawer-detail-card">
+            <div className="drawer-detail-actions">
+              <MetaCode>SUMMARY</MetaCode>
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => {
+                  handleCloseDrawer();
+                  setChapterModal('outline');
+                }}
+              >
+                编辑细纲
+              </button>
+            </div>
+            <IndentedTextBlock
+              text={drawerOutlineText}
+              className="mt-3"
+              paragraphClassName="cn-text-paragraph text-[15px] leading-8 text-[color:var(--text)]"
+            />
+          </section>
+        </div>
+      </ContextDrawer>
+      <ContextDrawer
+        open={activeDrawer === 'character-config'}
+        title="角色相关配置"
+        onClose={handleCloseDrawer}
+      >
+        <div className="drawer-detail-stack">
+          <section className="drawer-detail-card">
+            <div className="drawer-detail-actions">
+              <MetaCode>NOTES</MetaCode>
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => {
+                  handleCloseDrawer();
+                  setChapterModal('character');
+                }}
+              >
+                编辑角色
+              </button>
+            </div>
+            <p className="mt-3 break-words text-[15px] leading-8 text-[color:var(--muted)]">
+              {draftChapterPlan.character_notes || '还没有角色说明。'}
+            </p>
+          </section>
+          {Array.isArray(draftChapterPlan.role_execution) && draftChapterPlan.role_execution.length > 0 ? (
+            <section className="drawer-detail-card">
+              <MetaCode>ROLE EXECUTION</MetaCode>
+              <div className="mt-3 grid gap-3">
+                {draftChapterPlan.role_execution.map((item, index) => (
+                  <section
+                    key={`${item.role || 'role'}-${index}`}
+                    className="drawer-inline-item"
+                  >
+                    <MetaCode>ROLE {String(index + 1).padStart(2, '0')}</MetaCode>
+                    <p className="mt-2 break-words text-[14px] leading-7 text-[color:var(--text)]">
+                      <strong>{item.role || '未命名角色'}：</strong>
+                      {item.chapter_function || item.allowed_change || '本章角色执行要求待补充'}
+                    </p>
+                    <p className="mt-1 break-words text-[13px] leading-6 text-[color:var(--muted)]">
+                      {describeRoleExecutionMeta(item)}
+                    </p>
+                  </section>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
+      </ContextDrawer>
       <ContextDrawer
         open={activeDrawer === 'book'}
         title="📖 全书设定"
@@ -1519,6 +1774,56 @@ export default function App() {
                   : '当前还没有角色执行拆解。系统会先按出场角色生成兜底版本，后续再接模型生成草稿。'}
               </pre>
             </section>
+          </div>
+        </Modal>
+      ) : null}
+
+      {chapterModal === 'storyline-picker' ? (
+        <Modal
+          title={'选择第 ' + chapterNumber + ' 章剧情线'}
+          description="选择本章要推进的剧情线，并指定主推线。"
+          onClose={() => setChapterModal(null)}
+          actions={
+            <>
+              {savingState.error ? <div className="modal-error">{savingState.error}</div> : null}
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={clearStorylineSelection}
+                disabled={!selectedBookId || selectedTargetStorylines.length === 0}
+              >
+                清空
+              </button>
+              <button type="button" className="ghost-btn" onClick={() => setChapterModal(null)}>取消</button>
+              <button type="button" className="solid-btn" onClick={handleSaveMountedStorylines} disabled={savingState.loading}>
+                {savingState.loading ? '正在保存...' : '保存剧情线选择'}
+              </button>
+            </>
+          }
+        >
+          <div className="storyline-picker-modal">
+            <ChapterConfigPanel
+              sectionMode="config"
+              draftChapterPlan={draftChapterPlan}
+              chapterView={chapterView}
+              storylineOptions={storylineOptions}
+              selectedTargetStorylines={selectedTargetStorylines}
+              storylineRhythmHints={storylineRhythmHints}
+              savingState={savingState}
+              selectedBookId={selectedBookId}
+              onSaveChapterPlan={handleSaveMountedStorylines}
+              onOpenOutlineModal={() => setChapterModal('outline')}
+              onOpenCharacterModal={() => setChapterModal('character')}
+              onOpenStorylineCreator={openStorylineCreator}
+              onOpenStorylineEditor={openStorylineEditor}
+              onClearStorylineSelection={clearStorylineSelection}
+              onSelectMainStoryline={selectMainStoryline}
+              onToggleTargetStoryline={toggleTargetStoryline}
+              onAdjustStorylineRange={adjustStorylineRange}
+              onContextChipClick={handleContextChipClick}
+              activeDrawer={activeDrawer}
+              showActionRow={false}
+            />
           </div>
         </Modal>
       ) : null}

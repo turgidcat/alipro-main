@@ -399,10 +399,10 @@ export async function fetchBookPlanningBundle(bookId) {
 function normalizeVolumePlan(volumePlan) {
   return {
     id: volumePlan.id,
-    volumeNumber: Number(volumePlan.volume_number || 1),
+    volumeNumber: Number(volumePlan.volume_number || volumePlan.volumeNumber || 1),
     volume_name: volumePlan.volume_name || '',
     volume_theme: volumePlan.volume_theme || '',
-    estimated_chapters: Number(volumePlan.estimated_chapters || 0),
+    estimated_chapters: Number(volumePlan.estimated_chapters || volumePlan.estimatedChapters || 0),
     notes: volumePlan.notes || '',
     stage_goal: volumePlan.stage_goal || '',
     core_conflict: volumePlan.core_conflict || '',
@@ -596,9 +596,40 @@ function hasAnyPlanContent(plan = {}) {
   return listFields.some((items) => Array.isArray(items) && items.length > 0);
 }
 
-function buildChapterListItems(chapters = [], chapterPlans = [], currentChapterNumber = 1) {
+function buildVolumeRanges(volumeRecords = []) {
+  let cursor = 1;
+  return (Array.isArray(volumeRecords) ? volumeRecords : [])
+    .map(normalizeVolumePlan)
+    .filter(Boolean)
+    .sort((left, right) => Number(left.volumeNumber || 0) - Number(right.volumeNumber || 0))
+    .map((volume) => {
+      const estimatedChapters = Math.max(0, Number(volume.estimated_chapters || 0));
+      const startChapter = cursor;
+      const endChapter = estimatedChapters > 0
+        ? cursor + estimatedChapters - 1
+        : cursor;
+      cursor = endChapter + 1;
+      return {
+        ...volume,
+        startChapter,
+        endChapter
+      };
+    });
+}
+
+function findVolumeForChapter(chapterNumber, volumeRanges = []) {
+  const normalizedChapterNumber = Number(chapterNumber || 0);
+  if (normalizedChapterNumber <= 0) return null;
+  return volumeRanges.find((volume) => (
+    normalizedChapterNumber >= Number(volume.startChapter || 0) &&
+    normalizedChapterNumber <= Number(volume.endChapter || 0)
+  )) || null;
+}
+
+function buildChapterListItems(chapters = [], chapterPlans = [], currentChapterNumber = 1, volumeRecords = [], fallbackVolumeNumber = 1) {
   const chapterMap = new Map();
   const planMap = new Map();
+  const volumeRanges = buildVolumeRanges(volumeRecords);
 
   (Array.isArray(chapters) ? chapters : []).forEach((chapter) => {
     const chapterNumber = Number(chapter?.chapter_number || 0);
@@ -625,6 +656,15 @@ function buildChapterListItems(chapters = [], chapterPlans = [], currentChapterN
     const plan = planMap.get(chapterNumber);
     const hasContent = Boolean(String(chapter?.content || '').trim());
     const planOnly = !hasContent && hasAnyPlanContent(plan);
+    const inferredVolume = findVolumeForChapter(chapterNumber, volumeRanges);
+    const volumeNumber = Number(
+      plan?.volume_number
+      || chapter?.volume_number
+      || inferredVolume?.volumeNumber
+      || fallbackVolumeNumber
+      || 1
+    );
+    const matchedVolume = volumeRanges.find((volume) => Number(volume.volumeNumber || 0) === volumeNumber);
     const chapterName = String(
       chapter?.chapter_name
       || chapter?.title
@@ -635,6 +675,10 @@ function buildChapterListItems(chapters = [], chapterPlans = [], currentChapterN
     return {
       chapterNumber,
       chapterName,
+      volumeNumber,
+      volumeLabel: matchedVolume?.volume_name
+        ? `第 ${volumeNumber} 卷 · ${matchedVolume.volume_name}`
+        : `第 ${volumeNumber} 卷`,
       status: hasContent ? 'has-content' : planOnly ? 'plan-only' : 'empty'
     };
   });
@@ -665,7 +709,6 @@ export async function fetchChapterSetupBundle(bookId, chapterNumber) {
     : [];
 
   const chapterContext = buildChapterContext(chapters);
-  const chapterList = buildChapterListItems(chapters, chapterPlans, chapterNumber);
   const currentChapter = Array.isArray(chapters)
     ? chapters.find((item) => Number(item.chapter_number || 0) === Number(chapterNumber))
     : null;
@@ -714,6 +757,16 @@ export async function fetchChapterSetupBundle(bookId, chapterNumber) {
   const volumeSetting = Array.isArray(volumeRecords)
     ? volumeRecords.find((item) => Number(item.volumeNumber || 0) === volumeNumber)
     : null;
+  const chapterList = buildChapterListItems(chapters, chapterPlans, chapterNumber, volumeRecords, volumeNumber);
+  const volumeList = buildVolumeRanges(volumeRecords).map((volume) => ({
+    volumeNumber: Number(volume.volumeNumber || 1),
+    volumeLabel: volume.volume_name
+      ? `第 ${Number(volume.volumeNumber || 1)} 卷 · ${volume.volume_name}`
+      : `第 ${Number(volume.volumeNumber || 1)} 卷`,
+    estimatedChapters: Number(volume.estimated_chapters || 0),
+    startChapter: Number(volume.startChapter || 1),
+    endChapter: Number(volume.endChapter || 1)
+  }));
   const normalizedPreviousFeedbackLabel = previousChapterFeedback?.chapter_summary
     || previousChapterFeedback?.story_progress
     || '';
@@ -729,6 +782,7 @@ export async function fetchChapterSetupBundle(bookId, chapterNumber) {
   chapterContext.previousFeedbackFocus = normalizedPreviousFeedbackFocus;
   chapterContext.totalChapterCount = chapterList.totalChapterCount;
   chapterContext.chapterListItems = chapterList.items;
+  chapterContext.volumeList = volumeList;
   chapterContext.generationConstraints = buildVisibleGenerationConstraints({
     plan,
     previousCarry: previousContinuityCarry,

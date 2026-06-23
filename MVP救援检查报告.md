@@ -2,70 +2,58 @@
 
 1. 执行时间
 
-2026-06-23 01:28:43
+2026-06-23 20:50:15
 
 2. 当前分支
 
-codex/workbench-refactor-checkpoint
+main
 
 3. 工作区状态
 
 ```text
- M backend/routes/ai.js
- M backend/verify-batch-generation.js
-?? "Alipro MVP上线前验收矩阵.md"
+(空)
 ```
 
 4. 修改文件列表
 
-- Alipro MVP上线前验收矩阵.md
-- backend/routes/ai.js
-- backend/verify-batch-generation.js
+- 无
 
 未跟踪文件：
 
-- Alipro MVP上线前验收矩阵.md
+- 无
 
 新增文件：
 
-- Alipro MVP上线前验收矩阵.md
+- 无
 
 5. diff 统计
 
 git diff --stat
 
 ```text
-warning: in the working copy of 'backend/routes/ai.js', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'backend/verify-batch-generation.js', LF will be replaced by CRLF the next time Git touches it
- backend/routes/ai.js               | 14 +++++++++++++-
- backend/verify-batch-generation.js |  4 ++--
- 2 files changed, 15 insertions(+), 3 deletions(-)
+(空)
 ```
 
 git diff --name-status
 
 ```text
-warning: in the working copy of 'backend/routes/ai.js', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'backend/verify-batch-generation.js', LF will be replaced by CRLF the next time Git touches it
-M	backend/routes/ai.js
-M	backend/verify-batch-generation.js
+(空)
 ```
 
 git diff --check
 
 ```text
-warning: in the working copy of 'backend/routes/ai.js', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'backend/verify-batch-generation.js', LF will be replaced by CRLF the next time Git touches it
+(空)
 ```
 
 git log --oneline -5
 
 ```text
+6619413 merge: 合并上线前入口与资料库界面优化
+4cdfcfc feat: 优化资料库入口与双页面框架
+171cdf2 fix: 补齐上线前剧情线闭环与流式生成验收
+1fc182c fix: 完成 MVP 上线前矩阵化验收与最小修复
 fb03ab4 chore: checkpoint before workbench refactor
-9074165 fix: 完成上线前 UI 最小修复
-7c6ad32 Update README local startup instructions
-e2bf802 docs: update development startup instructions
-be8251f fix: enforce formal audit in MVP verification
 ```
 
 6. 文档存在情况
@@ -74,21 +62,11 @@ be8251f fix: enforce formal audit in MVP verification
 
 7. 是否有越界改动警告
 
-- 可能越界：Alipro MVP上线前验收矩阵.md 不在本轮允许改动范围内。
+- 未发现越界改动警告
 
 8. 语法检查结果
 
-- backend/routes/ai.js：PASS
-
-```text
-通过
-```
-
-- backend/verify-batch-generation.js：PASS
-
-```text
-通过
-```
+- 没有需要做语法检查的本轮 .js 文件
 
 9. 前端 build 结果
 
@@ -100,30 +78,29 @@ PASS
 
 10. inspect 验收结果
 
-PASS
+FAIL
 
 ```text
 ✅ 数据库初始化完成
 📁 数据库路径: C:\Users\turgidcat\Desktop\alipro-main\backend\database\novel.db
 连续 3 章闭环验收（inspect）：book=b8bd76b6-170f-4666-9233-36e86b1f8b1d《破雾修真录》，chapters=1,2,3
-┌─────────┬───────────────┬─────────────┬────────────┬─────────────┬──────────────────┬────────────┬─────────────────┬───────────────┬───────────────┬───────────────────────┬──────────────────┬──────────────────────┬───────────────────┬──────────────┬──────────────────┬────────────────────────┬────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬────────┐
-│ (index) │ chapterNumber │ chapterName │ hasContent │ hasFeedback │ feedbackSource   │ hasSummary │ hasQualityCheck │ qualityStatus │ qualitySource │ planAnchorAuditStatus │ formalFeedbackOk │ formalQualityCheckOk │ planAnchorAuditOk │ qualityGreen │ needsHumanReview │ canReadPreviousSummary │ previousSummaryPreview                                                                                                                                 │ status │
-├─────────┼───────────────┼─────────────┼────────────┼─────────────┼──────────────────┼────────────┼─────────────────┼───────────────┼───────────────┼───────────────────────┼──────────────────┼──────────────────────┼───────────────────┼──────────────┼──────────────────┼────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼────────┤
-│ 0       │ 1             │ '破雾之夜'  │ true       │ true        │ 'model_feedback' │ true       │ true            │ 'passed'      │ 'model_audit' │ ''                    │ true             │ true                 │ false             │ true         │ false            │ 'n/a'                  │ ''                                                                                                                                                     │ 'ok'   │
-│ 1       │ 2             │ '入雾见门'  │ true       │ true        │ 'model_feedback' │ true       │ true            │ 'passed'      │ 'model_audit' │ ''                    │ true             │ true                 │ false             │ true         │ false            │ true                   │ '雾夜中，沈破雾被雾门守卒逼出破雾之力，白照夜出面担保暂缓归位，告知其父沈长安下落，并带他前往宗门。'                                                   │ 'ok'   │
-│ 2       │ 3             │ '灯下旧名'  │ true       │ true        │ 'model_feedback' │ true       │ true            │ 'passed'      │ 'model_audit' │ ''                    │ true             │ true                 │ false             │ true         │ false            │ true                   │ '沈破雾随白照夜抵达宗门雾门，因门禁被改遭陆听澜阻拦，白照夜以旧案卷宗交换，陆听澜同意开门但要求测试沈破雾的破雾之力，测试后确认其纯度高于其父沈长安。' │ 'ok'   │
-└─────────┴───────────────┴─────────────┴────────────┴─────────────┴──────────────────┴────────────┴─────────────────┴───────────────┴───────────────┴───────────────────────┴──────────────────┴──────────────────────┴───────────────────┴──────────────┴──────────────────┴────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴────────┘
+┌─────────┬───────────────┬─────────────┬────────────┬─────────────┬──────────────────┬────────────┬─────────────────┬───────────────┬───────────────┬───────────────────────┬──────────────────────┬────────────────────┬──────────────────┬─────────────┬───────────────────┬─────────────────┬─────────────────────┬──────────────────────┬──────────────────┬──────────────────────┬───────────────────┬──────────────┬──────────────────┬────────────────────────┬────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬─────────────────────────┐
+│ (index) │ chapterNumber │ chapterName │ hasContent │ hasFeedback │ feedbackSource   │ hasSummary │ hasQualityCheck │ qualityStatus │ qualitySource │ planAnchorAuditStatus │ storylineAuditStatus │ hasStorylineTarget │ usedStorylineIds │ usedBeatIds │ storylinePromptOk │ storylineBeatOk │ storylineFeedbackOk │ storylineWritebackOk │ formalFeedbackOk │ formalQualityCheckOk │ planAnchorAuditOk │ qualityGreen │ needsHumanReview │ canReadPreviousSummary │ previousSummaryPreview                                                                                                                                 │ status                  │
+├─────────┼───────────────┼─────────────┼────────────┼─────────────┼──────────────────┼────────────┼─────────────────┼───────────────┼───────────────┼───────────────────────┼──────────────────────┼────────────────────┼──────────────────┼─────────────┼───────────────────┼─────────────────┼─────────────────────┼──────────────────────┼──────────────────┼──────────────────────┼───────────────────┼──────────────┼──────────────────┼────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────────────────────┤
+│ 0       │ 1             │ '破雾之夜'  │ true       │ true        │ 'model_feedback' │ true       │ true            │ 'passed'      │ 'model_audit' │ ''                    │ ''                   │ true               │ ''               │ ''          │ false             │ false           │ false               │ true                 │ true             │ true                 │ false             │ true         │ false            │ 'n/a'                  │ ''                                                                                                                                                     │ 'missing_required_link' │
+│ 1       │ 2             │ '入雾见门'  │ true       │ true        │ 'model_feedback' │ true       │ true            │ 'passed'      │ 'model_audit' │ ''                    │ ''                   │ true               │ ''               │ ''          │ false             │ false           │ false               │ true                 │ true             │ true                 │ false             │ true         │ false            │ true                   │ '雾夜中，沈破雾被雾门守卒逼出破雾之力，白照夜出面担保暂缓归位，告知其父沈长安下落，并带他前往宗门。'                                                   │ 'missing_required_link' │
+│ 2       │ 3             │ '灯下旧名'  │ true       │ true        │ 'model_feedback' │ true       │ true            │ 'passed'      │ 'model_audit' │ ''                    │ ''                   │ true               │ ''               │ ''          │ false             │ false           │ false               │ true                 │ true             │ true                 │ false             │ true         │ false            │ true                   │ '沈破雾随白照夜抵达宗门雾门，因门禁被改遭陆听澜阻拦，白照夜以旧案卷宗交换，陆听澜同意开门但要求测试沈破雾的破雾之力，测试后确认其纯度高于其父沈长安。' │ 'missing_required_link' │
+└─────────┴───────────────┴─────────────┴────────────┴─────────────┴──────────────────┴────────────┴─────────────────┴───────────────┴───────────────┴───────────────────────┴──────────────────────┴────────────────────┴──────────────────┴─────────────┴───────────────────┴─────────────────┴─────────────────────┴──────────────────────┴──────────────────┴──────────────────────┴───────────────────┴──────────────┴──────────────────┴────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴─────────────────────────┘
 ```
 
 11. 最终结论
 
-- WARN
+- FAIL
 
 附加警告：
 
-- 当前分支不是 mvp-rescue，而是 codex/workbench-refactor-checkpoint。
-- 可能越界：Alipro MVP上线前验收矩阵.md 不在本轮允许改动范围内。
+- 当前分支不是 mvp-rescue，而是 main。
 
 阻塞问题：
 
-- 无
+- inspect 验收失败。

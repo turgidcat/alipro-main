@@ -48,6 +48,29 @@ function normalizeQualityCheck(rawQualityCheck = {}) {
   };
 }
 
+function formatQualitySource(source) {
+  return {
+    model_audit: '模型质检',
+    local_fallback: '本地兜底检查',
+    none: ''
+  }[source] || source;
+}
+
+function formatAuditStatus(status) {
+  return {
+    passed: '通过',
+    warning: '需要复查',
+    failed: '未通过',
+    degraded: '降级完成',
+    not_run: '未检查',
+    not_applicable: '',
+    advanced: '推进充分',
+    needs_review: '需要复查',
+    stable: '稳定',
+    ok: '正常'
+  }[status] || status;
+}
+
 export function buildQualityCheckState(chapterFeedback = {}) {
   const qualityCheck = normalizeQualityCheck(chapterFeedback?.quality_check);
   const statusMeta = {
@@ -81,16 +104,16 @@ export function buildQualityCheckState(chapterFeedback = {}) {
     detailParts.push(`判定：${qualityCheck.verdict}`);
   }
   if (qualityCheck.source && qualityCheck.source !== 'none') {
-    detailParts.push(`来源：${qualityCheck.source}`);
+    detailParts.push(`来源：${formatQualitySource(qualityCheck.source)}`);
   }
   if (qualityCheck.degradedReason) {
     detailParts.push(`原因：${qualityCheck.degradedReason}`);
   }
   if (qualityCheck.storylineAudit.status && qualityCheck.storylineAudit.status !== 'not_applicable') {
-    detailParts.push(`剧情线：${qualityCheck.storylineAudit.status}`);
+    detailParts.push(`剧情线：${formatAuditStatus(qualityCheck.storylineAudit.status)}`);
   }
   if (qualityCheck.wordCountAudit.status && qualityCheck.wordCountAudit.status !== 'not_applicable') {
-    detailParts.push(`字数：${qualityCheck.wordCountAudit.status}`);
+    detailParts.push(`字数：${formatAuditStatus(qualityCheck.wordCountAudit.status)}`);
   }
 
   let summary = detailParts.join(' · ');

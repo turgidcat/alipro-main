@@ -57,7 +57,7 @@ function ThemeControlGroup({ label, options, value, onChange }) {
   );
 }
 
-export default function ThemePopover() {
+export default function ThemePopover({ triggerLabel = '主题', compact = false }) {
   const rootRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState(() => getStoredThemePopoverSettings());
@@ -108,7 +108,7 @@ export default function ThemePopover() {
         aria-expanded={open}
         aria-haspopup="dialog"
       >
-        <span>主题</span>
+        <span>{triggerLabel}</span>
         <span className="hidden text-[11px] text-[color:var(--muted)] md:inline">
           {summary}
         </span>
@@ -116,7 +116,12 @@ export default function ThemePopover() {
 
       {open ? (
         <div
-          className="absolute right-0 top-[calc(100%+0.65rem)] z-50 w-[min(22rem,calc(100vw-2rem))] rounded-[16px] border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-strong)_94%,white)] p-4 shadow-[0_18px_40px_color-mix(in_srgb,var(--text)_12%,transparent)]"
+          className={[
+            'theme-popover-panel absolute top-[calc(100%+0.65rem)] z-50 max-w-[calc(100vw-2rem)] overflow-x-hidden rounded-[16px] border border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel-strong)_94%,white)] shadow-[0_18px_40px_color-mix(in_srgb,var(--text)_12%,transparent)]',
+            compact
+              ? 'is-compact left-0 p-3'
+              : 'right-0 w-[min(22rem,calc(100vw-2rem))] p-4'
+          ].join(' ')}
           role="dialog"
           aria-label="主题设置"
         >
@@ -127,7 +132,7 @@ export default function ThemePopover() {
             <h3 className="font-serif text-[1.1rem] font-semibold text-[color:var(--text)]">
               编辑器偏好
             </h3>
-            <p className="text-[12px] leading-6 text-[color:var(--muted)]">
+            <p className={`${compact ? 'hidden' : ''} text-[12px] leading-6 text-[color:var(--muted)]`}>
               这里只保留明暗、暖橙深浅和正文阅读字体。
             </p>
           </div>

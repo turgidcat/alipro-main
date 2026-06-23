@@ -1,9 +1,9 @@
-import { useNavigate } from 'react-router-dom';
 import ChapterList from './ChapterList.jsx';
 import ThemePopover from '../theme/ThemePopover.jsx';
 
 export default function GlobalBar({
   bookTitle,
+  volumeLabel,
   chapterNumber,
   chapterName,
   mainStorylineLabel,
@@ -11,21 +11,29 @@ export default function GlobalBar({
   chapterListItems,
   onPrevChapter,
   onNextChapter,
-  onSelectChapter
+  onSelectChapter,
+  onSwitchBook,
+  showNavigation = true
 }) {
-  const navigate = useNavigate();
-
   return (
     <div className="workbench-global-bar">
-      <div className="flex flex-wrap items-center gap-3 text-[13px] text-[color:var(--muted)]">
-        <button
-          type="button"
-          className="workbench-global-bar-book"
-          onClick={() => navigate('/books')}
-          title="点击查看资料库"
-        >
+      <div className="workbench-global-bar-meta">
+        <span className="workbench-global-bar-label">
+          // book
+        </span>
+        <span className="workbench-global-bar-bookline">
           {bookTitle || '未选择书籍'}
-        </button>
+        </span>
+        {volumeLabel ? (
+          <>
+            <span className="workbench-global-bar-label">
+              // volume
+            </span>
+            <span className="workbench-global-bar-bookline">
+              {volumeLabel}
+            </span>
+          </>
+        ) : null}
         <span className="workbench-global-bar-label">
           // chapter
         </span>
@@ -39,6 +47,7 @@ export default function GlobalBar({
         ) : null}
       </div>
 
+      {showNavigation ? (
       <div className="workbench-global-bar-nav">
         <div className="flex flex-wrap items-center gap-3">
           <button
@@ -66,8 +75,18 @@ export default function GlobalBar({
             triggerClassName="ghost-btn"
           />
           <ThemePopover />
+          {onSwitchBook ? (
+            <button
+              type="button"
+              className="ghost-btn workbench-switch-book-btn"
+              onClick={onSwitchBook}
+            >
+              切换作品
+            </button>
+          ) : null}
         </div>
       </div>
+      ) : null}
     </div>
   );
 }
