@@ -160,6 +160,20 @@ node scripts/bump-version.js major "重大变更"
 - `version.json`
 - `docs/changelog.json`
 
+commit 后 changelog 自检：
+
+```powershell
+node scripts/check-post-commit-changelog.js
+```
+
+如果最新 commit 距离上一次 changelog 覆盖的 commit 超过 24 小时，脚本会提示需要更新，并覆盖上一次已记录 commit 之后的所有 commit：
+
+```powershell
+node scripts/check-post-commit-changelog.js --apply
+```
+
+该机制只自动推进 `1.x` 版本，不会自动升到 `2.0`。
+
 ## 清理说明
 
 仓库已经移除一批过时文件：

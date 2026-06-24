@@ -8,6 +8,8 @@
     "dev": "nodemon server.js",
     "verify:batch": "node verify-batch-generation.js",
     "changelog:daily": "node ../scripts/ensure-daily-changelog.js",
+    "changelog:post-commit": "node ../scripts/check-post-commit-changelog.js",
+    "changelog:post-commit:apply": "node ../scripts/check-post-commit-changelog.js --apply",
     "version:auto": "node ../scripts/auto-bump-version.js --apply",
     "version:auto:check": "node ../scripts/auto-bump-version.js"
   },

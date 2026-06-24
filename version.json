@@ -1,7 +1,37 @@
 {
-  "version": "1.4.0",
-  "lastUpdated": "2026-06-15",
+  "version": "1.9.0",
+  "lastUpdated": "2026-06-25",
   "history": [
+    {
+      "version": "1.9.0",
+      "date": "2026-06-25",
+      "type": "patch",
+      "title": "项目结构清理与文档整理"
+    },
+    {
+      "version": "1.8.0",
+      "date": "2026-06-24",
+      "type": "minor",
+      "title": "资料库与创作台体验优化"
+    },
+    {
+      "version": "1.7.0",
+      "date": "2026-06-23",
+      "type": "minor",
+      "title": "作品入口与剧情线闭环"
+    },
+    {
+      "version": "1.6.0",
+      "date": "2026-06-22",
+      "type": "patch",
+      "title": "生成检查与上线前修复"
+    },
+    {
+      "version": "1.5.0",
+      "date": "2026-06-21",
+      "type": "patch",
+      "title": "早期验收记录整理"
+    },
     {
       "version": "1.4.0",
       "date": "2026-06-15",
