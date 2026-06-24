@@ -6,7 +6,6 @@ import { applyThemePopoverSettings, getStoredThemePopoverSettings } from './styl
 const NAV_ITEMS = [
   { path: '/books', label: '资料库' },
   { path: '/workbench', label: '创作台' },
-  { path: '/generation-logic', label: '生成链路' },
   { path: '/changelog', label: '更新日志' }
 ];
 

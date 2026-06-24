@@ -118,16 +118,19 @@ export default function ContentWorkspace(props) {
   const generationPreviewGoal = String(chapterStructure.chapter_goal || draftChapterPlan.chapter_mission || '').trim();
   const generationPreviewScenes = getPreviewLines(chapterStructure.key_scenes, 4);
   const generationPreviewStoryline = getMainStorylineLabel(draftChapterPlan);
+  const generationPreviewConflict = String(chapterStructure.conflict_escalation || '').trim();
   const generationPreviewHook = String(chapterStructure.ending_hook || draftChapterPlan.ending_hook || '').trim();
   const missingOutlineItems = [
     generationPreviewGoal ? '' : '本章目标',
     generationPreviewScenes.length > 0 ? '' : '关键场景',
+    generationPreviewConflict ? '' : '冲突升级',
     generationPreviewHook ? '' : '结尾钩子'
   ].filter(Boolean);
   const missingStorylineItems = [
     hasMainStoryline ? '' : '主推剧情线'
   ].filter(Boolean);
   const requiredMissingCount = missingOutlineItems.length + missingStorylineItems.length;
+  const requiredMissingLabels = [...missingOutlineItems, ...missingStorylineItems];
   const roleConfigLabel = hasRoleConfig ? '已配置本章角色' : '建议补出场角色';
   const storylineStatusLabel = hasMainStoryline
     ? (generationPreviewStoryline || '已设置主推剧情线')
@@ -197,9 +200,15 @@ export default function ContentWorkspace(props) {
               <div className="workbench-generation-preview-title-row">
                 <h3>{chapterTitle}</h3>
                 <span className={requiredMissingCount > 0 ? 'is-warning' : 'is-ready'}>
-                  {requiredMissingCount > 0 ? `还差 ${requiredMissingCount} 项` : '可以生成'}
+                  {requiredMissingCount > 0 ? `还差 ${requiredMissingCount} 个必填点` : '可以生成'}
                 </span>
               </div>
+              {requiredMissingCount > 0 ? (
+                <div className="workbench-generation-blocking-tip">
+                  <strong>缺：{requiredMissingLabels.join('、')}</strong>
+                  <span>先补齐红色项，再生成正文。</span>
+                </div>
+              ) : null}
               <div className="workbench-generation-prep-list">
                 <button
                   type="button"
@@ -230,7 +239,7 @@ export default function ContentWorkspace(props) {
                 >
                   <span className="workbench-generation-prep-main">
                     <strong>角色配置</strong>
-                    <small>{roleConfigLabel}</small>
+                    <small>{hasRoleConfig ? roleConfigLabel : `建议：${roleConfigLabel}`}</small>
                   </span>
                   <em>配角色</em>
                 </button>

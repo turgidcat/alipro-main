@@ -317,10 +317,6 @@ app.listen(PORT, () => {
       raw: `GET  http://localhost:${PORT}/api/books`,
       styled: `${colorize('GET', ANSI.bold, ANSI.white)}  ${colorize(`http://localhost:${PORT}/api/books`, ANSI.gray)}`
     },
-    {
-      raw: 'GET  /api/analysis/codex-cost',
-      styled: `${colorize('GET', ANSI.bold, ANSI.white)}  ${colorize('/api/analysis/codex-cost', ANSI.gray)}`
-    },
     { raw: '' },
     {
       raw: '按 Ctrl+C 停止服务器',

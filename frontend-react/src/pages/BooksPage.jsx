@@ -423,8 +423,8 @@ export default function BooksPage() {
   const [avatarCropState, setAvatarCropState] = useState(null);
   const [pendingRouteAction, setPendingRouteAction] = useState(initialRouteAction);
   const [pendingRouteBookId, setPendingRouteBookId] = useState(initialRouteBookId);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('alipro-library-sidebar-collapsed') === '1');
-  const [sidebarPeek, setSidebarPeek] = useState(false);
+  const sidebarCollapsed = false;
+  const sidebarPeek = false;
 
   const currentBook = useMemo(
     () => books.find((book) => book.id === currentBookId) || null,
@@ -462,13 +462,6 @@ export default function BooksPage() {
       setCurrentBookId(pendingRouteBookId);
     }
   }, [pendingRouteBookId]);
-
-  useEffect(() => {
-    localStorage.setItem('alipro-library-sidebar-collapsed', sidebarCollapsed ? '1' : '0');
-    if (!sidebarCollapsed) {
-      setSidebarPeek(false);
-    }
-  }, [sidebarCollapsed]);
 
   useEffect(() => {
     if (loading) return;
@@ -1196,35 +1189,10 @@ export default function BooksPage() {
     <div className={joinClasses('books-admin-page library-app-shell mx-auto w-[min(var(--layout-max-width),calc(100%-1.5rem))] pb-[var(--page-shell-pad-bottom)] pt-8', sidebarCollapsed ? 'is-sidebar-collapsed' : '', sidebarCollapsed && sidebarPeek ? 'is-sidebar-peek' : '', isChapterReaderPage ? 'is-chapter-reader-page' : '')}>
       {!isChapterReaderPage ? (
         <>
-          <div
-            className="library-sidebar-hotzone"
-            onMouseEnter={() => {
-              if (sidebarCollapsed) setSidebarPeek(true);
-            }}
-            aria-hidden="true"
-          />
           <aside
             className="library-sidebar"
             aria-label="资料库导航"
-            onMouseEnter={() => {
-              if (sidebarCollapsed) setSidebarPeek(true);
-            }}
-            onMouseLeave={() => {
-              if (sidebarCollapsed) setSidebarPeek(false);
-            }}
           >
-        <button
-          type="button"
-          className="library-sidebar-toggle"
-          onClick={(event) => {
-            setSidebarCollapsed((value) => !value);
-            event.currentTarget.blur();
-          }}
-          title={sidebarCollapsed ? '展开资料库导航' : '折叠资料库导航'}
-          aria-label={sidebarCollapsed ? '展开资料库导航' : '折叠资料库导航'}
-        >
-          {sidebarCollapsed ? '›' : '‹'}
-        </button>
         <div className="library-sidebar-head">
           <div className="library-surface-switcher">
             <button
@@ -2351,15 +2319,13 @@ export default function BooksPage() {
         }
         .library-sidebar {
           position: sticky;
-          top: 82px;
+          top: 14px;
           display: grid;
           gap: 14px;
-          max-height: calc(100vh - 104px);
-          overflow: auto;
+          max-height: none;
+          overflow: visible;
           border-right: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
           padding: 6px 14px 18px 0;
-          scrollbar-width: thin;
-          scrollbar-color: color-mix(in srgb, var(--brand) 24%, transparent) transparent;
           transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
         }
         .library-sidebar::-webkit-scrollbar {
@@ -2427,46 +2393,40 @@ export default function BooksPage() {
         }
         .library-surface-switcher {
           display: grid;
-          grid-template-columns: minmax(0, 1.8fr) minmax(92px, 0.95fr);
-          gap: 14px;
-          align-items: end;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+          align-items: stretch;
         }
         .library-surface-entry {
           appearance: none;
-          border: 0;
-          background: transparent;
-          padding: 0;
           display: grid;
-          gap: 3px;
+          gap: 4px;
           min-width: 0;
+          min-height: 58px;
+          border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+          border-radius: 12px;
+          background: color-mix(in srgb, var(--surface) 74%, transparent);
+          padding: 10px 12px;
+          color: var(--text);
           cursor: pointer;
-        }
-        .library-surface-entry.is-primary {
-          padding: 2px 0 12px;
-          border-bottom: 1px solid color-mix(in srgb, var(--brand) 24%, var(--line));
-          justify-items: start;
           text-align: left;
+          transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
         }
-        .library-surface-entry.is-secondary {
-          margin-top: 10px;
-          padding: 8px 0 6px 12px;
-          border-left: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
-          justify-items: end;
-          text-align: right;
+        .library-surface-entry:hover,
+        .library-surface-entry.is-primary {
+          border-color: color-mix(in srgb, var(--brand) 36%, var(--line));
+          background: color-mix(in srgb, var(--brand) 7%, var(--surface));
         }
         .library-surface-entry strong {
           margin: 0;
           color: var(--text);
-          font-family: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+          font-family: var(--font-serif);
+          font-size: 22px;
           font-weight: 900;
-          line-height: 0.96;
-          letter-spacing: -0.05em;
-        }
-        .library-surface-entry.is-primary strong {
-          font-size: clamp(34px, 4vw, 52px);
+          line-height: 1;
+          letter-spacing: -0.04em;
         }
         .library-surface-entry.is-secondary strong {
-          font-size: clamp(18px, 2vw, 26px);
           color: color-mix(in srgb, var(--text) 82%, var(--muted));
         }
         .library-surface-entry strong em {
@@ -2477,7 +2437,7 @@ export default function BooksPage() {
         }
         .library-surface-state {
           color: color-mix(in srgb, var(--muted) 88%, white);
-          font-size: 12px;
+          font-size: 13px;
           font-weight: 700;
           letter-spacing: 0.04em;
           line-height: 1;
@@ -2498,7 +2458,7 @@ export default function BooksPage() {
         .library-sidebar-kicker,
         .library-sidebar-label {
           color: var(--brand);
-          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          font-family: var(--font-mono);
           font-size: 11px;
           font-weight: 800;
           letter-spacing: 0.14em;

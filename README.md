@@ -1,57 +1,37 @@
-# 网文 AI 智能生成器
+# Alipro
 
-基于 DeepSeek API 的小说创作工具，提供章节生成、续写、润色、书籍管理和 React 工作台能力。
+Alipro 是一个面向网文写作的 AI 小说创作工具。当前主线已经收敛为：
 
-当前仓库已经收敛到：
+- 作品入口：创建或选择作品后进入资料库 / 创作台
+- 资料库：管理书籍信息、全书汇总、大纲链、剧情线、角色资料、章节与正文
+- 创作台：围绕当前章节进行细纲准备、剧情线挂载、正文生成、正文校改和生成后检查
+- 后端：提供书籍、章节、剧情线、角色、AI 生成与校改接口
 
-- 单一前端入口：`frontend-react/`
-- 单一后端服务：`backend/`
-- 当前 MVP 主链路关注点：书籍创建、章节生成、章节反馈、摘要承接、连续 3 章闭环验收
+本仓库当前以 React + Vite 前端和 Express + SQLite 后端为主，不再维护旧静态前端入口。
 
-## 当前结构
-
-项目已经统一为单一前端入口结构：
-当前唯一前端入口为 `frontend-react/`，旧静态前端 `frontend/` 已退场删除。
+## 项目结构
 
 ```text
 alipro-main/
-├── frontend-react/
-│   ├── src/
-│   ├── public/
-│   ├── index.html
-│   ├── vite.config.js
-│   └── package.json
-├── backend/
-│   ├── server.js
-│   ├── start.bat
-│   ├── verify-batch-generation.js
-│   ├── package.json
-│   └── ...
-├── scripts/
-│   ├── bump-version.js
-│   ├── deploy-frontend.bat
-│   └── nginx-https.conf
-├── tools/
-│   ├── check-mvp-rescue.ps1
-│   └── ...
-├── docs/
-├── config/
-├── Alipro-MVP验收卡.md
-└── version.json
+├── frontend-react/          # React/Vite 前端主入口
+├── backend/                 # Express 后端与 SQLite 数据库访问
+├── scripts/                 # 启动、版本、部署辅助脚本
+├── docs/                    # 设计、生成链路与项目文档
+├── config/                  # 部署配置示例
+├── restart-alipro-dev.cmd   # Windows 兼容启动包装器
+└── version.json             # 项目版本信息
 ```
 
 说明：
 
-- 唯一前端源码目录：`frontend-react/`
-- 开发入口：`frontend-react` 的 Vite 开发服务，地址是 `http://127.0.0.1:5173/`，支持热更新
-- 托管入口：后端托管 `frontend-react/dist`，地址是 `http://localhost:3000/`，不支持热更新
-- MVP 验收说明文档：`Alipro-MVP验收卡.md`
-- MVP 救援检查脚本：`tools/check-mvp-rescue.ps1`
-- 连续章节验收脚本：`backend/verify-batch-generation.js`
+- 前端开发入口是 `frontend-react/`
+- 后端服务入口是 `backend/server.js`
+- 本地数据库默认位于 `backend/database/novel.db`
+- `frontend-react/dist` 是构建产物，不应作为源码修改入口
 
-## 本地运行
+## 本地安装
 
-首次拉取项目或依赖目录丢失时，请先分别安装前后端依赖：
+首次运行或依赖缺失时，分别安装前后端依赖：
 
 ```powershell
 cd backend
@@ -61,141 +41,112 @@ cd ..\frontend-react
 npm install
 ```
 
-### 方式一：推荐开发启动方式
+## 本地开发启动
 
-优先直接运行 PowerShell 脚本：
+推荐使用 PowerShell 7：
 
 ```powershell
 pwsh -ExecutionPolicy Bypass -File .\scripts\restart-alipro-dev.ps1
 ```
 
-这会按当前项目实际开发方式：
+该脚本会尝试：
 
-- 关闭占用 `3000` / `5173` 端口的旧进程
-- 启动后端：`backend` 下的 `npm run dev`
-- 启动前端：`frontend-react` 下的 `npm run dev -- --host 127.0.0.1`
+- 关闭占用 `3000` / `5173` 的旧进程
+- 启动后端开发服务
+- 启动前端 Vite 服务
 
-说明：
-
-- `scripts\restart-alipro-dev.ps1` 是当前实际启动入口，但不会替你执行首次 `npm install`
-- 根目录下的 `.\restart-alipro-dev.cmd` 只是兼容包装器，内部会转发到这个 PowerShell 脚本
-- 如果你是第一次运行这个仓库，先完成上面的依赖安装再执行这个脚本
-
-启动后可使用：
+启动后访问：
 
 ```text
-前端开发入口：http://127.0.0.1:5173/
+前端页面：http://127.0.0.1:5173/
 后端健康检查：http://127.0.0.1:3000/health
 ```
 
-### 方式二：手动启动开发环境
-
-先启动后端：
+也可以手动启动：
 
 ```powershell
 cd backend
-npm install
 npm run dev
 ```
 
-再启动前端：
-
 ```powershell
 cd frontend-react
-npm install
 npm run dev -- --host 127.0.0.1
 ```
 
-然后在浏览器打开：
-
-```text
-http://127.0.0.1:5173/
-```
-
-### 方式三：仅启动后端
-
-如果你只是想单独拉起后端，可以运行：
-
-```powershell
-backend\start.bat
-```
-
-注意：
-
-- 这个脚本当前只负责启动后端
-- 它不会自动启动 `frontend-react` 的 Vite 开发服务
-- 因此它不是完整的本地开发环境启动方式
-
 ## 常用页面
 
-- 开发首页：`http://127.0.0.1:5173/`，这是本地改 React 时应使用的入口，支持热更新
-- 托管首页：`http://localhost:3000/`，这是后端返回的静态构建页，不支持热更新
-- 启动引导：`http://localhost:3000/start-guide`
-- 更新日志：`http://localhost:3000/changelog`
-- 健康检查：`http://localhost:3000/health`
+```text
+/                  作品入口
+/books             资料库列表
+/books/:id         书籍详情 / 全书汇总
+/books/outlines    大纲链
+/books/storylines  剧情线
+/books/characters  角色资料
+/books/chapters    章节与正文
+/workbench         创作台
+/changelog         更新日志
+```
 
-## MVP 验收与检查
+## 常用命令
 
-### 1. 连续 3 章闭环验收
+前端构建：
 
-后端提供批量验收脚本：
+```powershell
+cd frontend-react
+npm run build
+```
+
+后端启动：
+
+```powershell
+cd backend
+npm start
+```
+
+后端开发启动：
+
+```powershell
+cd backend
+npm run dev
+```
+
+连续章节 inspect 验证：
 
 ```powershell
 cd backend
 node verify-batch-generation.js --mode inspect
 ```
 
-说明：
-
-- `inspect`：只检查已有数据，不调用正文生成
-- `generate`：实际调用生成接口，生成连续 3 章再验收
-- 默认验收对象是连续 `1,2,3` 三章
-
-如需显式指定模式：
+指定书籍和章节：
 
 ```powershell
-node verify-batch-generation.js --mode inspect
-node verify-batch-generation.js --mode generate
+node verify-batch-generation.js --mode inspect --book-id <book-id> --chapters 1,2,3
 ```
 
-### 2. MVP 救援分支检查
+## 当前产品主链路
 
-如果你在做 `mvp-rescue` 分支修复，可以运行：
+1. 在入口页创建或选择作品。
+2. 进入资料库完善基础资料、角色、剧情线和大纲链。
+3. 进入创作台选择书籍、卷、章节。
+4. 补齐章节细纲：本章目标、关键场景、冲突升级、结尾钩子。
+5. 挂载本章剧情线和必要角色。
+6. 生成正文，观察流式输出、目标字数偏差和生成状态。
+7. 生成后检查摘要、质量检查、剧情线推进结果。
+8. 如有需要，在校改区域进行逐段校改。
 
-```powershell
-pwsh -ExecutionPolicy Bypass -File tools/check-mvp-rescue.ps1
-```
+## 数据与配置
 
-该脚本会输出并覆盖生成：
+- 环境变量示例：`backend/.env.example`
+- 部署配置示例：`config/deploy.config.example.json`
+- 前端依赖配置：`frontend-react/package.json`
+- 后端依赖配置：`backend/package.json`
 
-```text
-MVP救援检查报告.md
-```
-
-检查内容包括：
-
-- 当前分支
-- 工作区状态
-- diff 统计
-- 文档存在性
-- 改动范围是否越界
-- `node --check`
-- 前端 build
-- `inspect` 验收结果
-
-## 部署约定
-
-部署后的唯一前端主入口为：
-
-```text
-/
-```
-
-Nginx 回退入口也应统一到这个地址，不再使用历史副本路径。
+不要提交真实 `.env`、数据库运行产物、临时日志或导出数据。
 
 ## 版本更新
 
-可使用：
+可使用版本脚本：
 
 ```powershell
 node scripts/bump-version.js patch "修复说明"
@@ -203,15 +154,34 @@ node scripts/bump-version.js minor "功能说明"
 node scripts/bump-version.js major "重大变更"
 ```
 
-该脚本会更新：
+相关版本自动化脚本会更新：
 
 - `backend/package.json`
 - `version.json`
-- `docs/changelog.json` 的当前版本条目
+- `docs/changelog.json`
 
-## 排障建议
+## 清理说明
 
-- 如果改了前端代码却没自动刷新，先确认你打开的是 `http://127.0.0.1:5173/`，并且 `frontend-react` 已执行 `npm run dev`
-- 如果页面打不开，再确认 `frontend-react` 是否已执行 `npm run dev` 或是否已有最新构建产物
-- 如果接口请求失败，先检查 `http://localhost:3000/health`
-- 如果部署后页面不一致，优先检查是否已重新构建 `frontend-react/dist`
+仓库已经移除一批过时文件：
+
+- MVP 验收报告、临时验收包和一次性章节修复脚本
+- 旧外部用量导出脚本、本地导出配置和隐藏运行器
+- demo 种子脚本和旧演示数据重置脚本
+- 早期视觉实验页、`genre-ui` 实验组件和工作台样板页
+- 顶部导航中的旧“生成链路”入口
+
+仍需谨慎处理的历史区域包括：
+
+- `docs/` 中早期阶段方案文档
+- 旧主题兼容 token 与历史工作台壳组件
+- 后端旧 routes / services 是否仍被挂载或调用
+
+这些内容需要引用检查和浏览器回归后再清理，不能只凭文件名删除。
+
+## 排障
+
+- 页面没有更新：确认打开的是 `http://127.0.0.1:5173/`，不是后端静态托管页。
+- 接口失败：先检查 `http://127.0.0.1:3000/health`。
+- 生成失败：先确认后端环境变量和 DeepSeek 配置。
+- 前端 build 失败：先看报错文件，不要全项目格式化或扩大修改范围。
+- 数据不见：优先查接口返回和 `backend/database/novel.db`，不要直接改数据库。

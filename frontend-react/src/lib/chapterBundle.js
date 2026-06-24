@@ -7,15 +7,27 @@ import {
   getPlanWordCount
 } from './chapterPlan.js';
 
+function sanitizeGeneratedText(value) {
+  return String(value || '')
+    .replace(/\uFFFD+/g, '')
+    .replace(/�+/g, '')
+    .trim();
+}
+
+function countPlatformEffectiveWords(value) {
+  return Array.from(sanitizeGeneratedText(value).replace(/[\s\p{Punctuation}\p{Symbol}]/gu, '')).length;
+}
+
 export function normalizeChapterBundle(bundle, chapterNumber) {
   const plan = bundle?.chapterPlan || {};
   const context = bundle?.chapterContext || {};
-  const content = String(plan.generatedContent || '').trim();
+  const content = sanitizeGeneratedText(plan.generatedContent);
+  const effectiveWordCount = countPlatformEffectiveWords(content);
   const feedback = plan.chapterFeedback || {};
   const appearingRoles = normalizeRoleList(plan.appearingRoles);
   const targetWordCount = getPlanWordCount(plan);
   const deviationRatio = targetWordCount > 0 && content
-    ? (content.length - targetWordCount) / targetWordCount
+    ? (effectiveWordCount - targetWordCount) / targetWordCount
     : 0;
   const deviationLabel = targetWordCount > 0 && content
     ? `，偏差 ${deviationRatio >= 0 ? '+' : ''}${(deviationRatio * 100).toFixed(1)}%`
@@ -24,6 +36,8 @@ export function normalizeChapterBundle(bundle, chapterNumber) {
   return {
     context: {
       latestChapterLabel: context.latestChapterLabel || '还没有章节记录，建议从第 1 章开始。',
+      suggestedChapterNumber: Number(context.suggestedChapterNumber || 1),
+      existingChapterCount: Number(context.existingChapterCount || 0),
       totalChapterCount: Number(context.totalChapterCount || 0),
       chapterListItems: Array.isArray(context.chapterListItems) ? context.chapterListItems : [],
       volumeList: Array.isArray(context.volumeList) ? context.volumeList : [],
@@ -79,7 +93,7 @@ export function normalizeChapterBundle(bundle, chapterNumber) {
           statusTitle: '本章已有正文',
           statusText: '可以查看正文，也可以调整章节规划后重新生成。',
           metaText: `第 ${chapterNumber} 章 · ${plan.chapterTitle || '未命名章节'}`,
-          wordCountLabel: `实际约 ${content.length} 字 / 目标 ${targetWordCount} 字${deviationLabel}`,
+          wordCountLabel: `有效字数约 ${effectiveWordCount} 字 / 目标 ${targetWordCount} 字${deviationLabel}`,
           previewText: content.replace(/\s+/g, ' ').slice(0, 520),
           feedbackSummary: feedback.chapter_summary || '本章已有正文，生成反馈可后续继续增强。',
           feedbackFocus: feedback.next_chapter_focus || feedback.open_hooks || '下一章重点暂未整理。',

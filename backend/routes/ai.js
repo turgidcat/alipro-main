@@ -11,6 +11,19 @@ function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function sanitizeGeneratedText(value) {
+  return normalizeText(value)
+    .replace(/\uFFFD+/g, '')
+    .replace(/�+/g, '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+}
+
+function countPlatformEffectiveWords(value) {
+  const text = sanitizeGeneratedText(value)
+    .replace(/[\s\p{Punctuation}\p{Symbol}]/gu, '');
+  return Array.from(text).length;
+}
+
 function normalizeJsonArray(value) {
   if (Array.isArray(value)) {
     return value;
@@ -418,6 +431,38 @@ function truncate(text, maxLength = 800) {
   return normalized.length > maxLength ? normalized.slice(0, maxLength) : normalized;
 }
 
+function truncateTail(text, maxLength = 1000) {
+  const normalized = normalizeText(text);
+  if (normalized.length <= maxLength) return normalized;
+  return normalized.slice(Math.max(0, normalized.length - maxLength));
+}
+
+function extractFirstKeySceneFromOutlineStructure(outlineStructure = {}) {
+  const raw = normalizeText(outlineStructure?.key_scenes || '');
+  if (!raw) return '';
+  return raw
+    .split(/\n|；|;|。/)
+    .map((item) => normalizeText(item))
+    .find(Boolean) || '';
+}
+
+function buildChapterOpeningBridgeText({ previousChapterTail = '', firstKeyScene = '', chapterGoal = '' } = {}) {
+  const tail = normalizeText(previousChapterTail);
+  const entry = normalizeText(firstKeyScene || chapterGoal);
+  if (!tail && !entry) return '';
+
+  const lines = [
+    '开章承接要求：',
+    tail ? '1. 必须先承接上一章结尾的最后场景、最后动作或最后悬念。' : '',
+    entry ? '2. 再自然进入本章第一关键场景或本章目标，不要直接跳过中间因果。' : '',
+    '3. 如果上一章结尾与本章第一关键场景之间存在时间、地点、人物状态或事件因果缺口，用 1-3 段补足过渡。',
+    '4. 不要跳过“发现问题—确认问题—决定行动”的因果链。'
+  ].filter(Boolean);
+
+  if (entry) lines.push(`本章第一关键场景：${entry}`);
+  return lines.join('\n');
+}
+
 function buildStoredCharacterContext(characters = []) {
   if (!Array.isArray(characters) || characters.length === 0) return '';
   const legacySummaryNames = new Set(['全书角色设定', '本章新增角色']);
@@ -482,11 +527,9 @@ function buildGenerationBriefText(generationBrief = {}) {
   if (missingRecommendedItems.length > 0) {
     parts.push(`缺失建议项：${missingRecommendedItems.join(' / ')}`);
   }
-  if (normalizeText(generationBrief.mainStoryline)) {
-    parts.push(`主剧情线：${normalizeText(generationBrief.mainStoryline)}`);
-  }
-  if (normalizeText(generationBrief.targetStorylines)) {
-    parts.push(`关联剧情线：${normalizeText(generationBrief.targetStorylines)}`);
+  const mainStoryline = normalizeText(generationBrief.mainStoryline);
+  if (mainStoryline && !/未设|未指定|无/.test(mainStoryline)) {
+    parts.push(`主剧情线：${mainStoryline}`);
   }
   if (Array.isArray(generationBrief.rhythmHints) && generationBrief.rhythmHints.length > 0) {
     parts.push(`节奏提示：${generationBrief.rhythmHints.map((item) => normalizeText(item)).filter(Boolean).join(' / ')}`);
@@ -496,9 +539,6 @@ function buildGenerationBriefText(generationBrief = {}) {
   }
   if (generationRiskItems.length > 0) {
     parts.push(`高风险提醒：\n${generationRiskItems.join('\n')}`);
-  }
-  if (Number.isFinite(Number(generationBrief.wordCount))) {
-    parts.push(`目标字数：${Number(generationBrief.wordCount)}`);
   }
   return parts.join('\n');
 }
@@ -1288,6 +1328,116 @@ function buildGenerationTruncationState({ content = '', finishReason = '' } = {}
   };
 }
 
+function buildEndingRepairPrompt({
+  tail = '',
+  chapterTitle = '',
+  targetWordCount = 0,
+  currentWordCount = 0
+} = {}) {
+  return [
+    '你是网文章节结尾修复编辑。下面的章节结尾疑似停在半句或缺少自然收束，请只重写这段结尾片段。',
+    '',
+    chapterTitle ? `章节标题：${chapterTitle}` : '',
+    targetWordCount ? `目标有效字数：${targetWordCount}` : '',
+    currentWordCount ? `当前全文有效字数约：${currentWordCount}` : '',
+    '',
+    '【修复要求】',
+    '1. 只处理下面提供的结尾片段，不要重写整章。',
+    '2. 保留已有事实、人物状态、动作结果和悬念，不要新增支线、新人物或新设定。',
+    '3. 如果片段停在半句，补足为自然完整的 1-3 段。',
+    '4. 允许轻微调整最后几句，让结尾有完整标点和自然停顿。',
+    '5. 不要为了补尾大幅扩写，尽量保持和原片段接近的长度。',
+    '6. 只输出修复后的结尾片段，不要解释、不要标题、不要 Markdown。',
+    '',
+    '【待修复结尾片段】',
+    sanitizeGeneratedText(tail)
+  ].filter(Boolean).join('\n');
+}
+
+function ensureNaturalEndingPunctuation(content = '') {
+  const normalized = sanitizeGeneratedText(content);
+  if (!normalized) return normalized;
+  if (/[。！？…』】”"]$/.test(normalized.slice(-1))) return normalized;
+  return `${normalized}。`;
+}
+
+async function repairGeneratedEndingIfNeeded({
+  content = '',
+  finishReason = '',
+  chapterTitle = '',
+  targetWordCount = 0,
+  model = 'deepseek-chat'
+} = {}) {
+  const initialContent = sanitizeGeneratedText(content);
+  const initialTruncation = buildGenerationTruncationState({
+    content: initialContent,
+    finishReason
+  });
+  if (!initialTruncation.detected) {
+    return {
+      content: initialContent,
+      truncation: initialTruncation,
+      repair: {
+        attempted: false,
+        success: false,
+        reason: 'no_truncation_signal'
+      }
+    };
+  }
+
+  const paragraphs = splitRevisionParagraphs(initialContent).filter(Boolean);
+  const tailParagraphCount = Math.min(3, Math.max(1, paragraphs.length));
+  const prefixParagraphs = paragraphs.slice(0, Math.max(0, paragraphs.length - tailParagraphCount));
+  const tailParagraphs = paragraphs.slice(Math.max(0, paragraphs.length - tailParagraphCount));
+  const tail = tailParagraphs.join('\n\n') || initialContent.slice(-900);
+  const result = await runTextGeneration(buildEndingRepairPrompt({
+    tail,
+    chapterTitle,
+    targetWordCount,
+    currentWordCount: countPlatformEffectiveWords(initialContent)
+  }), {
+    model,
+    temperature: 0.25,
+    maxTokens: 900
+  });
+
+  if (!result.success) {
+    return {
+      content: initialContent,
+      truncation: initialTruncation,
+      repair: {
+        attempted: true,
+        success: false,
+        reason: result.error || 'ending_repair_failed'
+      }
+    };
+  }
+
+  const repairedTail = ensureNaturalEndingPunctuation(result.content);
+  const repairedContent = sanitizeGeneratedText(
+    [...prefixParagraphs, repairedTail].filter(Boolean).join('\n\n')
+  );
+  const repairedTruncation = buildGenerationTruncationState({
+    content: repairedContent,
+    finishReason: ''
+  });
+
+  return {
+    content: repairedContent,
+    truncation: repairedTruncation,
+    repair: {
+      attempted: true,
+      success: !repairedTruncation.detected,
+      reason: repairedTruncation.detected ? repairedTruncation.reason : 'ending_repaired',
+      originalTail: truncate(tail, 280),
+      repairedTail: truncate(repairedTail, 280),
+      originalEffectiveLength: countPlatformEffectiveWords(initialContent),
+      repairedEffectiveLength: countPlatformEffectiveWords(repairedContent),
+      usage: result.usage || null
+    }
+  };
+}
+
 function collectPossibleGeneratedCharacterStateConflictSignals({ currentText = '', previousText = '', roleNames = [] }) {
   const signals = [];
   const roles = [...new Set((Array.isArray(roleNames) ? roleNames : []).map((item) => normalizeText(item)).filter(Boolean))].slice(0, 10);
@@ -2003,8 +2153,6 @@ function buildStructuredOutlineText(outlineStructure = {}) {
     ['本章目标', outlineStructure.chapter_goal],
     ['关键场景', outlineStructure.key_scenes],
     ['冲突升级', outlineStructure.conflict_escalation],
-    ['角色变化', outlineStructure.character_change],
-    ['读者爽点 / 情绪落点', outlineStructure.reader_payoff],
     ['结尾钩子', outlineStructure.ending_hook]
   ];
 
@@ -2528,7 +2676,7 @@ function buildStorylineProgressAudit({ feedback = {}, structuredContent = {}, ch
 
 function buildWordCountAudit({ content = '', targetWordCount = 0 } = {}) {
   const target = Number(targetWordCount || 0) || 0;
-  const actual = normalizeText(content).length;
+  const actual = countPlatformEffectiveWords(content);
   if (!target || !actual) {
     return {
       status: 'not_applicable',
@@ -2540,10 +2688,9 @@ function buildWordCountAudit({ content = '', targetWordCount = 0 } = {}) {
   }
 
   const deviationRatio = Number(((actual - target) / target).toFixed(4));
-  const absDeviation = Math.abs(deviationRatio);
-  const status = absDeviation > 0.35
+  const status = deviationRatio > 0.15
     ? 'risky'
-    : absDeviation > 0.2
+    : deviationRatio > 0.08 || deviationRatio < -0.2
       ? 'needs_review'
       : 'passed';
   const percent = `${deviationRatio >= 0 ? '+' : ''}${(deviationRatio * 100).toFixed(1)}%`;
@@ -2557,43 +2704,167 @@ function buildWordCountAudit({ content = '', targetWordCount = 0 } = {}) {
 }
 
 function enforceGeneratedWordCount(content = '', targetWordCount = 0) {
-  const normalized = normalizeText(content);
+  const normalized = sanitizeGeneratedText(content);
+  const effectiveLength = countPlatformEffectiveWords(normalized);
   const target = Number(targetWordCount || 0) || 0;
-  if (!target || normalized.length <= Math.ceil(target * 1.35)) {
+  return {
+    content: normalized,
+    audit: {
+      trimmed: false,
+      target,
+      originalLength: effectiveLength,
+      finalLength: effectiveLength,
+      rawCharacterLength: normalized.length,
+      deviationRatio: target > 0 ? Number(((effectiveLength - target) / target).toFixed(4)) : 0,
+      reason: '未执行硬截断，仅清理乱码替换字符并记录字数偏差。'
+    }
+  };
+}
+
+function isWordCountWithinTolerance(content = '', targetWordCount = 0, tolerance = 0.15) {
+  const target = Number(targetWordCount || 0) || 0;
+  const actual = countPlatformEffectiveWords(content);
+  if (!target || !actual) return true;
+  return actual <= Math.ceil(target * (1 + tolerance));
+}
+
+function buildWordCountRevisionPrompt({
+  content = '',
+  targetWordCount = 0,
+  draftTargetWordCount = 0,
+  previousEffectiveLength = 0,
+  chapterTitle = ''
+} = {}) {
+  const target = Number(targetWordCount || 0) || 0;
+  const min = Math.floor(target * 0.85);
+  const max = Math.ceil(target * 1.15);
+  const previousLength = Number(previousEffectiveLength || 0) || countPlatformEffectiveWords(content);
+  const draftTarget = Number(draftTargetWordCount || 0) || Math.max(Math.floor(target * 0.82), Math.floor(target * 0.92));
+  return [
+    '你是网文章节定稿编辑。请把下面这章正文压缩定稿到目标字数上限以内。',
+    '',
+    '【硬性目标】',
+    `目标有效字数：${target} 字。`,
+    `硬上限：${max} 有效字，超过即不合格。`,
+    `建议区间：${min}-${max} 有效字。`,
+    previousLength ? `当前稿约 ${previousLength} 有效字，已经超过上限，必须明显压缩。` : '',
+    `本次改写请瞄准约 ${draftTarget} 有效字，不要贴近上限；最终正文必须自然完整。`,
+    '统计口径：按网文平台发布口径估算，空格、换行、标点符号不计入有效字数。',
+    chapterTitle ? `章节标题：${chapterTitle}` : '',
+    '',
+    '【压缩定稿要求】',
+    '1. 保留原章节的主要剧情、人物关系、线索和结尾钩子。',
+    '2. 必须主动压缩重复心理、重复环境描写、重复解释、过长对话和额外尾声。',
+    '3. 每个关键场景只保留必要动作、冲突和转折，不要扩写新的支线、新设定或新人物。',
+    '4. 优先删减过渡铺陈和重复感受，不要新增场景来补字数。',
+    '5. 不要直接截断或机械拼接原文，要自然改写成完整章节。',
+    '6. 不要输出说明、标题、Markdown 或字数统计。',
+    '7. 只输出压缩后的章节正文。',
+    '',
+    '【原章节正文】',
+    sanitizeGeneratedText(content)
+  ].filter(Boolean).join('\n');
+}
+
+async function reviseGeneratedContentToWordCount({
+  content = '',
+  targetWordCount = 0,
+  chapterTitle = '',
+  model = 'deepseek-chat'
+} = {}) {
+  let currentContent = sanitizeGeneratedText(content);
+  const target = Number(targetWordCount || 0) || 0;
+  const originalLength = countPlatformEffectiveWords(currentContent);
+  const attempts = [];
+  if (!target || !currentContent || isWordCountWithinTolerance(currentContent, target, 0.15)) {
     return {
-      content: normalized,
+      content: currentContent,
       audit: {
         trimmed: false,
+        revised: false,
         target,
-        originalLength: normalized.length,
-        finalLength: normalized.length,
-        reason: ''
+        originalLength,
+        finalLength: countPlatformEffectiveWords(currentContent),
+        rawCharacterLength: currentContent.length,
+        deviationRatio: target ? Number(((countPlatformEffectiveWords(currentContent) - target) / target).toFixed(4)) : 0,
+        attempts,
+        reason: currentContent === normalizeText(content) ? '' : '已清理正文中的乱码替换字符。'
       }
     };
   }
 
-  const maxLength = Math.ceil(target * 1.25);
-  const minLength = Math.ceil(target * 0.9);
-  const candidate = normalized.slice(0, maxLength);
-  const breakChars = ['\n\n', '。', '！', '？', '”', '」'];
-  let cutIndex = -1;
-  for (const mark of breakChars) {
-    const index = candidate.lastIndexOf(mark);
-    if (index >= minLength) {
-      cutIndex = Math.max(cutIndex, index + mark.length);
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const currentLength = countPlatformEffectiveWords(currentContent);
+    const currentRatio = target > 0 && currentLength > 0 ? target / currentLength : 1;
+    const draftTarget = currentLength > Math.ceil(target * 1.15)
+      ? Math.max(Math.floor(target * 0.76), Math.floor(target * Math.min(0.92, currentRatio * 0.98)))
+      : Math.min(Math.ceil(target * 1.02), Math.ceil(target * 1.06));
+    const result = await runTextGeneration(buildWordCountRevisionPrompt({
+      content: currentContent,
+      targetWordCount: target,
+      draftTargetWordCount: draftTarget,
+      previousEffectiveLength: currentLength,
+      chapterTitle
+    }), {
+      model,
+      temperature: 0.2,
+      maxTokens: Math.min(6500, Math.max(1200, Math.ceil(draftTarget * 1.02)))
+    });
+    if (!result.success) {
+      attempts.push({
+        attempt,
+        success: false,
+        error: result.error || '模型重写失败',
+        length: countPlatformEffectiveWords(currentContent),
+        rawCharacterLength: currentContent.length
+      });
+      continue;
+    }
+    currentContent = sanitizeGeneratedText(result.content);
+    const effectiveLength = countPlatformEffectiveWords(currentContent);
+    const deviationRatio = target ? Number(((effectiveLength - target) / target).toFixed(4)) : 0;
+    attempts.push({
+      attempt,
+      success: true,
+      length: effectiveLength,
+      rawCharacterLength: currentContent.length,
+      deviationRatio
+    });
+    if (isWordCountWithinTolerance(currentContent, target, 0.15)) {
+      return {
+        content: currentContent,
+        audit: {
+          trimmed: false,
+          revised: true,
+          target,
+          originalLength,
+          finalLength: effectiveLength,
+          rawCharacterLength: currentContent.length,
+          deviationRatio,
+          attempts,
+          reason: '初稿字数超过 15% 上限，已通过模型重写收束到可接受范围。'
+        }
+      };
     }
   }
-  const finalContent = normalized.slice(0, cutIndex > 0 ? cutIndex : maxLength).trim();
-  return {
-    content: finalContent,
-    audit: {
-      trimmed: true,
-      target,
-      originalLength: normalized.length,
-      finalLength: finalContent.length,
-      reason: `正文超过目标字数 35%，已按句末/段落在约 ${maxLength} 字内收束。`
-    }
+
+  const finalEffectiveLength = countPlatformEffectiveWords(currentContent);
+  const finalDeviationRatio = target ? Number(((finalEffectiveLength - target) / target).toFixed(4)) : 0;
+  const upperLimit = Math.ceil(target * 1.15);
+  const error = new Error(`生成有效字数超过 15% 上限，已阻止保存。目标 ${target} 字，上限 ${upperLimit} 字，当前约 ${finalEffectiveLength} 有效字，偏差 ${(finalDeviationRatio * 100).toFixed(1)}%。`);
+  error.statusCode = 422;
+  error.wordCountAudit = {
+    trimmed: false,
+    revised: attempts.some((item) => item.success),
+    target,
+    originalLength,
+    finalLength: finalEffectiveLength,
+    rawCharacterLength: currentContent.length,
+    deviationRatio: finalDeviationRatio,
+    attempts,
+    reason: '模型重写后仍超过 15% 上限。'
   };
+  throw error;
 }
 
 function enrichFeedbackWithAudits({ feedback = {}, structuredContent = {}, chapterPlan = {}, content = '' } = {}) {
@@ -2819,6 +3090,7 @@ async function loadBookGenerationContext(bookId, chapterNumber) {
   const chapterOutline = normalizeText(buildOutlineFromChapterPlan(chapterPlanRow));
   const chapterOutlineStructure = getChapterOutlineStructure(chapterPlanRow);
   const structuredOutlineText = normalizeText(buildStructuredOutlineText(chapterOutlineStructure));
+  const firstKeyScene = extractFirstKeySceneFromOutlineStructure(chapterOutlineStructure);
   const characterSummary = buildCharacterSummaryContext(characterRows);
   const storedCharacters = buildStoredCharacterContext(characterRows);
   const previousHook = normalizeText(chapterPlanRow?.previous_hook || '');
@@ -2859,24 +3131,22 @@ async function loadBookGenerationContext(bookId, chapterNumber) {
   if (bookMainGoal) notes.push(`阶段主目标：${bookMainGoal}`);
   if (bookCoreConflict) notes.push(`核心冲突：${bookCoreConflict}`);
   if (bookWorldRules) notes.push(`世界规则：${bookWorldRules}`);
-  if (bookRoleSummary) notes.push(`全书角色摘要：${bookRoleSummary}`);
+  if (bookRoleSummary && !storedCharacters) notes.push(`全书角色摘要：${bookRoleSummary}`);
   if (keyCharacterNames.length > 0) {
     notes.push(`姓名硬约束：本书当前可用核心角色名为 ${keyCharacterNames.join(' / ')}。正文只能使用这套人物体系，严禁替换主角姓名或串入其他作品人物名。`);
   }
   if (bookOutline) notes.push(`全书大纲：${bookOutline}`);
   if (bookPlanMainOutline && bookPlanMainOutline !== bookOutline) notes.push(`全书主线：${bookPlanMainOutline}`);
-  if (volumeOutline) notes.push(`分卷大纲：${volumeOutline}`);
+  if (volumeOutline && volumeOutline !== bookOutline && volumeOutline !== bookPlanMainOutline) notes.push(`分卷大纲：${volumeOutline}`);
   if (bookPlanVolumeOutline && bookPlanVolumeOutline !== volumeOutline) notes.push(`分卷规划：${bookPlanVolumeOutline}`);
   if (detailedOutline) notes.push(`详细大纲：${detailedOutline}`);
   if (bookPlanDetailedOutline && bookPlanDetailedOutline !== detailedOutline) notes.push(`详细推进：${bookPlanDetailedOutline}`);
-  if (summary) notes.push(`章节摘要：${summary}`);
-  if (structuredOutlineText) notes.push(`结构化细纲：\n${structuredOutlineText}`);
   if (chapterOutline && chapterOutline !== structuredOutlineText) notes.push(`章节规划：${chapterOutline}`);
-  if (chapterMission) notes.push(`章节任务：${chapterMission}`);
+  if (chapterMission && !structuredOutlineText) notes.push(`章节任务：${chapterMission}`);
   if (emotionTarget) notes.push(`情绪目标：${emotionTarget}`);
   if (previousHook) notes.push(`上章承接：${previousHook}`);
   if (chapterCharacterNotes) notes.push(`本章角色说明：${chapterCharacterNotes}`);
-  if (endingHook) notes.push(`结尾钩子：${endingHook}`);
+  if (endingHook && !structuredOutlineText.includes(endingHook)) notes.push(`结尾钩子：${endingHook}`);
   if (mainStoryline) notes.push(`主剧情线：${mainStoryline.storyline_name}${mainStoryline.storyline_type ? ' · ' + mainStoryline.storyline_type : ''}`);
   if (targetStorylineLabels.length > 0) notes.push(`关联剧情线：${targetStorylineLabels.join(' / ')}`);
   if (characterSummary) notes.push(`角色摘要：\n${characterSummary}`);
@@ -2910,10 +3180,20 @@ async function loadBookGenerationContext(bookId, chapterNumber) {
     if (newElements.length > 0) {
       notes.push(`上一章新增设定台账：\n${newElements.map((item, index) => `${index + 1}. ${[item.name, item.role, item.relation, item.note].filter(Boolean).join('｜')}`).join('\n')}`);
     }
-    if (continuityRisks.length > 0) {
-      notes.push(`连续性风险提醒：\n${continuityRisks.join('\n')}`);
-    }
   }
+  const previousChapterTail = previousChapter?.content ? truncateTail(previousChapter.content, 1200) : '';
+  if (previousChapterTail) {
+    notes.push(`上一章正文结尾：\n${previousChapterTail}`);
+  }
+  const openingBridgeText = buildChapterOpeningBridgeText({
+    previousChapterTail,
+    firstKeyScene,
+    chapterGoal: chapterMission || chapterOutlineStructure.chapter_goal
+  });
+  if (openingBridgeText) {
+    notes.push(openingBridgeText);
+  }
+
   notes.push(buildDynamicGenerationConstraints({
     chapterPlan: chapterPlanRow || {},
     previousChapterFeedback,
@@ -2926,10 +3206,6 @@ async function loadBookGenerationContext(bookId, chapterNumber) {
     characterRows,
     storylineRows
   });
-  if (previousChapter?.content) {
-    notes.push(`上一章正文片段：${truncate(previousChapter.content, 600)}`);
-  }
-
   return {
     bookTitle: normalizeText(book?.title || ''),
     contextNotes: notes.join('\n\n'),
@@ -3071,7 +3347,8 @@ function buildOutlinePrompt({ genre, subgenre, bookTitle, chapterTitle, characte
     '2. 总字数控制在 50-250 字。',
     '3. 不要写完整句子，不要解释。',
     '4. 每个要点都要服务当前章必须推进的剧情节点，不能提前写出被禁止发生的事件。',
-    '5. 直接输出要点。'
+    '5. 要点需要与章节名形成语义呼应，但必须以整体书籍设定、人物关系、章节任务和剧情线约束为边界，不能为了贴题改写主线事实。',
+    '6. 直接输出要点。'
   ].filter(Boolean).join('\n');
 }
 
@@ -3150,6 +3427,34 @@ function buildCleanPolishPrompt(content, requirements, options = {}) {
   return parts.join('\n');
 }
 
+function buildChapterOutlineBreakdownPrompt({ outlineText = '', chapterTitle = '' } = {}) {
+  return [
+    '你是网文章节细纲编辑。请把用户输入的一段章节细纲拆成 4 个可编辑字段。',
+    '',
+    chapterTitle ? `【章节】${chapterTitle}` : '',
+    '【用户输入的章节细纲】',
+    normalizeText(outlineText),
+    '',
+    '【输出要求】',
+    '只输出 JSON 对象，不要 Markdown，不要解释。',
+    '字段必须是：',
+    '{',
+    '  "chapter_goal": "本章目标：一句话说明本章必须完成的剧情推进",',
+    '  "key_scenes": "关键场景：按行列出 3-6 个场景节点",',
+    '  "conflict_escalation": "冲突升级：说明本章矛盾如何变得更危险或更复杂",',
+    '  "ending_hook": "结尾钩子：说明章节最后钩住读者的悬念或动作"',
+    '}',
+    '',
+    '约束：',
+    '1. 不要新增用户没有暗示的大设定。',
+    '2. 必须在不改变整体书籍设定、人物关系和既有剧情线事实的前提下，让四个字段与章节名称形成一定呼应。',
+    '3. 如果章节名称带有意象、事件或情绪倾向，要把它自然落到本章目标、关键场景或结尾钩子里；不要为了贴题硬造新设定。',
+    '4. 可以补足表达，但不要替用户扩写成正文。',
+    '5. key_scenes 用换行分隔，不要输出数组。',
+    '6. 每个字段都要尽量可直接用于生成正文。'
+  ].filter(Boolean).join('\n');
+}
+
 function splitRevisionParagraphs(content) {
   return normalizeText(content)
     .split(/\n{2,}|\r?\n/)
@@ -3157,14 +3462,16 @@ function splitRevisionParagraphs(content) {
     .filter(Boolean);
 }
 
-function buildRevisionSuggestionsPrompt(content, requirements) {
+function buildRevisionSuggestionsPrompt(content, requirements, options = {}) {
   const paragraphs = splitRevisionParagraphs(content);
+  const maxChangeCount = Math.min(Math.max(Number(options.maxChangeCount || 6) || 6, 3), 10);
   const numberedParagraphs = paragraphs
     .map((paragraph, index) => `【第 ${index + 1} 段】${paragraph}`)
     .join('\n\n');
 
   return [
-    '你是网文正文校改审稿助手。请像代码审查一样，只输出局部修改建议，不要整章重写。',
+    '你是网文正文逐段校改助手。你的任务不是泛泛点评，而是像代码 diff 一样给出可执行的段落级修改。',
+    '你必须判断哪些段落要删除、哪些段落后要新增、哪些段落要修改，并输出结构化 JSON。',
     '',
     '【校改目标】',
     requirements || '增强画面感和爽点，保持原剧情不变。',
@@ -3194,22 +3501,52 @@ function buildRevisionSuggestionsPrompt(content, requirements) {
     '',
     '约束：',
     '1. paragraph 必须对应上方段落编号。',
-    '2. 建议 3-8 条即可，优先挑最值得改的位置。',
-    '3. replace 的 suggested_text 必须可直接替换原段或原片段。',
-    '4. 不要改变主线事实，不要新增大设定。',
-    '5. 如果原文已较好，也要返回 suggestions: []。'
+    `2. 必须返回 3-${maxChangeCount} 条段落级修改，除非正文为空或无法理解。`,
+    '3. replace 的 suggested_text 必须是完整替换段落，不要只给点评。',
+    '4. insert_after 的 suggested_text 必须是可直接插入的新段落。',
+    '5. delete 的 suggested_text 留空，并在 reason 里说明删除原因。',
+    '6. 不要改变主线事实，不要新增大设定。',
+    '7. 如果原文整体可用，也要从画面、节奏、重复、钩子、人物动作里挑可微调处。',
+    '8. 不要输出整章重写稿，只输出 suggestions。'
   ].join('\n');
 }
 
 function normalizeRevisionSuggestionItem(item, index, paragraphs) {
   const rawAction = normalizeText(item?.action || 'replace').toLowerCase();
-  const action = ['replace', 'insert_after', 'delete'].includes(rawAction) ? rawAction : 'replace';
+  const actionMap = {
+    modify: 'replace',
+    update: 'replace',
+    rewrite: 'replace',
+    insert: 'insert_after',
+    add: 'insert_after',
+    remove: 'delete',
+    修改: 'replace',
+    改写: 'replace',
+    替换: 'replace',
+    新增: 'insert_after',
+    增加: 'insert_after',
+    插入: 'insert_after',
+    删除: 'delete'
+  };
+  const action = ['replace', 'insert_after', 'delete'].includes(rawAction)
+    ? rawAction
+    : (actionMap[rawAction] || 'replace');
   const paragraph = Math.max(1, Number.parseInt(item?.paragraph || item?.afterParagraph || index + 1, 10) || index + 1);
   const afterParagraph = Math.max(1, Number.parseInt(item?.afterParagraph || paragraph, 10) || paragraph);
   const paragraphIndex = Math.min(Math.max(paragraph - 1, 0), Math.max(paragraphs.length - 1, 0));
   const fallbackOriginal = action === 'insert_after' ? '' : normalizeText(paragraphs[paragraphIndex] || '');
   const originalText = normalizeText(item?.original_text || item?.originalText || fallbackOriginal);
-  const suggestedText = normalizeText(item?.suggested_text || item?.suggestedText || item?.suggestion || '');
+  const suggestedText = normalizeText(
+    item?.suggested_text
+    || item?.suggestedText
+    || item?.suggestion
+    || item?.new_text
+    || item?.newText
+    || item?.replacement
+    || item?.revised_text
+    || item?.revisedText
+    || ''
+  );
 
   return {
     id: normalizeText(item?.id || `rev-${String(index + 1).padStart(3, '0')}`),
@@ -3478,6 +3815,50 @@ async function handleOutlineGeneration(req, res) {
     });
   } catch (error) {
     logger.error('Outline generation failed', { error: error.message, stack: error.stack });
+    return res.status(500).json({ success: false, error: 'Server error' });
+  }
+}
+
+async function handleChapterOutlineBreakdown(req, res) {
+  try {
+    const outlineText = normalizeText(req.body.outlineText || req.body.outline_text || req.body.content || '');
+    const chapterTitle = normalizeText(req.body.chapterTitle || req.body.chapter_title || '');
+    if (!outlineText) {
+      return res.status(400).json({ success: false, error: '请先输入章节细纲。' });
+    }
+
+    const result = await runTextGeneration(buildChapterOutlineBreakdownPrompt({
+      outlineText,
+      chapterTitle
+    }), {
+      temperature: 0.35,
+      maxTokens: 900
+    });
+    if (!result.success) {
+      return res.status(result.statusCode || 500).json({ success: false, error: result.error });
+    }
+
+    const parsed = tryParseJsonObject(result.content);
+    if (!parsed || typeof parsed !== 'object') {
+      return res.status(502).json({
+        success: false,
+        error: 'AI 拆解细纲失败：未返回可解析结构。'
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        chapter_goal: normalizeText(parsed.chapter_goal || parsed.chapterGoal || ''),
+        key_scenes: normalizeText(parsed.key_scenes || parsed.keyScenes || ''),
+        conflict_escalation: normalizeText(parsed.conflict_escalation || parsed.conflictEscalation || ''),
+        ending_hook: normalizeText(parsed.ending_hook || parsed.endingHook || ''),
+        raw_content: normalizeText(result.content),
+        usage: result.usage
+      }
+    });
+  } catch (error) {
+    logger.error('Chapter outline breakdown failed', { error: error.message, stack: error.stack });
     return res.status(500).json({ success: false, error: 'Server error' });
   }
 }
@@ -3788,7 +4169,7 @@ async function prepareChapterContentGeneration(body = {}) {
   const finalCharacters = [storedContext.storedCharacters, normalizeText(characters)].filter(Boolean).join('\n\n');
   const briefText = buildGenerationBriefText(body.generationBrief);
   const requestedWordCount = Number(wordCount) || 2000;
-  const wordCountConstraint = `【字数硬约束】本章目标约 ${requestedWordCount} 字，允许偏差 ±20%。不要为了铺陈额外扩写；接近目标字数时必须自然收束。`;
+  const wordCountConstraint = `【字数约束】本章目标 ${requestedWordCount} 有效字，允许上限最多 +15%，不得超过 ${Math.ceil(requestedWordCount * 1.15)} 有效字。统计口径按网文平台发布口径估算：空格、换行、标点符号不计入有效字数。可以略短，但不要为了铺陈额外扩写；接近上限时必须收束。`;
   const finalContextNotes = [storedContext.contextNotes, draftStorylineConstraint.text, wordCountConstraint, briefText].filter(Boolean).join('\n\n');
   const structuredOutline = normalizeText(buildStructuredOutlineText(getChapterOutlineStructure(chapterPlan)));
   const roleExecution = normalizeRoleExecutionList(
@@ -3806,7 +4187,7 @@ async function prepareChapterContentGeneration(body = {}) {
     throw error;
   }
 
-  const maxTokens = Math.min(6500, Math.max(1200, Math.ceil(requestedWordCount * 1.1)));
+  const maxTokens = Math.min(6500, Math.max(1200, Math.ceil(requestedWordCount * 0.9)));
   const prompt = deepseekService.buildCreativePrompt({
       bookTitle: finalBookTitle,
       genre,
@@ -3814,7 +4195,7 @@ async function prepareChapterContentGeneration(body = {}) {
       platform,
       template,
       chapterTitle,
-      chapterSummary: normalizeText(chapterPlan.summary || ''),
+      chapterSummary: '',
       outline: finalOutline,
       characters: finalCharacters,
       appearingRoles: normalizeJsonArray(chapterPlan.appearing_roles),
@@ -3893,12 +4274,21 @@ async function handleChapterContentGeneration(req, res) {
       return res.status(result.statusCode || 500).json({ success: false, error: result.error });
     }
 
-    const wordCountEnforcement = enforceGeneratedWordCount(result.content, requestedWordCount);
-    const generatedContent = wordCountEnforcement.content;
-    const truncationState = buildGenerationTruncationState({
-      content: generatedContent,
-      finishReason: result.finishReason
+    const wordCountEnforcement = await reviseGeneratedContentToWordCount({
+      content: result.content,
+      targetWordCount: requestedWordCount,
+      chapterTitle,
+      model: model || 'deepseek-chat'
     });
+    const endingRepair = await repairGeneratedEndingIfNeeded({
+      content: wordCountEnforcement.content,
+      finishReason: result.finishReason,
+      chapterTitle,
+      targetWordCount: requestedWordCount,
+      model: model || 'deepseek-chat'
+    });
+    const generatedContent = endingRepair.content;
+    const truncationState = endingRepair.truncation;
     const auditResult = await auditGeneratedContent({
       bookTitle: finalBookTitle,
       chapterNumber,
@@ -3911,7 +4301,8 @@ async function handleChapterContentGeneration(req, res) {
     logger.info('Content generation succeeded', {
       model: result.model || model || 'deepseek-chat',
       targetWordCount: requestedWordCount,
-      actualLength: generatedContent.length,
+      actualLength: countPlatformEffectiveWords(generatedContent),
+      rawCharacterLength: generatedContent.length,
       continuityRiskCount: auditResult.risks.length,
       finishReason: result.finishReason || '',
       needsContinuation: truncationState.needs_continuation
@@ -3928,8 +4319,10 @@ async function handleChapterContentGeneration(req, res) {
           timestamp: new Date().toISOString(),
           targetWordCount: requestedWordCount,
           maxTokens,
-          actualLength: generatedContent.length,
+          actualLength: countPlatformEffectiveWords(generatedContent),
+          rawCharacterLength: generatedContent.length,
           wordCountEnforcement: wordCountEnforcement.audit,
+          endingRepair: endingRepair.repair,
           truncation: truncationState,
           storylineConstraintApplied: !!draftStorylineConstraint.applied,
           usedStorylineIds: draftStorylineConstraint.usedStorylineIds || [],
@@ -4011,7 +4404,8 @@ async function handleChapterContentStream(req, res) {
         generatedContent = String(event.fullContent || `${generatedContent}${event.content || ''}`);
         writeSseEvent(res, 'delta', {
           content: event.content,
-          content_length: generatedContent.length
+        content_length: generatedContent.length,
+        effective_word_count: countPlatformEffectiveWords(generatedContent)
         });
       }
       if (event.type === 'usage') {
@@ -4024,12 +4418,21 @@ async function handleChapterContentStream(req, res) {
       }
     }
 
-    const wordCountEnforcement = enforceGeneratedWordCount(generatedContent, requestedWordCount);
-    generatedContent = wordCountEnforcement.content;
-    const truncationState = buildGenerationTruncationState({
+    const wordCountEnforcement = await reviseGeneratedContentToWordCount({
       content: generatedContent,
-      finishReason: ''
+      targetWordCount: requestedWordCount,
+      chapterTitle,
+      model: model || 'deepseek-chat'
     });
+    const endingRepair = await repairGeneratedEndingIfNeeded({
+      content: wordCountEnforcement.content,
+      finishReason: '',
+      chapterTitle,
+      targetWordCount: requestedWordCount,
+      model: model || 'deepseek-chat'
+    });
+    generatedContent = endingRepair.content;
+    const truncationState = endingRepair.truncation;
     const auditResult = await auditGeneratedContent({
       bookTitle: finalBookTitle,
       chapterNumber,
@@ -4048,6 +4451,7 @@ async function handleChapterContentStream(req, res) {
     writeSseEvent(res, 'done', {
       content: generatedContent,
       content_length: generatedContent.length,
+      effective_word_count: countPlatformEffectiveWords(generatedContent),
       usage: latestUsage,
       metadata: {
         model: model || 'deepseek-chat',
@@ -4055,8 +4459,10 @@ async function handleChapterContentStream(req, res) {
         timestamp: new Date().toISOString(),
         targetWordCount: requestedWordCount,
         maxTokens,
-        actualLength: generatedContent.length,
+        actualLength: countPlatformEffectiveWords(generatedContent),
+        rawCharacterLength: generatedContent.length,
         wordCountEnforcement: wordCountEnforcement.audit,
+        endingRepair: endingRepair.repair,
         truncation: truncationState,
         storylineConstraintApplied: !!draftStorylineConstraint.applied,
         usedStorylineIds: draftStorylineConstraint.usedStorylineIds || [],
@@ -4090,6 +4496,7 @@ router.post('/generate', async (req, res) => {
   if (promptType === 'book_title') return handleBookTitleGeneration(req, res);
   if (promptType === 'chapter_name') return handleChapterNameGeneration(req, res);
   if (promptType === 'outline') return handleOutlineGeneration(req, res);
+  if (promptType === 'chapter_outline_breakdown') return handleChapterOutlineBreakdown(req, res);
   if (promptType === 'character_names') return handleCharacterNamesGeneration(req, res);
   if (promptType === 'character_profiles') return handleCharacterProfilesGeneration(req, res);
   if (promptType === 'full_outline') return handleFullOutlineGeneration(req, res);
@@ -4101,14 +4508,18 @@ router.post('/polish', async (req, res) => {
   try {
     const content = normalizeText(req.body.content || '');
     const requirements = normalizeText(req.body.requirements || '');
-    const options = req.body.options || {};
+    const options = {
+      ...(req.body.options || {}),
+      mode: req.body?.options?.mode || req.body.mode,
+      maxChangeCount: req.body?.options?.maxChangeCount || req.body.maxChangeCount
+    };
     if (!content) {
       return res.status(400).json({ success: false, error: 'Please provide the content to revise' });
     }
 
     const isRevisionSuggestionsMode = normalizeText(options.mode) === 'revision_suggestions';
     const prompt = isRevisionSuggestionsMode
-      ? buildRevisionSuggestionsPrompt(content, requirements)
+      ? buildRevisionSuggestionsPrompt(content, requirements, options)
       : buildCleanPolishPrompt(content, requirements, options);
     const result = await runTextGeneration(prompt, {
       temperature: isRevisionSuggestionsMode ? 0.35 : 0.6,

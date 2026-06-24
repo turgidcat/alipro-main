@@ -1,7 +1,0 @@
-{
-  "token": "your_token_here",
-  "uid": "your_uid_here",
-  "outputDir": ".\\guaihub-export-test",
-  "rangeMode": "today",
-  "lookbackHours": 24
-}

@@ -166,10 +166,19 @@ function buildRoleExecutionFallback(planData = {}) {
 function normalizeChapterPlanRecord(plan) {
   if (!plan || typeof plan !== 'object') return null;
   const structuredContent = parseJsonObject(plan.structured_content || plan.structuredContent);
+  const chapterStructure = parseJsonObject(
+    plan.chapter_structure
+    || plan.chapterStructure
+    || structuredContent.chapter_outline_structure
+    || structuredContent.chapter_structure
+    || structuredContent.chapterStructure
+  );
   return {
     ...plan,
     structured_content: structuredContent,
     structuredContent,
+    chapter_structure: chapterStructure,
+    chapterStructure,
     target_storylines: parseJsonArray(plan.target_storylines),
     scene_outline: parseJsonArray(plan.scene_outline)
   };
@@ -899,6 +908,16 @@ export async function generateChapterOutline(payload) {
   });
 }
 
+export async function breakdownChapterOutline(payload) {
+  return request('/generate', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...payload,
+      promptType: 'chapter_outline_breakdown'
+    })
+  });
+}
+
 export async function generateChapterContent(payload) {
   return request('/generate', {
     method: 'POST',
@@ -1096,7 +1115,8 @@ export async function polishChapterContent(content, requirements = '', options =
     body: JSON.stringify({
       content,
       requirements,
-      ...options
+      ...options,
+      options
     })
   });
 }

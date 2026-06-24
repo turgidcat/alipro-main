@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  breakdownChapterOutline,
   createBook,
   fetchChapterSetupBundle,
   generateChapterContent,
@@ -31,7 +32,10 @@ import {
   hasText
 } from './lib/chapterPlan.js';
 import {
+  buildRevisionDraftFromSuggestions,
+  buildRevisionParagraphDiffRows,
   normalizeParagraphs,
+  summarizeRevisionSuggestions,
   splitRevisionParagraphs
 } from './lib/revisionDiff.js';
 import { normalizeChapterBundle } from './lib/chapterBundle.js';
@@ -54,6 +58,15 @@ import StorylineDrawer from './components/workbench/drawers/StorylineDrawer.jsx'
 import CharacterDrawer from './components/workbench/drawers/CharacterDrawer.jsx';
 import VolumeDrawer from './components/workbench/drawers/VolumeDrawer.jsx';
 import { useWorkbench } from './hooks/useWorkbench.js';
+
+function countPlatformEffectiveWords(value) {
+  const text = String(value || '')
+    .replace(/\uFFFD+/g, '')
+    .replace(/�+/g, '')
+    .trim()
+    .replace(/[\s\p{Punctuation}\p{Symbol}]/gu, '');
+  return Array.from(text).length;
+}
 
 const DRAWER_MEMORY_PREFIX = 'alipro-workbench-drawer';
 const RECENT_WORKSPACE_PAGE_KEY = 'alipro-recent-workspace-page';
@@ -118,6 +131,56 @@ function getBookStatusLabel(status) {
 
 function serializeChapterPlanDraft(plan) {
   return JSON.stringify(plan || emptyChapterPlan);
+}
+
+function parseChapterPlanSnapshot(snapshot) {
+  try {
+    return JSON.parse(snapshot || '{}') || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function pickChapterPlanFields(plan = {}, fields = []) {
+  return fields.reduce((result, field) => {
+    result[field] = plan?.[field];
+    return result;
+  }, {});
+}
+
+function isChapterPlanGroupChanged(currentPlan = {}, savedPlan = {}, fields = []) {
+  return JSON.stringify(pickChapterPlanFields(currentPlan, fields))
+    !== JSON.stringify(pickChapterPlanFields(savedPlan, fields));
+}
+
+function getUnsavedChapterChangeLabels(currentPlan = {}, savedSnapshot = '') {
+  const savedPlan = parseChapterPlanSnapshot(savedSnapshot);
+  const groups = [
+    {
+      label: '章节基础信息',
+      fields: ['volume_number', 'chapter_name', 'summary', 'previous_hook']
+    },
+    {
+      label: '章节细纲',
+      fields: ['chapter_mission', 'emotion_target', 'outline_text', 'ending_hook', 'scene_outline', 'chapter_structure']
+    },
+    {
+      label: '本章角色',
+      fields: ['character_notes', 'appearing_roles', 'role_execution']
+    },
+    {
+      label: '剧情线选择',
+      fields: ['main_storyline_id', 'target_storylines']
+    },
+    {
+      label: '生成控制',
+      fields: ['generation_settings']
+    }
+  ];
+  const labels = groups
+    .filter((group) => isChapterPlanGroupChanged(currentPlan, savedPlan, group.fields))
+    .map((group) => group.label);
+  return labels.length > 0 ? labels : ['章节配置'];
 }
 
 function WorkbenchNavSelect({ label, valueLabel, items, onSelect }) {
@@ -203,6 +266,7 @@ export default function App() {
     savingState, setSavingState,
     planningNotice, setPlanningNotice,
     chapterNumber, setChapterNumber,
+    chapterEntryMode, setChapterEntryMode,
     chapterContext, setChapterContext,
     chapterView, setChapterView,
     storylineOptions, setStorylineOptions,
@@ -239,12 +303,28 @@ export default function App() {
     description: ''
   });
   const [createState, setCreateState] = useState({ loading: false, error: '' });
+  const [outlineDraftText, setOutlineDraftText] = useState('');
+  const [outlineBreakdownState, setOutlineBreakdownState] = useState({ loading: false, error: '' });
+  const [chapterEntryMenuOpen, setChapterEntryMenuOpen] = useState(false);
+  const outlineDraftModalKeyRef = useRef('');
 
   useEffect(() => {
     if (!workbenchSidebarCollapsed) {
       setWorkbenchSidebarPeek(false);
     }
   }, [workbenchSidebarCollapsed]);
+
+  useEffect(() => {
+    if (chapterModal !== 'outline') {
+      outlineDraftModalKeyRef.current = '';
+      return;
+    }
+    const modalKey = `${selectedBookId || ''}:${Number(chapterNumber || 1)}`;
+    if (outlineDraftModalKeyRef.current === modalKey) return;
+    setOutlineDraftText(buildOutlineDraftTextFromPlan(draftChapterPlan));
+    setOutlineBreakdownState({ loading: false, error: '' });
+    outlineDraftModalKeyRef.current = modalKey;
+  }, [chapterModal, selectedBookId, chapterNumber, draftChapterPlan]);
 
   function switchSurface(page, bookId = selectedBookId || currentBook?.id || '') {
     const nextPage = page === 'workbench' ? 'workbench' : 'library';
@@ -373,9 +453,9 @@ export default function App() {
   async function handleSaveChapterOutline() {
     await persistCurrentChapterPlan({
       plan: prepareOutlineModalPlan(draftChapterPlan),
-      successTitle: '章节任务表已保存',
-      successText: '本章目标、关键场景和结尾钩子已写回；满足条件后“生成章节”会自动可用。',
-      failureTitle: '保存章节任务表失败',
+      successTitle: '章节细纲已保存',
+      successText: '本章目标、关键场景、冲突升级和结尾钩子已写回。',
+      failureTitle: '保存章节细纲失败',
       closeModal: true
     });
   }
@@ -602,12 +682,27 @@ export default function App() {
         maxChangeCount: 6
       });
       const suggestions = Array.isArray(response?.suggestions) ? response.suggestions : [];
-      if (!response || (!suggestions.length && !response.regeneration_notes && !response.raw_content)) {
+      const hasRevisionPayload = Boolean(
+        response && (
+          suggestions.length > 0
+          || response.summary
+          || response.regeneration_notes
+          || response.raw_content
+        )
+      );
+      if (!hasRevisionPayload) {
         setRevisionError('校改接口没有返回可用建议。');
         return;
       }
       setRevisionSuggestions(response);
-      setRevisionNotice('已生成局部修改建议，正文不会自动替换，请挑选可用改动手动写入校改稿。');
+      if (suggestions.length > 0) {
+        setRevisionDraft(buildRevisionDraftFromSuggestions(sourceContent, suggestions));
+      }
+      setRevisionNotice(
+        suggestions.length > 0
+          ? '已生成逐段校改稿。'
+          : '本轮没有逐段建议，可以直接在校改稿里编辑。'
+      );
     } catch (polishError) {
       setRevisionError(polishError.message);
     } finally {
@@ -797,18 +892,20 @@ export default function App() {
       try {
         response = await streamChapterContent(generationPayload, {
           onDelta: ({ content: nextContent }) => {
-            streamedContent = nextContent;
+            const safeNextContent = String(nextContent || '').replace(/\uFFFD+/g, '').replace(/�+/g, '');
+            const effectiveWordCount = countPlatformEffectiveWords(safeNextContent);
+            streamedContent = safeNextContent;
             setGenerationState((prev) => ({
               ...prev,
               hasContent: true,
-              content: nextContent,
+              content: safeNextContent,
               statusKind: 'info',
               statusTitle: '正在流式生成正文',
-              statusText: `已实时接收约 ${String(nextContent || '').length} 字，生成完成后会继续写回摘要、质检和剧情线进度。`,
-              wordCountLabel: `生成中约 ${String(nextContent || '').length} 字 / 目标 ${targetWordCount} 字`,
-              previewText: String(nextContent || '').replace(/\s+/g, ' ').slice(0, 520)
+              statusText: `已实时接收约 ${effectiveWordCount} 有效字，生成完成后会继续写回摘要、质检和剧情线进度。`,
+              wordCountLabel: `生成中约 ${effectiveWordCount} 有效字 / 目标 ${targetWordCount} 字`,
+              previewText: safeNextContent.replace(/\s+/g, ' ').slice(0, 520)
             }));
-            setRevisionDraft(String(nextContent || ''));
+            setRevisionDraft(safeNextContent);
           }
         });
       } catch (streamError) {
@@ -860,6 +957,46 @@ export default function App() {
       };
       return withStructuredChapterPlan(prev, nextStructure);
     });
+  }
+
+  function buildOutlineDraftTextFromPlan(plan = {}) {
+    const savedOutline = String(plan.outline_text || '').trim();
+    if (savedOutline) return savedOutline;
+    return composeStructuredOutline(plan.chapter_structure || emptyChapterStructure).trim();
+  }
+
+  async function handleBreakdownChapterOutline() {
+    const source = String(outlineDraftText || '').trim();
+    if (!source) {
+      setOutlineBreakdownState({ loading: false, error: '请先输入一段章节细纲。' });
+      return;
+    }
+
+    setOutlineBreakdownState({ loading: true, error: '' });
+    try {
+      const result = await breakdownChapterOutline({
+        outlineText: source,
+        chapterTitle: draftChapterPlan.chapter_name
+          ? `第 ${chapterNumber} 章 ${draftChapterPlan.chapter_name}`
+          : `第 ${chapterNumber} 章`
+      });
+      setDraftChapterPlan((prev) => {
+        const nextStructure = {
+          ...(prev.chapter_structure || emptyChapterStructure),
+          chapter_goal: String(result.chapter_goal || '').trim(),
+          key_scenes: String(result.key_scenes || '').trim(),
+          conflict_escalation: String(result.conflict_escalation || '').trim(),
+          ending_hook: String(result.ending_hook || '').trim()
+        };
+        return withStructuredChapterPlan(prev, nextStructure);
+      });
+      setOutlineBreakdownState({ loading: false, error: '' });
+    } catch (breakdownError) {
+      setOutlineBreakdownState({
+        loading: false,
+        error: breakdownError.message || 'AI 拆解细纲失败。'
+      });
+    }
   }
 
   function updateGenerationSetting(field, value) {
@@ -945,7 +1082,8 @@ export default function App() {
 
   function confirmDiscardUnsavedChanges(actionLabel) {
     if (!hasUnsavedChapterChanges) return true;
-    return window.confirm(`当前章节还有未保存修改，继续${actionLabel}会丢失这些改动。要继续吗？`);
+    const changedLabels = getUnsavedChapterChangeLabels(draftChapterPlan, savedChapterPlanSnapshot);
+    return window.confirm(`当前章节还有未保存修改：${changedLabels.join('、')}。\n继续${actionLabel}会丢失这些改动。要继续吗？`);
   }
 
   function requestChapterChange(nextChapterNumber) {
@@ -1079,12 +1217,10 @@ export default function App() {
   const generationRequiredItems = [
     { key: 'goal', label: '本章目标', value: chapterStructure.chapter_goal },
     { key: 'scenes', label: '关键场景', value: chapterStructure.key_scenes },
+    { key: 'conflict', label: '冲突升级', value: chapterStructure.conflict_escalation },
     { key: 'ending', label: '结尾钩子', value: chapterStructure.ending_hook || draftChapterPlan.ending_hook }
   ];
   const generationRecommendedItems = [
-    { key: 'conflict', label: '冲突升级', value: chapterStructure.conflict_escalation },
-    { key: 'character', label: '角色变化', value: chapterStructure.character_change },
-    { key: 'payoff', label: '情绪落点', value: chapterStructure.reader_payoff },
     { key: 'storyline', label: '剧情线承接', value: selectedTargetStorylines.length > 0 ? selectedTargetStorylineLabel : '' }
   ];
   const missingRequiredItems = generationRequiredItems.filter((item) => !hasText(item.value));
@@ -1093,11 +1229,11 @@ export default function App() {
   const generationChecklistItems = [
     {
       key: 'outline',
-      label: '保存章节任务表',
+      label: '保存章节细纲',
       done: hasOutlineAnchor,
       detail: hasOutlineAnchor
-        ? '本章目标、关键场景、结尾钩子已具备。'
-        : '先点“编辑细纲”，补齐本章目标、关键场景、结尾钩子并保存。'
+        ? '本章目标、关键场景、冲突升级、结尾钩子已具备。'
+        : '先点“编辑细纲”，补齐本章目标、关键场景、冲突升级、结尾钩子并保存。'
     },
     {
       key: 'storyline',
@@ -1180,8 +1316,19 @@ export default function App() {
     meta: getBookStatusLabel(book.status),
     active: book.id === currentBook.id
   }));
+  const chapterEntryModeItems = [
+    { value: 'first', label: '第 1 章' },
+    { value: 'latest', label: '最新章' },
+    { value: 'next', label: '下一章' }
+  ];
+  const currentChapterEntryModeItem = chapterEntryModeItems.find((item) => item.value === chapterEntryMode) || chapterEntryModeItems[0];
   const revisionOriginalParagraphs = normalizeParagraphs(revisionOriginal);
   const revisionSuggestionItems = Array.isArray(revisionSuggestions?.suggestions) ? revisionSuggestions.suggestions : [];
+  const revisionDiffRows = buildRevisionParagraphDiffRows(revisionOriginal, revisionSuggestionItems);
+  const revisionSummaryStats = summarizeRevisionSuggestions(revisionSuggestionItems);
+  const revisionSummaryText = revisionSuggestionItems.length > 0
+    ? `本次校改新增 ${revisionSummaryStats.added} 段，删除 ${revisionSummaryStats.removed} 段，修改 ${revisionSummaryStats.changed} 段。`
+    : (revisionSuggestions?.summary || revisionSuggestions?.regeneration_notes || revisionNotice || '待生成校改稿。');
   const revisionSuggestionMarks = revisionSuggestionItems.reduce((acc, item) => {
     const action = String(item?.action || '').trim();
     const paragraph = Number(item?.paragraph || 0);
@@ -1327,21 +1474,42 @@ export default function App() {
         />
       ) : null}
       <>
-          <section className={`workbench-stage workbench-app-shell${workbenchSidebarCollapsed ? ' is-workbench-sidebar-collapsed' : ''}${workbenchSidebarCollapsed && workbenchSidebarPeek ? ' is-workbench-sidebar-peek' : ''}`}>
-            <GlobalBar
-              bookTitle={planningState?.currentBook?.title || currentBook.title || ''}
-              volumeLabel={chapterView.volumeLabel || '第 1 卷'}
-              chapterNumber={chapterNumber}
-              chapterName={draftChapterPlan.chapter_name}
-              mainStorylineLabel={chapterView.mainStoryline}
-              totalChapterCount={chapterContext.totalChapterCount}
-              chapterListItems={chapterContext.chapterListItems}
-              onPrevChapter={goToPreviousChapter}
-              onNextChapter={goToNextChapter}
-              onSelectChapter={requestChapterChange}
-              onSwitchBook={handleSwitchBook}
-              showNavigation={false}
-            />
+          <section className="workbench-stage workbench-app-shell">
+            <div className="workbench-worktop">
+              <div className="workbench-surface-tabs" aria-label="当前作品区域切换">
+                <button
+                  type="button"
+                  className="workbench-surface-tab is-active"
+                  onClick={() => switchSurface('workbench')}
+                  aria-current="page"
+                >
+                  <span>WORKBENCH</span>
+                  <strong>创作台</strong>
+                </button>
+                <button
+                  type="button"
+                  className="workbench-surface-tab"
+                  onClick={() => switchSurface('library')}
+                >
+                  <span>LIBRARY</span>
+                  <strong>资料库</strong>
+                </button>
+              </div>
+              <GlobalBar
+                bookTitle={planningState?.currentBook?.title || currentBook.title || ''}
+                volumeLabel={chapterView.volumeLabel || '第 1 卷'}
+                chapterNumber={chapterNumber}
+                chapterName={draftChapterPlan.chapter_name}
+                mainStorylineLabel={chapterView.mainStoryline}
+                totalChapterCount={chapterContext.totalChapterCount}
+                chapterListItems={chapterContext.chapterListItems}
+                onPrevChapter={goToPreviousChapter}
+                onNextChapter={goToNextChapter}
+                onSelectChapter={requestChapterChange}
+                onSwitchBook={handleSwitchBook}
+                showNavigation={false}
+              />
+            </div>
             <div className="workbench-dual-pane">
               <div
                 className="workbench-sidebar-hotzone"
@@ -1361,43 +1529,6 @@ export default function App() {
                     if (workbenchSidebarCollapsed) setWorkbenchSidebarPeek(false);
                   }}
                 >
-                  <button
-                    type="button"
-                    className="workbench-sidebar-toggle"
-                    onClick={(event) => {
-                      setWorkbenchSidebarCollapsed((value) => !value);
-                      event.currentTarget.blur();
-                    }}
-                    title={workbenchSidebarCollapsed ? '展开创作台导航' : '折叠创作台导航'}
-                    aria-label={workbenchSidebarCollapsed ? '展开创作台导航' : '折叠创作台导航'}
-                  >
-                    {workbenchSidebarCollapsed ? '›' : '‹'}
-                  </button>
-                  <div className="workbench-sidebar-head">
-                    <div className="workbench-sidebar-surface-switcher workbench-global-bar-head">
-                      <button
-                        type="button"
-                        className="workbench-surface-entry is-primary"
-                        onClick={() => switchSurface('workbench')}
-                        title="当前位于创作台"
-                        aria-current="page"
-                      >
-                        <span className="workbench-surface-kicker">Workbench</span>
-                        <span className="workbench-surface-state">当前区域</span>
-                        <strong>创作台</strong>
-                      </button>
-                      <button
-                        type="button"
-                        className="workbench-surface-entry is-secondary"
-                        onClick={() => switchSurface('library')}
-                        title="切换到资料库"
-                      >
-                        <span className="workbench-surface-kicker">Library</span>
-                        <span className="workbench-surface-state">前往资料</span>
-                        <strong>资料库 <em>↗</em></strong>
-                      </button>
-                    </div>
-                  </div>
                   <div className="workbench-sidebar-config">
                     <section className="workbench-nav-section">
                       <div className="workbench-nav-section-head">
@@ -1446,6 +1577,33 @@ export default function App() {
                         <button type="button" onClick={goToNextChapter}>
                           下一章
                         </button>
+                      </div>
+                      <div className="workbench-entry-mode">
+                        <button
+                          type="button"
+                          className="workbench-entry-mode-trigger"
+                          onClick={() => setChapterEntryMenuOpen((open) => !open)}
+                        >
+                          <span>设置默认显示章节</span>
+                          <strong>{currentChapterEntryModeItem.label}</strong>
+                        </button>
+                        {chapterEntryMenuOpen ? (
+                          <div className="workbench-entry-mode-menu">
+                            {chapterEntryModeItems.map((item) => (
+                              <button
+                                type="button"
+                                key={item.value}
+                                className={chapterEntryMode === item.value ? 'is-active' : ''}
+                                onClick={() => {
+                                  setChapterEntryMode(item.value);
+                                  setChapterEntryMenuOpen(false);
+                                }}
+                              >
+                                {item.label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                       <div className="workbench-nav-theme-control">
                         <MetaCode>THEME</MetaCode>
@@ -1626,54 +1784,58 @@ export default function App() {
 
       {chapterModal === 'outline' ? (
         <Modal
-          title={'编辑第 ' + chapterNumber + ' 章任务表'}
-          description="把本章目标、关键场景、冲突升级和结尾钩子拆开写。系统会自动合成旧版章节大纲文本。"
+          title={'第 ' + chapterNumber + ' 章细纲速填'}
+          description=""
           onClose={() => setChapterModal(null)}
           actions={
             <>
               {savingState.error ? <div className="modal-error">{savingState.error}</div> : null}
               <button type="button" className="ghost-btn" onClick={() => setChapterModal(null)}>取消</button>
               <button type="button" className="solid-btn" onClick={handleSaveChapterOutline} disabled={savingState.loading}>
-                {savingState.loading ? '正在保存...' : '保存章节任务表'}
+                {savingState.loading ? '正在保存...' : '保存细纲'}
               </button>
             </>
           }
         >
           <div className="chapter-task-editor">
-            <label className="editor-field">
-              <span>章名</span>
-              <input className="chapter-number-input text-input" value={draftChapterPlan.chapter_name} onChange={(event) => updateDraftChapterPlanField('chapter_name', event.target.value)} />
+            <label className="editor-field chapter-outline-title-field">
+              <span>章节名</span>
+              <input
+                className="chapter-number-input text-input"
+                value={draftChapterPlan.chapter_name}
+                onChange={(event) => updateDraftChapterPlanField('chapter_name', event.target.value)}
+              />
             </label>
-            <label className="editor-field">
+            <section className="chapter-outline-ai-input editor-field-full">
+              <label className="editor-field">
+                <span>章节细纲</span>
+                <textarea
+                  className="modal-textarea modal-textarea-compact"
+                  value={outlineDraftText}
+                  onChange={(event) => setOutlineDraftText(event.target.value)}
+                  placeholder="直接写一段你对本章的想法。"
+                />
+              </label>
+              <div className="chapter-outline-ai-actions">
+                {outlineBreakdownState.error ? <span>{outlineBreakdownState.error}</span> : null}
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={handleBreakdownChapterOutline}
+                  disabled={outlineBreakdownState.loading}
+                >
+                  {outlineBreakdownState.loading ? '正在拆解...' : 'AI 拆解细纲'}
+                </button>
+              </div>
+            </section>
+            <label className="editor-field chapter-outline-goal-field">
               <span>本章目标</span>
               <textarea
                 className="modal-textarea modal-textarea-compact"
                 value={draftChapterPlan.chapter_structure?.chapter_goal || ''}
                 onChange={(event) => updateChapterStructureField('chapter_goal', event.target.value)}
-                placeholder="这一章必须完成什么推进？例如：逼主角首次公开动用禁血之力。"
+                placeholder="这一章必须完成什么推进？"
               />
-            </label>
-            <label className="editor-field editor-field-full">
-              <span>章节摘要</span>
-              <textarea
-                className="modal-textarea modal-textarea-compact"
-                value={draftChapterPlan.summary || ''}
-                onChange={(event) => updateDraftChapterPlanField('summary', event.target.value)}
-                placeholder="用一小段话概括本章实际会发生什么。"
-              />
-            </label>
-            <label className="editor-field">
-              <span>读者爽点 / 情绪落点</span>
-              <textarea
-                className="modal-textarea modal-textarea-compact"
-                value={draftChapterPlan.chapter_structure?.reader_payoff || ''}
-                onChange={(event) => updateChapterStructureField('reader_payoff', event.target.value)}
-                placeholder="这一章要给读者什么情绪？例如：压抑、反杀、危机升级、关系撕裂。"
-              />
-            </label>
-            <label className="editor-field editor-field-full">
-              <span>承接上一章</span>
-              <textarea className="modal-textarea modal-textarea-compact" value={draftChapterPlan.previous_hook} onChange={(event) => updateDraftChapterPlanField('previous_hook', event.target.value)} />
             </label>
             <label className="editor-field editor-field-full">
               <span>关键场景</span>
@@ -1681,34 +1843,16 @@ export default function App() {
                 className="modal-textarea"
                 value={draftChapterPlan.chapter_structure?.key_scenes || ''}
                 onChange={(event) => updateChapterStructureField('key_scenes', event.target.value)}
-                placeholder="一行一个场景。例如：荒原伏击压出危机；护人暴露能力；远处祭坛感应血月。"
+                placeholder="一行一个场景。"
               />
             </label>
-            <label className="editor-field">
+            <label className="editor-field editor-field-full">
               <span>冲突升级</span>
               <textarea
                 className="modal-textarea modal-textarea-compact"
                 value={draftChapterPlan.chapter_structure?.conflict_escalation || ''}
                 onChange={(event) => updateChapterStructureField('conflict_escalation', event.target.value)}
-                placeholder="这一章如何让矛盾变得更危险？"
-              />
-            </label>
-            <label className="editor-field">
-              <span>角色变化</span>
-              <textarea
-                className="modal-textarea modal-textarea-compact"
-                value={draftChapterPlan.chapter_structure?.character_change || ''}
-                onChange={(event) => updateChapterStructureField('character_change', event.target.value)}
-                placeholder="人物立场、关系、状态或认知发生什么变化？"
-              />
-            </label>
-            <label className="editor-field editor-field-full">
-              <span>本章出场角色</span>
-              <textarea
-                className="modal-textarea"
-                value={normalizeRoleList(draftChapterPlan.appearing_roles).join('\n')}
-                onChange={(event) => updateDraftChapterPlanField('appearing_roles', normalizeLines(event.target.value))}
-                placeholder="每行一个角色名，或简单写角色组合。"
+                placeholder="矛盾如何变得更危险？"
               />
             </label>
             <label className="editor-field editor-field-full">
@@ -1718,19 +1862,6 @@ export default function App() {
                 value={draftChapterPlan.chapter_structure?.ending_hook || ''}
                 onChange={(event) => updateChapterStructureField('ending_hook', event.target.value)}
                 placeholder="这一章最后把读者钩在哪个点上？"
-              />
-            </label>
-            <section className="outline-preview-block editor-field-full">
-              <span>自动合成的大纲预览</span>
-              <pre className="modal-pre">{draftChapterPlan.outline_text || '填完上面的结构化字段后，这里会自动生成章节大纲文本。'}</pre>
-            </section>
-            <label className="editor-field editor-field-full">
-              <span>原始大纲微调</span>
-              <textarea
-                className="modal-textarea modal-textarea-compact"
-                value={draftChapterPlan.outline_text}
-                onChange={(event) => updateDraftChapterPlanField('outline_text', event.target.value)}
-                placeholder="一般不需要手改。只有想覆盖自动合成文本时再改这里。"
               />
             </label>
           </div>
@@ -1937,6 +2068,9 @@ export default function App() {
           setRevisionRequirement={setRevisionRequirement}
           revisionOriginal={revisionOriginal}
           revisionDraft={revisionDraft}
+          revisionSuggestions={revisionSuggestions}
+          revisionDiffRows={revisionDiffRows}
+          revisionSummaryText={revisionSummaryText}
           generationState={generationState}
           revisionPolishing={revisionPolishing}
           revisionSaving={revisionSaving}
@@ -1976,8 +2110,6 @@ export default function App() {
                   '本章目标：' + (chapterStructure.chapter_goal || '暂无填写'),
                   '关键场景：' + (chapterStructure.key_scenes || '暂无填写'),
                   '冲突升级：' + (chapterStructure.conflict_escalation || '暂无填写'),
-                  '角色变化：' + (chapterStructure.character_change || '暂无填写'),
-                  '情绪落点：' + (chapterStructure.reader_payoff || '暂无填写'),
                   '结尾钩子：' + (chapterStructure.ending_hook || draftChapterPlan.ending_hook || '暂无填写')
                 ].join('\n')}
               </pre>
@@ -1993,7 +2125,7 @@ export default function App() {
               </pre>
             </section>
             <section className="outline-preview-block">
-              <span>自动合成大纲</span>
+              <span>章节细纲</span>
               <pre className="modal-pre">{draftChapterPlan.outline_text || '暂无填写本章大纲。'}</pre>
             </section>
             <section className="outline-preview-block">

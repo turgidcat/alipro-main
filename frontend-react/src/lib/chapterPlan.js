@@ -140,8 +140,6 @@ export function composeStructuredOutline(structure) {
     ['本章目标', structure.chapter_goal],
     ['关键场景', structure.key_scenes],
     ['冲突升级', structure.conflict_escalation],
-    ['角色变化', structure.character_change],
-    ['读者爽点 / 情绪落点', structure.reader_payoff],
     ['结尾钩子', structure.ending_hook]
   ];
 
@@ -409,10 +407,10 @@ export function hasMountedStorylineAnchor(plan = {}) {
 }
 
 export function hasUsableChapterOutline(plan = {}) {
-  if (getLatestChapterOutline(plan)) return true;
   const chapterStructure = plan?.chapter_structure || emptyChapterStructure;
   const chapterGoal = String(chapterStructure?.chapter_goal || plan?.chapter_mission || '').trim();
   const keyScenes = String(chapterStructure?.key_scenes || '').trim();
+  const conflictEscalation = String(chapterStructure?.conflict_escalation || '').trim();
   const endingHook = String(chapterStructure?.ending_hook || plan?.ending_hook || '').trim();
-  return !!chapterGoal && !!keyScenes && !!endingHook;
+  return !!chapterGoal && !!keyScenes && !!conflictEscalation && !!endingHook;
 }

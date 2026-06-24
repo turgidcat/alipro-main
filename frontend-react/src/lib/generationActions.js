@@ -2,6 +2,17 @@ function normalizeText(value) {
   return String(value || '').trim();
 }
 
+function sanitizeGeneratedText(value) {
+  return String(value || '')
+    .replace(/\uFFFD+/g, '')
+    .replace(/�+/g, '')
+    .trim();
+}
+
+function countPlatformEffectiveWords(value) {
+  return Array.from(sanitizeGeneratedText(value).replace(/[\s\p{Punctuation}\p{Symbol}]/gu, '')).length;
+}
+
 function normalizeQualityCheck(rawQualityCheck = {}) {
   const qualityCheck = rawQualityCheck && typeof rawQualityCheck === 'object' ? rawQualityCheck : {};
   const storylineAudit = qualityCheck.storyline_audit && typeof qualityCheck.storyline_audit === 'object'
@@ -209,13 +220,14 @@ export function buildGenerationStateFromCycle({
   successTitle,
   successText
 }) {
+  const safeContent = sanitizeGeneratedText(content);
   const statusMeta = buildStatusMeta({
     successTitle,
     successText,
     cycleResult
   });
 
-  const actualLength = String(content || '').length;
+  const actualLength = countPlatformEffectiveWords(safeContent);
   const safeTarget = Number(targetWordCount || 0) || 0;
   const deviationRatio = safeTarget > 0 ? (actualLength - safeTarget) / safeTarget : 0;
   const deviationLabel = safeTarget > 0
@@ -224,13 +236,13 @@ export function buildGenerationStateFromCycle({
 
   return {
     hasContent: true,
-    content,
+    content: safeContent,
     statusKind: statusMeta.statusKind,
     statusTitle: statusMeta.statusTitle,
     statusText: statusMeta.statusText,
     metaText: chapterTitle,
-    wordCountLabel: `实际约 ${actualLength} 字 / 目标 ${targetWordCount} 字${deviationLabel}`,
-    previewText: String(content || '').replace(/\s+/g, ' ').slice(0, 520),
+    wordCountLabel: `有效字数约 ${actualLength} 字 / 目标 ${targetWordCount} 字${deviationLabel}`,
+    previewText: safeContent.replace(/\s+/g, ' ').slice(0, 520),
     feedbackSummary: chapterFeedback?.chapter_summary || '',
     feedbackFocus: chapterFeedback?.next_chapter_focus || chapterFeedback?.open_hooks || '',
     qualityCheck: buildQualityCheckState(chapterFeedback),

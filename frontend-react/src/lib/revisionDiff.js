@@ -61,6 +61,140 @@ export function applyRevisionSuggestionToDraft({
   };
 }
 
+export function buildRevisionDraftFromSuggestions(original, suggestions = []) {
+  const paragraphs = splitRevisionParagraphs(original).filter(Boolean);
+  if (!paragraphs.length || !Array.isArray(suggestions) || suggestions.length === 0) {
+    return String(original || '');
+  }
+
+  const replaceByParagraph = new Map();
+  const deleteByParagraph = new Set();
+  const insertAfterParagraph = new Map();
+
+  suggestions.forEach((suggestion) => {
+    const action = String(suggestion?.action || '').trim();
+    const paragraph = Number(suggestion?.paragraph || 0);
+    const afterParagraph = Number(suggestion?.afterParagraph || suggestion?.paragraph || 0);
+    const suggestedText = String(suggestion?.suggested_text || '').trim();
+    if (action === 'replace' && paragraph > 0 && suggestedText) {
+      replaceByParagraph.set(paragraph, suggestedText);
+    } else if (action === 'delete' && paragraph > 0) {
+      deleteByParagraph.add(paragraph);
+    } else if (action === 'insert_after' && afterParagraph > 0 && suggestedText) {
+      if (!insertAfterParagraph.has(afterParagraph)) {
+        insertAfterParagraph.set(afterParagraph, []);
+      }
+      insertAfterParagraph.get(afterParagraph).push(suggestedText);
+    }
+  });
+
+  const nextParagraphs = [];
+  paragraphs.forEach((paragraph, index) => {
+    const paragraphNumber = index + 1;
+    if (!deleteByParagraph.has(paragraphNumber)) {
+      nextParagraphs.push(replaceByParagraph.get(paragraphNumber) || paragraph);
+    }
+    const inserts = insertAfterParagraph.get(paragraphNumber) || [];
+    inserts.forEach((insertText) => nextParagraphs.push(insertText));
+  });
+
+  return nextParagraphs.join('\n\n');
+}
+
+export function summarizeRevisionSuggestions(suggestions = []) {
+  const summary = { added: 0, removed: 0, changed: 0 };
+  if (!Array.isArray(suggestions)) return summary;
+  suggestions.forEach((suggestion) => {
+    const action = String(suggestion?.action || '').trim();
+    if (action === 'insert_after') summary.added += 1;
+    else if (action === 'delete') summary.removed += 1;
+    else if (action === 'replace') summary.changed += 1;
+  });
+  return summary;
+}
+
+export function buildRevisionParagraphDiffRows(original, suggestions = []) {
+  const paragraphs = normalizeParagraphs(original);
+  const rows = [];
+  const replaceByParagraph = new Map();
+  const deleteByParagraph = new Map();
+  const insertAfterParagraph = new Map();
+
+  if (Array.isArray(suggestions)) {
+    suggestions.forEach((suggestion, index) => {
+      const action = String(suggestion?.action || '').trim();
+      const paragraph = Number(suggestion?.paragraph || 0);
+      const afterParagraph = Number(suggestion?.afterParagraph || suggestion?.paragraph || 0);
+      if (action === 'replace' && paragraph > 0) {
+        replaceByParagraph.set(paragraph, suggestion);
+      } else if (action === 'delete' && paragraph > 0) {
+        deleteByParagraph.set(paragraph, suggestion);
+      } else if (action === 'insert_after' && afterParagraph > 0) {
+        if (!insertAfterParagraph.has(afterParagraph)) {
+          insertAfterParagraph.set(afterParagraph, []);
+        }
+        insertAfterParagraph.get(afterParagraph).push({ ...suggestion, insertIndex: index });
+      }
+    });
+  }
+
+  paragraphs.forEach((paragraph, index) => {
+    const paragraphNumber = index + 1;
+    const replaceSuggestion = replaceByParagraph.get(paragraphNumber);
+    const deleteSuggestion = deleteByParagraph.get(paragraphNumber);
+    if (deleteSuggestion) {
+      rows.push({
+        key: `delete-${paragraphNumber}`,
+        type: 'delete',
+        label: '删除',
+        beforeNumber: paragraphNumber,
+        afterNumber: '',
+        before: paragraph,
+        after: '',
+        reason: deleteSuggestion.reason || ''
+      });
+    } else if (replaceSuggestion) {
+      rows.push({
+        key: `replace-${paragraphNumber}`,
+        type: 'replace',
+        label: '修改',
+        beforeNumber: paragraphNumber,
+        afterNumber: paragraphNumber,
+        before: paragraph,
+        after: String(replaceSuggestion.suggested_text || '').trim(),
+        reason: replaceSuggestion.reason || ''
+      });
+    } else {
+      rows.push({
+        key: `same-${paragraphNumber}`,
+        type: 'same',
+        label: '原文',
+        beforeNumber: paragraphNumber,
+        afterNumber: paragraphNumber,
+        before: paragraph,
+        after: paragraph,
+        reason: ''
+      });
+    }
+
+    const inserts = insertAfterParagraph.get(paragraphNumber) || [];
+    inserts.forEach((suggestion, insertIndex) => {
+      rows.push({
+        key: `insert-${paragraphNumber}-${insertIndex}`,
+        type: 'insert',
+        label: '新增',
+        beforeNumber: '',
+        afterNumber: '+',
+        before: '',
+        after: String(suggestion.suggested_text || '').trim(),
+        reason: suggestion.reason || ''
+      });
+    });
+  });
+
+  return rows;
+}
+
 export function buildRevisionSessionState(content) {
   const currentContent = String(content || '');
   return {
@@ -79,6 +213,7 @@ export function resolveRevisionSuggestionsResponse(response) {
   const hasUsablePayload = Boolean(
     response && (
       suggestions.length > 0
+      || response.summary
       || response.regeneration_notes
       || response.raw_content
     )
@@ -90,7 +225,9 @@ export function resolveRevisionSuggestionsResponse(response) {
 
   return {
     suggestions,
-    notice: '已生成局部修改建议，正文不会自动替换，请挑选可用改动手动写入校改稿。'
+    notice: suggestions.length > 0
+      ? '已生成逐段校改稿。'
+      : '本轮没有逐段建议，可以直接在校改稿里编辑。'
   };
 }
 

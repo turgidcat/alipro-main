@@ -423,19 +423,21 @@ class DeepSeekService {
     const tags = normalizeArray(shuangTags);
     const roleNames = extractRoleNames(appearingRoles);
     const roleExecutionLines = summarizeRoleExecution(roleExecution);
-    const minWords = Math.max(200, Math.floor(wordCount * 0.92));
-    const maxWords = Math.max(minWords, Math.ceil(wordCount * 1.05));
+    const minWords = Math.max(200, Math.floor(wordCount * 0.85));
+    const maxWords = Math.max(minWords, Math.ceil(wordCount * 1.15));
+    const softTargetWords = Math.max(200, Math.floor(wordCount * 0.95));
 
     const promptParts = [
       `你现在要以 ${platformInfo.name} 网文作者的口吻，创作一章${subgenreName ? ` ${genreName} · ${subgenreName}` : ` ${genreName}`}小说正文。`,
-      '这不是自由发挥，也不是随手续写，而是根据已给出的章节任务表，生成可以直接入库的下一章正文。',
+      '这不是自由发挥，也不是随手续写，而是根据已给出的章节细纲，生成可以直接入库的下一章正文。',
       '',
       `平台风格参考：${platformInfo.style.join('、')}`,
       styleTemplate ? `写法模板：${styleTemplate}` : '',
       '',
       '写作要求：',
-      `1. 目标字数为 ${wordCount} 字，优先贴近目标值。`,
-      `2. 可接受范围控制在 ${minWords}-${maxWords} 字之间，宁可略短，不要明显超长。`,
+      `1. 目标字数为 ${wordCount} 有效字，优先贴近目标值。`,
+      `2. 可接受上限为 ${maxWords} 有效字，超过上限视为不合格；可以略短。`,
+      `2.1 实际写作请瞄准约 ${softTargetWords} 有效字，不要贴近上限。`,
       `3. 情绪强度参考：${emotionIntensity}%`,
       `4. 口语化程度参考：${colloquialLevel}%`,
       `5. 对话占比参考：${dialogueRatio}%`,
@@ -466,6 +468,7 @@ class DeepSeekService {
       '- 角色底层资料只用于保持长期性格、背景和动机一致，不能覆盖本章剧情线约束和章节执行要求。',
       roleExecutionLines.length > 0 ? '- 本章角色执行参数高于一般角色说明，若角色执行参数与泛化人物描写冲突，一律以角色执行参数为准。' : '',
       '- 不要为了凑字数重复表达同一信息。',
+      '- 每个关键场景只写必要动作、冲突和转折，不要扩写额外支线、额外解释或额外尾声。',
       '- 当本章任务已经完成、字数接近目标上限时，立即收束，不要继续追加尾声、回味或补充说明。',
       ''
     ].filter(Boolean);
@@ -515,8 +518,8 @@ class DeepSeekService {
       promptParts.push('', `角色设定参考：\n${characters}`);
     }
 
-    promptParts.push('', `章节任务表：\n${outline}`);
-    promptParts.push('', `再次强调：正文总字数尽量控制在 ${minWords}-${maxWords} 字之间，超过 ${maxWords} 字视为不合格。`);
+    promptParts.push('', `章节细纲：\n${outline}`);
+    promptParts.push('', `最终输出检查：正文有效字数必须控制在 ${minWords}-${maxWords} 之间，只输出正文。`);
 
     return promptParts.join('\n');
   }
