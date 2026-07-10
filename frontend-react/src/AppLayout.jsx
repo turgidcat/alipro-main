@@ -3,9 +3,9 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { brand } from './config/brand.js';
 
 const NAV_ITEMS = [
-  { path: '/books', label: '资料库' },
-  { path: '/workbench', label: '创作台' },
-  { path: '/changelog', label: '更新日志' }
+  { path: '/books', label: '资料库', code: '01' },
+  { path: '/workbench', label: '创作台', code: '02' },
+  { path: '/changelog', label: '更新日志', code: '03' }
 ];
 
 function joinClasses(...values) {
@@ -35,12 +35,10 @@ export default function AppLayout() {
             onClick={() => navigateTo('/')}
             aria-label={`${brand.fullName} 首页`}
           >
-            <span className="al-nav-brand-dot" aria-hidden="true" />
-            <span className="al-nav-brand-name">
-              {brand.chineseName}
-            </span>
-            <span className="al-nav-brand-code">
-              {brand.shortName}
+            <span className="al-nav-monogram" aria-hidden="true">叙</span>
+            <span className="al-nav-brand-lockup">
+              <span className="al-nav-brand-name">{brand.chineseName}</span>
+              <span className="al-nav-brand-code">LONGFORM STUDIO · {brand.shortName}</span>
             </span>
           </button>
 
@@ -55,7 +53,8 @@ export default function AppLayout() {
                   isActive(item.path) && 'al-nav-link--active'
                 )}
               >
-                {item.label}
+                <span className="al-nav-link-index">{item.code}</span>
+                <span>{item.label}</span>
                 {isActive(item.path) && <span className="al-nav-link-indicator" />}
               </button>
             ))}
