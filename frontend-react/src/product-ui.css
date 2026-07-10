@@ -834,6 +834,19 @@ body .books-admin-page .chapter-reader-prose p {
   text-indent: 2em;
 }
 
+body .books-admin-page .chapter-reader-end-marker {
+  width: min(720px, 100%);
+  box-sizing: border-box;
+  margin: -4px auto 0;
+  padding: 20px 0 2px;
+  border-top: 1px solid var(--product-line);
+  color: var(--product-muted);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
 body .books-admin-page .chapter-reader-footer {
   padding-top: 22px;
   border-top: 1px solid var(--product-line);

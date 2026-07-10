@@ -342,14 +342,23 @@ function formatWords(num) {
   return `${value}字`;
 }
 
+function formatExactWords(num) {
+  return `${Math.max(0, Number(num || 0)).toLocaleString('zh-CN')}字`;
+}
+
 function formatDate(value) {
   if (!value) return '未知';
   return new Date(value).toLocaleString('zh-CN');
 }
 
-function getTextWordCount(text) {
-  const value = String(text || '').replace(/\s+/g, '');
-  return value.length;
+function getPlatformEffectiveWordCount(text) {
+  return Array.from(
+    String(text || '')
+      .replace(/\uFFFD+/g, '')
+      .replace(/�+/g, '')
+      .trim()
+      .replace(/[\s\p{Punctuation}\p{Symbol}]/gu, '')
+  ).length;
 }
 
 function getChapterTitle(entry) {
@@ -1761,7 +1770,7 @@ export default function BooksPage() {
   const readerTitle = getChapterTitle(readerEntry);
   const readerContent = readerEntry?.chapter?.content || '';
   const readerParagraphs = splitReadableParagraphs(readerContent);
-  const readerWordCount = readerEntry?.chapter?.word_count || getTextWordCount(readerContent);
+  const readerWordCount = getPlatformEffectiveWordCount(readerContent);
   const readerStructuredContent = parseJsonObject(readerEntry?.plan?.structured_content);
   const readerFeedback = readerStructuredContent.chapter_feedback || null;
 
@@ -2587,7 +2596,7 @@ export default function BooksPage() {
                 <span className="chapter-reader-kicker">CHAPTER {String(readerEntry.chapterNumber).padStart(2, '0')}</span>
                 <h2>第 {readerEntry.chapterNumber} 章 · {readerTitle}</h2>
                 <div className="chapter-reader-meta">
-                  <span>{formatWords(readerWordCount)}</span>
+                  <span>{formatExactWords(readerWordCount)}</span>
                   <span>{formatDate(readerEntry.chapter?.updated_at || readerEntry.plan?.updated_at || readerEntry.chapter?.created_at || readerEntry.plan?.created_at)}</span>
                   {readerEntry.chapter?.content ? <span>正文已保存</span> : <span>仅有章节资料</span>}
                 </div>
@@ -2612,11 +2621,16 @@ export default function BooksPage() {
               ) : null}
 
               {readerParagraphs.length > 0 ? (
-                <div className="chapter-reader-prose">
-                  {readerParagraphs.map((paragraph, index) => (
-                    <p key={`reader-paragraph-${readerEntry.chapterNumber}-${index}`}>{paragraph}</p>
-                  ))}
-                </div>
+                <>
+                  <div className="chapter-reader-prose">
+                    {readerParagraphs.map((paragraph, index) => (
+                      <p key={`reader-paragraph-${readerEntry.chapterNumber}-${index}`}>{paragraph}</p>
+                    ))}
+                  </div>
+                  <div className="chapter-reader-end-marker">
+                    已显示全部已保存正文 · {formatExactWords(readerWordCount)}
+                  </div>
+                </>
               ) : (
                 <div className="chapter-reader-empty">
                   <strong>正文尚未生成</strong>
@@ -2684,7 +2698,7 @@ export default function BooksPage() {
               {chapterEntries.length > 0 ? (
                 <div className="chapter-waterfall">
                   {chapterEntries.map((entry) => {
-                    const chapterWordCount = entry.chapter?.word_count || getTextWordCount(entry.chapter?.content);
+                    const chapterWordCount = getPlatformEffectiveWordCount(entry.chapter?.content);
                     return (
                       <article
                         key={`chapter-entry-${entry.chapterNumber}`}
@@ -2695,7 +2709,7 @@ export default function BooksPage() {
                           第 {entry.chapterNumber} 章 · {getChapterTitle(entry)}
                         </button>
                         <span className="chapter-flow-meta">
-                          {chapterWordCount ? `${formatWords(chapterWordCount)} · ` : ''}
+                          {chapterWordCount ? `${formatExactWords(chapterWordCount)} · ` : ''}
                           {entry.chapter?.content ? '正文已保存' : '待生成正文'}
                         </span>
                         {entry.plan?.outline_text ? (
