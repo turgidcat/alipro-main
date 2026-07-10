@@ -1,4 +1,6 @@
 import Modal from './Modal.jsx';
+import { countPlatformEffectiveWords, formatExactWordCount } from '../../lib/textMetrics.js';
+
 export default function RevisionEditor(props) {
   const {
     chapterNumber,
@@ -29,6 +31,8 @@ export default function RevisionEditor(props) {
     registerRevisionChangeRef,
     registerRevisionParagraphRef
   } = props;
+  const originalWordCount = countPlatformEffectiveWords(revisionOriginal);
+  const draftWordCount = countPlatformEffectiveWords(revisionDraft);
 
   return (
     <Modal
@@ -71,8 +75,8 @@ export default function RevisionEditor(props) {
             </div>
           </div>
           <div className="revision-editor-meta">
-            <span>原文 {revisionOriginal.length} 字</span>
-            <span>校改稿 {revisionDraft.length} 字</span>
+            <span>原文 {formatExactWordCount(originalWordCount)}</span>
+            <span>校改稿 {formatExactWordCount(draftWordCount)}</span>
             <span>建议 {revisionChangeItems.length} 条</span>
             <span>{generationState.metaText}</span>
           </div>

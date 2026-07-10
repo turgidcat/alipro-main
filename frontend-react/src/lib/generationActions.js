@@ -1,3 +1,5 @@
+import { countPlatformEffectiveWords, formatWordCountProgress } from './textMetrics.js';
+
 function normalizeText(value) {
   return String(value || '').trim();
 }
@@ -7,10 +9,6 @@ function sanitizeGeneratedText(value) {
     .replace(/\uFFFD+/g, '')
     .replace(/�+/g, '')
     .trim();
-}
-
-function countPlatformEffectiveWords(value) {
-  return Array.from(sanitizeGeneratedText(value).replace(/[\s\p{Punctuation}\p{Symbol}]/gu, '')).length;
 }
 
 function normalizeQualityCheck(rawQualityCheck = {}) {
@@ -241,7 +239,7 @@ export function buildGenerationStateFromCycle({
     statusTitle: statusMeta.statusTitle,
     statusText: statusMeta.statusText,
     metaText: chapterTitle,
-    wordCountLabel: `有效字数约 ${actualLength} 字 / 目标 ${targetWordCount} 字${deviationLabel}`,
+    wordCountLabel: `${formatWordCountProgress(actualLength, targetWordCount)}${deviationLabel}`,
     previewText: safeContent.replace(/\s+/g, ' ').slice(0, 520),
     feedbackSummary: chapterFeedback?.chapter_summary || '',
     feedbackFocus: chapterFeedback?.next_chapter_focus || chapterFeedback?.open_hooks || '',

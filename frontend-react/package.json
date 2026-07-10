@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run verify:frontend-contracts && vite build",
+    "verify:frontend-contracts": "node scripts/verify-frontend-contracts.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

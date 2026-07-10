@@ -6,16 +6,13 @@ import {
   normalizeRoleExecution,
   getPlanWordCount
 } from './chapterPlan.js';
+import { countPlatformEffectiveWords, formatWordCountProgress } from './textMetrics.js';
 
 function sanitizeGeneratedText(value) {
   return String(value || '')
     .replace(/\uFFFD+/g, '')
     .replace(/�+/g, '')
     .trim();
-}
-
-function countPlatformEffectiveWords(value) {
-  return Array.from(sanitizeGeneratedText(value).replace(/[\s\p{Punctuation}\p{Symbol}]/gu, '')).length;
 }
 
 export function normalizeChapterBundle(bundle, chapterNumber) {
@@ -94,7 +91,7 @@ export function normalizeChapterBundle(bundle, chapterNumber) {
           statusTitle: '本章已有正文',
           statusText: '可以查看正文，也可以调整章节规划后重新生成。',
           metaText: `第 ${chapterNumber} 章 · ${normalizeChapterName(plan.chapterTitle) || '未命名章节'}`,
-          wordCountLabel: `有效字数约 ${effectiveWordCount} 字 / 目标 ${targetWordCount} 字${deviationLabel}`,
+          wordCountLabel: `${formatWordCountProgress(effectiveWordCount, targetWordCount)}${deviationLabel}`,
           previewText: content.replace(/\s+/g, ' ').slice(0, 520),
           feedbackSummary: feedback.chapter_summary || '本章已有正文，生成反馈可后续继续增强。',
           feedbackFocus: feedback.next_chapter_focus || feedback.open_hooks || '下一章重点暂未整理。',

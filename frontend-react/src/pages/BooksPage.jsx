@@ -15,6 +15,7 @@ import {
 import IndentedTextBlock from '../components/IndentedTextBlock.jsx';
 import { getRoleTierShortLabel, roleTierOptions } from '../lib/roleTiers.js';
 import { formatChapterLabel, normalizeChapterName } from '../lib/chapterName.js';
+import { countPlatformEffectiveWords, formatExactWordCount } from '../lib/textMetrics.js';
 import '../styles.css';
 import '../app-shell.css';
 
@@ -335,30 +336,9 @@ function requestJson(path, options = {}) {
   });
 }
 
-function formatWords(num) {
-  const value = Number(num || 0);
-  if (value >= 10000) return `${(value / 10000).toFixed(2)}万字`;
-  if (value >= 1000) return `${(value / 1000).toFixed(1)}k字`;
-  return `${value}字`;
-}
-
-function formatExactWords(num) {
-  return `${Math.max(0, Number(num || 0)).toLocaleString('zh-CN')}字`;
-}
-
 function formatDate(value) {
   if (!value) return '未知';
   return new Date(value).toLocaleString('zh-CN');
-}
-
-function getPlatformEffectiveWordCount(text) {
-  return Array.from(
-    String(text || '')
-      .replace(/\uFFFD+/g, '')
-      .replace(/�+/g, '')
-      .trim()
-      .replace(/[\s\p{Punctuation}\p{Symbol}]/gu, '')
-  ).length;
 }
 
 function getChapterTitle(entry) {
@@ -1770,7 +1750,7 @@ export default function BooksPage() {
   const readerTitle = getChapterTitle(readerEntry);
   const readerContent = readerEntry?.chapter?.content || '';
   const readerParagraphs = splitReadableParagraphs(readerContent);
-  const readerWordCount = getPlatformEffectiveWordCount(readerContent);
+  const readerWordCount = countPlatformEffectiveWords(readerContent);
   const readerStructuredContent = parseJsonObject(readerEntry?.plan?.structured_content);
   const readerFeedback = readerStructuredContent.chapter_feedback || null;
 
@@ -1926,7 +1906,7 @@ export default function BooksPage() {
               {[
                 ['书籍总数', stats.totalBooks || 0],
                 ['章节总数', stats.totalChapters || 0],
-                ['累计字数', formatWords(stats.totalWords || 0)],
+                ['累计字数', formatExactWordCount(stats.totalWords || 0)],
                 ['角色总数', stats.totalCharacters || 0],
                 ['7天内更新', stats.recent7Days || 0]
               ].map(([label, value]) => (
@@ -2026,7 +2006,7 @@ export default function BooksPage() {
                       <div className="books-page-card-stats">
                         <span className="books-page-card-stat-item">
                           <span className="books-page-card-stat-label">字数</span>
-                          <span className="books-page-card-stat-value">{(book.word_count || 0) > 0 ? formatWords(book.word_count || 0) : '暂无'}</span>
+                          <span className="books-page-card-stat-value">{(book.word_count || 0) > 0 ? formatExactWordCount(book.word_count || 0) : '暂无'}</span>
                         </span>
                         <span className="books-page-card-stat-item">
                           <span className="books-page-card-stat-label">更新</span>
@@ -2596,7 +2576,7 @@ export default function BooksPage() {
                 <span className="chapter-reader-kicker">CHAPTER {String(readerEntry.chapterNumber).padStart(2, '0')}</span>
                 <h2>第 {readerEntry.chapterNumber} 章 · {readerTitle}</h2>
                 <div className="chapter-reader-meta">
-                  <span>{formatExactWords(readerWordCount)}</span>
+                  <span>{formatExactWordCount(readerWordCount)}</span>
                   <span>{formatDate(readerEntry.chapter?.updated_at || readerEntry.plan?.updated_at || readerEntry.chapter?.created_at || readerEntry.plan?.created_at)}</span>
                   {readerEntry.chapter?.content ? <span>正文已保存</span> : <span>仅有章节资料</span>}
                 </div>
@@ -2628,7 +2608,7 @@ export default function BooksPage() {
                     ))}
                   </div>
                   <div className="chapter-reader-end-marker">
-                    已显示全部已保存正文 · {formatExactWords(readerWordCount)}
+                    已显示全部已保存正文 · {formatExactWordCount(readerWordCount)}
                   </div>
                 </>
               ) : (
@@ -2698,7 +2678,7 @@ export default function BooksPage() {
               {chapterEntries.length > 0 ? (
                 <div className="chapter-waterfall">
                   {chapterEntries.map((entry) => {
-                    const chapterWordCount = getPlatformEffectiveWordCount(entry.chapter?.content);
+                    const chapterWordCount = countPlatformEffectiveWords(entry.chapter?.content);
                     return (
                       <article
                         key={`chapter-entry-${entry.chapterNumber}`}
@@ -2709,7 +2689,7 @@ export default function BooksPage() {
                           第 {entry.chapterNumber} 章 · {getChapterTitle(entry)}
                         </button>
                         <span className="chapter-flow-meta">
-                          {chapterWordCount ? `${formatExactWords(chapterWordCount)} · ` : ''}
+                          {chapterWordCount ? `${formatExactWordCount(chapterWordCount)} · ` : ''}
                           {entry.chapter?.content ? '正文已保存' : '待生成正文'}
                         </span>
                         {entry.plan?.outline_text ? (

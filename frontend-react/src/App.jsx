@@ -62,15 +62,11 @@ import CharacterDrawer from './components/workbench/drawers/CharacterDrawer.jsx'
 import VolumeDrawer from './components/workbench/drawers/VolumeDrawer.jsx';
 import { useWorkbench } from './hooks/useWorkbench.js';
 import { compareRoleTier, getRoleTierShortLabel, getRoleTierTone } from './lib/roleTiers.js';
-
-function countPlatformEffectiveWords(value) {
-  const text = String(value || '')
-    .replace(/\uFFFD+/g, '')
-    .replace(/�+/g, '')
-    .trim()
-    .replace(/[\s\p{Punctuation}\p{Symbol}]/gu, '');
-  return Array.from(text).length;
-}
+import {
+  countPlatformEffectiveWords,
+  formatExactWordCount,
+  formatWordCountProgress
+} from './lib/textMetrics.js';
 
 const DRAWER_MEMORY_PREFIX = 'alipro-workbench-drawer';
 const RECENT_WORKSPACE_PAGE_KEY = 'alipro-recent-workspace-page';
@@ -1236,8 +1232,8 @@ export default function App() {
               content: safeNextContent,
               statusKind: 'info',
               statusTitle: '正在流式生成正文',
-              statusText: `已实时接收约 ${effectiveWordCount} 有效字，生成完成后会继续写回摘要、创作审校和叙事脉络进度。`,
-              wordCountLabel: `生成中约 ${effectiveWordCount} 有效字 / 目标 ${targetWordCount} 字`,
+              statusText: `已实时接收 ${formatExactWordCount(effectiveWordCount)}，生成完成后会继续写回摘要、创作审校和叙事脉络进度。`,
+              wordCountLabel: `生成中 · ${formatWordCountProgress(effectiveWordCount, targetWordCount)}`,
               previewText: safeNextContent.replace(/\s+/g, ' ').slice(0, 520)
             }));
             setRevisionDraft(safeNextContent);
@@ -2229,7 +2225,7 @@ export default function App() {
                   <div className="workbench-info-card-body">
                     <div className="workbench-info-row"><span className="workbench-info-label">书名</span><strong>{currentBook?.title || '未选择'}</strong></div>
                     <div className="workbench-info-row"><span className="workbench-info-label">作者</span><strong>{currentBook?.author || '—'}</strong></div>
-                    <div className="workbench-info-row"><span className="workbench-info-label">总字数</span><strong>{currentBook?.totalWordCount || 0}</strong></div>
+                    <div className="workbench-info-row"><span className="workbench-info-label">总字数</span><strong>{formatExactWordCount(currentBook?.totalWordCount || 0)}</strong></div>
                     <div className="workbench-info-row"><span className="workbench-info-label">章节</span><strong>{chapterContext.existingChapterCount || 0}</strong></div>
                   </div>
                 </div>

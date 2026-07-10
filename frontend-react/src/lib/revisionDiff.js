@@ -1,3 +1,5 @@
+import { countPlatformEffectiveWords } from './textMetrics.js';
+
 export function normalizeParagraphs(text) {
   return String(text || '')
     .split(/\n{2,}|\r?\n/)
@@ -310,8 +312,8 @@ export function buildRevisionSentenceDiff(original, draft) {
 }
 
 export function buildRevisionEvaluation(original, draft, diffItems) {
-  const originalLength = String(original || '').length;
-  const draftLength = String(draft || '').length;
+  const originalLength = countPlatformEffectiveWords(original);
+  const draftLength = countPlatformEffectiveWords(draft);
   const originalParagraphs = normalizeParagraphs(original).length;
   const draftParagraphs = normalizeParagraphs(draft).length;
   const changedItems = diffItems.filter((item) => item.type !== 'same');
