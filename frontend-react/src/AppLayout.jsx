@@ -3,9 +3,9 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { brand } from './config/brand.js';
 
 const NAV_ITEMS = [
-  { path: '/books', label: '资料库', code: '01' },
-  { path: '/workbench', label: '创作台', code: '02' },
-  { path: '/changelog', label: '更新日志', code: '03' }
+  { path: '/books', label: '资料库' },
+  { path: '/workbench', label: '创作台' },
+  { path: '/changelog', label: '更新日志' }
 ];
 
 function joinClasses(...values) {
@@ -52,8 +52,8 @@ export default function AppLayout() {
                   'al-nav-link',
                   isActive(item.path) && 'al-nav-link--active'
                 )}
+                aria-current={isActive(item.path) ? 'page' : undefined}
               >
-                <span className="al-nav-link-index">{item.code}</span>
                 <span>{item.label}</span>
                 {isActive(item.path) && <span className="al-nav-link-indicator" />}
               </button>
