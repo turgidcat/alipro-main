@@ -997,6 +997,26 @@ body .workbench-prose-paper {
   box-shadow: none;
 }
 
+body .workbench-generation-preview,
+body .workbench-prose-paper {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: #c3ccd8 transparent;
+  scrollbar-width: thin;
+}
+
+body .workbench-generation-preview::-webkit-scrollbar,
+body .workbench-prose-paper::-webkit-scrollbar {
+  width: 7px;
+}
+
+body .workbench-generation-preview::-webkit-scrollbar-thumb,
+body .workbench-prose-paper::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #c3ccd8;
+}
+
 body .workbench-generation-preview::before,
 body .workbench-prose-paper::before {
   width: 3px;
@@ -1212,6 +1232,13 @@ body .changelog-page {
     border-left: 0;
     border-top: 1px solid var(--product-line);
     background: var(--product-surface-subtle);
+  }
+
+  body .workbench-generation-preview,
+  body .workbench-prose-paper {
+    max-height: none;
+    overflow: visible;
+    overscroll-behavior: auto;
   }
 }
 
