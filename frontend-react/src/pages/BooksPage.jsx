@@ -398,6 +398,16 @@ function getSubgenreOptions(genre) {
   return genreCategoryMap[genre]?.subgenres || [];
 }
 
+function confirmBulkClear(bookTitle, resourceName, count) {
+  const safeBookTitle = String(bookTitle || '当前书籍').trim() || '当前书籍';
+  if (!window.confirm(`确认清空《${safeBookTitle}》的全部${resourceName}吗？此操作不可恢复。`)) {
+    return false;
+  }
+
+  const typedTitle = window.prompt(`为避免误操作，请输入书名“${safeBookTitle}”确认清空 ${count} 条${resourceName}。`, '');
+  return typedTitle?.trim() === safeBookTitle;
+}
+
 function openWorkbench(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
@@ -923,6 +933,16 @@ export default function BooksPage() {
     setCurrentBookId(bookId);
   }
 
+  function switchCurrentBook(bookId) {
+    if (!bookId || bookId === currentBookId) return;
+    setCurrentBook(bookId);
+    if (isSubPage) {
+      window.location.href = buildAppPath(currentPath);
+    } else if (isBookDetailPage) {
+      openBooksSummaryPage(bookId);
+    }
+  }
+
   function openBookDetail(bookId) {
     if (!bookId) return;
     setCurrentBook(bookId);
@@ -1183,7 +1203,7 @@ export default function BooksPage() {
 
   async function handleClearCharacters() {
     if (!detailBook?.id) return;
-    if (!window.confirm('确认清空当前书籍的全部角色档案吗？此操作会删除现有角色卡，适合在重新生成前使用。')) {
+    if (!confirmBulkClear(detailBook.title, '角色档案', detailCharacters.length)) {
       return;
     }
 
@@ -1714,7 +1734,7 @@ export default function BooksPage() {
 
   async function handleClearLibraryChapters() {
     if (!detailBook?.id || chapterEntries.length === 0) return;
-    if (!window.confirm(`确认清空《${detailBook.title}》的全部 ${chapterEntries.length} 章吗？章节正文、章节名称和章节细纲都会永久删除；书籍、分卷、角色和剧情线会保留。`)) {
+    if (!confirmBulkClear(detailBook.title, '章节（含正文与细纲）', chapterEntries.length)) {
       return;
     }
 
@@ -1754,6 +1774,8 @@ export default function BooksPage() {
       .books-page-prompt-entry { flex: 0 0 auto; height: 30px; padding: 0 11px; border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line)); border-radius: 999px; background: color-mix(in srgb, var(--brand-soft) 28%, transparent); color: var(--brand-deep); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
       .books-page-prompt-entry:hover:not(:disabled) { border-color: var(--brand); background: color-mix(in srgb, var(--brand-soft) 58%, transparent); }
       .books-page-prompt-entry:disabled { cursor: not-allowed; opacity: 0.45; }
+      .library-book-switcher { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 700; }
+      .library-book-switcher select { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: var(--radius-panel-sm); background: var(--panel-strong); color: var(--text); padding: 7px 8px; font: inherit; font-size: 13px; }
       .books-page-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 1.5rem; }
       .books-page-stat-card { border: 1px solid var(--line); border-radius: var(--radius-panel-lg); background: var(--panel); padding: 16px 20px; }
       .books-page-stat-value { display: block; font-size: 1.5rem; font-weight: 900; line-height: 1; color: var(--brand); letter-spacing: -0.03em; }
@@ -1812,7 +1834,7 @@ export default function BooksPage() {
               title="返回资料库列表"
               aria-current="page"
             >
-              <span className="library-sidebar-kicker">LIBRARY</span>
+              <span className="library-sidebar-kicker">书籍管理</span>
               <strong>资料库</strong>
             </button>
             <button
@@ -1821,7 +1843,7 @@ export default function BooksPage() {
               onClick={() => openWorkbench(shellBookId)}
               title="切换到创作台"
             >
-              <span className="library-sidebar-kicker">WORKBENCH</span>
+              <span className="library-sidebar-kicker">章节创作</span>
               <strong>创作台</strong>
             </button>
           </div>
@@ -1847,6 +1869,21 @@ export default function BooksPage() {
             章节与正文
           </button>
         </nav>
+        <div className="library-sidebar-section">
+          <div className="library-sidebar-context">
+            <span>当前操作书籍</span>
+            <strong>{shellBook?.title || '请先选择书籍'}</strong>
+          </div>
+          {books.length > 1 ? (
+            <label className="library-book-switcher">
+              <span>切换书籍</span>
+              <select value={currentBookId} onChange={(event) => switchCurrentBook(event.target.value)}>
+                {books.map((book) => <option key={book.id} value={book.id}>{book.title || '未命名书籍'}</option>)}
+              </select>
+            </label>
+          ) : null}
+          {!shellBookId ? <p className="library-sidebar-note">先在书籍列表选择或新建一本书，才能进入资料库分页面。</p> : null}
+        </div>
 
           </aside>
         </>
@@ -1864,9 +1901,10 @@ export default function BooksPage() {
               className="books-page-prompt-entry"
               onClick={() => openPromptManager(shellBookId)}
               disabled={!shellBookId}
-              title={shellBookId ? '查看当前书籍章节的模型输入' : '请先选择一本当前书籍'}
+              title={shellBookId ? '配置当前书籍 AI 生成时使用的提示词' : '请先选择一本当前书籍'}
+              aria-label="配置当前书籍的 AI 生成提示词"
             >
-              Prompt 管理
+              提示词配置
             </button>
           ) : null}
         </div>
@@ -1928,7 +1966,7 @@ export default function BooksPage() {
             <span className="books-page-toolbar-sep" />
             <button type="button" className="books-page-toolbar-btn books-page-toolbar-btn-primary" onClick={openCreateEditor}>新建书籍</button>
             <button type="button" className="books-page-toolbar-btn" onClick={loadLibrary}>刷新列表</button>
-            <span className="books-page-toolbar-info">显示 {filteredBooks.length}/{books.length} 本 · 筛选 {activeFilterCount} 项</span>
+            <span className="books-page-toolbar-info">{loading ? '正在读取书籍资料...' : `显示 ${filteredBooks.length}/${books.length} 本 · 筛选 ${activeFilterCount} 项`}</span>
           </div>
 
           {loading ? (
@@ -2057,7 +2095,7 @@ export default function BooksPage() {
                         onClick={handleClearCharacters}
                         disabled={deleteLoading || detailCharacters.length === 0}
                       >
-                        {deleteLoading ? '清空中...' : '清空已有角色'}
+                        {deleteLoading ? '清空中...' : '清空全部角色（不可恢复）'}
                       </button>
                       <button type="button" className="solid-btn" onClick={() => {
                         setCreatingCharacter((prev) => !prev);
@@ -2613,7 +2651,7 @@ export default function BooksPage() {
                   <p>按章节浏览资料，点击章节名称进入正文阅读。</p>
                 </div>
                 <div className="detail-inline-actions">
-                  <button type="button" className="ghost-btn nav-btn" onClick={handleClearLibraryChapters} disabled={chapterClearLoading || chapterEntries.length === 0}>{chapterClearLoading ? '清空中...' : '一键清空章节'}</button>
+                  <button type="button" className="ghost-btn nav-btn detail-danger-btn" onClick={handleClearLibraryChapters} disabled={chapterClearLoading || chapterEntries.length === 0} title="会删除正文和细纲，且不可恢复">{chapterClearLoading ? '清空中...' : '清空全部章节（不可恢复）'}</button>
                   <button type="button" className="ghost-btn nav-btn" onClick={() => openChapterPlanEditor(null)} disabled={chapterClearLoading}>新增章节细纲</button>
                   <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>去创作台继续写</button>
                 </div>

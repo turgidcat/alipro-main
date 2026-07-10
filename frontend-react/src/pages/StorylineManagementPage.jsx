@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   deleteStoryline,
+  fetchBookList,
   fetchBookPlanningBundle,
   fetchStorylines,
   generateStorylineDetails,
@@ -209,6 +210,7 @@ function createStorylineDraft(volumeNumber = 1) {
 
 export default function StorylineManagementPage() {
   const [bookId, setBookId] = useState(() => getStoredCurrentBookId());
+  const [books, setBooks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [book, setBook] = useState(null);
@@ -228,9 +230,19 @@ export default function StorylineManagementPage() {
   const sidebarPeek = false;
 
   useEffect(() => {
-    const nextBookId = getStoredCurrentBookId();
-    setBookId(nextBookId);
-    if (!nextBookId) {
+    let cancelled = false;
+    fetchBookList().then((list) => {
+      if (!cancelled) setBooks(Array.isArray(list) ? list : []);
+    }).catch(() => {
+      if (!cancelled) setBooks([]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!bookId) {
       setBook(null);
       setVolumePlans([]);
       setStorylines([]);
@@ -243,8 +255,8 @@ export default function StorylineManagementPage() {
     setError('');
 
     Promise.all([
-      fetchBookPlanningBundle(nextBookId),
-      fetchStorylines(nextBookId)
+      fetchBookPlanningBundle(bookId),
+      fetchStorylines(bookId)
     ]).then(([bundle, storylineList]) => {
       if (cancelled) return;
       setBook(bundle?.currentBook || null);
@@ -267,7 +279,13 @@ export default function StorylineManagementPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [bookId]);
+
+  function switchCurrentBook(nextBookId) {
+    if (!nextBookId || nextBookId === bookId) return;
+    persistCurrentBookId(nextBookId);
+    setBookId(nextBookId);
+  }
 
   const storylineGroups = useMemo(() => buildStorylineGroups(storylines), [storylines]);
   const storylineBoard = useMemo(() => getStorylineBoard(storylines, volumePlans), [storylines, volumePlans]);
@@ -414,7 +432,7 @@ export default function StorylineManagementPage() {
               title="返回资料库列表"
               aria-current="page"
             >
-              <span className="library-sidebar-kicker">LIBRARY</span>
+              <span className="library-sidebar-kicker">书籍管理</span>
               <strong>资料库</strong>
             </button>
             <button
@@ -424,7 +442,7 @@ export default function StorylineManagementPage() {
               disabled={!bookId}
               title="切换到创作台"
             >
-              <span className="library-sidebar-kicker">WORKBENCH</span>
+              <span className="library-sidebar-kicker">章节创作</span>
               <strong>创作台</strong>
             </button>
           </div>
@@ -437,6 +455,21 @@ export default function StorylineManagementPage() {
           <button type="button" data-short="角" className="library-nav-item" onClick={() => openBooksCharacterPage(bookId)} disabled={!bookId} title="角色资料">角色资料</button>
           <button type="button" data-short="章" className="library-nav-item" onClick={() => openBooksChapterPage(bookId)} disabled={!bookId} title="章节与正文">章节与正文</button>
         </nav>
+        <div className="library-sidebar-section">
+          <div className="library-sidebar-context">
+            <span>当前操作书籍</span>
+            <strong>{book?.title || '请先选择书籍'}</strong>
+          </div>
+          {books.length > 1 ? (
+            <label className="library-book-switcher">
+              <span>切换书籍</span>
+              <select value={bookId} onChange={(event) => switchCurrentBook(event.target.value)}>
+                {books.map((item) => <option key={item.id} value={item.id}>{item.title || '未命名书籍'}</option>)}
+              </select>
+            </label>
+          ) : null}
+          {!bookId ? <p className="library-sidebar-note">先在书籍列表选择或新建一本书，才能管理叙事脉络。</p> : null}
+        </div>
       </aside>
 
       <main className="library-main">
@@ -467,7 +500,7 @@ export default function StorylineManagementPage() {
                 <section className="detail-panel storyline-control-panel">
                   <div className="detail-panel-actions">
                     <div>
-                      <span className="storyline-board-kicker">STORYLINE EDITOR</span>
+                      <span className="storyline-board-kicker">剧情线编辑</span>
                       <h3>本卷剧情线设置与生成</h3>
                     </div>
                     <div className="detail-inline-actions">
@@ -526,10 +559,12 @@ export default function StorylineManagementPage() {
                   ) : null}
                 </section>
 
+                <details className="storyline-progress-disclosure">
+                  <summary>查看叙事进度看板</summary>
                 <article className="storyline-board-card">
                   <div className="storyline-board-copy">
                     <div>
-                      <span className="storyline-board-kicker">Storyline Board</span>
+                      <span className="storyline-board-kicker">叙事进度看板</span>
                       <strong>叙事进度表与章数动态校正图</strong>
                     </div>
                     <div className="storyline-board-guide">
@@ -608,6 +643,7 @@ export default function StorylineManagementPage() {
                     </div>
                   )}
                 </article>
+                </details>
 
                 <div className="detail-panel storyline-volume-panel">
                   <div className="detail-panel-actions">
@@ -1170,6 +1206,24 @@ export default function StorylineManagementPage() {
           font-weight: 900;
           line-height: 1.24;
         }
+        .library-book-switcher {
+          display: grid;
+          gap: 5px;
+          color: var(--muted);
+          font-size: 12px;
+          font-weight: 700;
+        }
+        .library-book-switcher select {
+          width: 100%;
+          min-width: 0;
+          border: 1px solid var(--line);
+          border-radius: var(--radius-panel-sm);
+          background: var(--panel-strong);
+          color: var(--text);
+          padding: 7px 8px;
+          font: inherit;
+          font-size: 13px;
+        }
         .library-sidebar-nav,
         .library-sidebar-actions {
           display: grid;
@@ -1343,6 +1397,25 @@ export default function StorylineManagementPage() {
           padding: 10px 12px 12px;
           box-shadow: 0 14px 32px color-mix(in srgb, var(--brand-deep) 8%, transparent);
         }
+        .library-page .storyline-progress-disclosure {
+          border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+          border-radius: var(--radius-panel-lg);
+          background: color-mix(in srgb, var(--panel) 88%, var(--brand-soft));
+          overflow: hidden;
+        }
+        .library-page .storyline-progress-disclosure > summary {
+          cursor: pointer;
+          list-style: none;
+          padding: 12px 14px;
+          color: var(--brand-deep);
+          font-size: 13px;
+          font-weight: 800;
+        }
+        .library-page .storyline-progress-disclosure > summary::-webkit-details-marker { display: none; }
+        .library-page .storyline-progress-disclosure > summary::after { content: '展开'; float: right; color: var(--muted); font-weight: 700; }
+        .library-page .storyline-progress-disclosure[open] > summary::after { content: '收起'; }
+        .library-page .storyline-progress-disclosure[open] > summary { border-bottom: 1px solid color-mix(in srgb, var(--line) 86%, transparent); }
+        .library-page .storyline-progress-disclosure .storyline-board-card { border: 0; border-radius: 0; box-shadow: none; }
         .library-page .storyline-board-copy {
           display: flex;
           align-items: center;

@@ -1769,12 +1769,11 @@ export default function App() {
       : `${volume.startChapter || '?'}-${volume.endChapter || '?'} 章`,
     active: Number(volume.volumeNumber || 0) === currentNavigationVolumeNumber
   }));
-  const currentLocalChapterNumber = getVolumeLocalChapterNumber(currentChapterNavigationItem || visibleVolumeChapters[0]);
-  const currentChapterSelectLabel = formatChapterLabel(currentLocalChapterNumber, draftChapterPlan.chapter_name);
+  const currentChapterSelectLabel = formatChapterLabel(chapterNumber, draftChapterPlan.chapter_name);
   const chapterSelectItems = visibleVolumeChapters.map((item) => ({
     value: Number(item.chapterNumber || 1),
-    label: formatChapterLabel(getVolumeLocalChapterNumber(item), item.chapterName),
-    meta: `全书第 ${item.chapterNumber} 章`,
+    label: formatChapterLabel(item.chapterNumber, item.chapterName),
+    meta: `第 ${currentNavigationVolumeNumber} 卷`,
     status: item.status || 'empty',
     active: Number(item.chapterNumber || 0) === Number(chapterNumber)
   }));
@@ -2012,7 +2011,7 @@ export default function App() {
                   onClick={() => switchSurface('workbench')}
                   aria-current={currentWorkbenchSurface === 'workbench' ? 'page' : undefined}
                 >
-                  <span>WORKBENCH</span>
+                  <span>章节创作</span>
                   <strong>创作台</strong>
                 </button>
                 <button
@@ -2020,7 +2019,7 @@ export default function App() {
                   className="workbench-surface-tab"
                   onClick={() => switchSurface('library')}
                 >
-                  <span>LIBRARY</span>
+                  <span>资料管理</span>
                   <strong>资料库</strong>
                 </button>
               </div>
@@ -2141,9 +2140,6 @@ export default function App() {
                             ))}
                           </div>
                         ) : null}
-                      </div>
-                      <div className="workbench-nav-theme-control">
-                        <MetaCode>THEME</MetaCode>
                       </div>
                     </section>
                   </div>

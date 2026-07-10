@@ -29,7 +29,7 @@ export default function WorkbenchSection({
           {actions ? <div className="shrink-0">{actions}</div> : null}
         </div>
       </header>
-      <div className={cn('flex min-w-0 flex-col gap-2 min-h-0 flex-1 overflow-y-auto', contentClassName)}>{children}</div>
+      <div className={cn('workbench-section-content flex min-w-0 flex-col gap-2 min-h-0 flex-1 overflow-y-auto', contentClassName)}>{children}</div>
     </section>
   );
 }
