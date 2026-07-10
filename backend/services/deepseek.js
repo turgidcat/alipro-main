@@ -103,9 +103,14 @@ function summarizeRoleExecution(roleExecution = []) {
       if (!item || typeof item !== 'object') return '';
       const role = normalizeText(item.role || item.name || '');
       if (!role) return '';
+      const personality = normalizeText(item.personality || item.baseline);
+      const background = normalizeText(item.background || '');
+      const appearance = normalizeText(item.appearance || item.appearance_marker || item.appearanceMarker);
       const parts = [
         `角色：${role}`,
-        normalizeText(item.baseline) ? `当前底色：${normalizeText(item.baseline)}` : '',
+        personality ? `核心性格：${personality}` : '',
+        background ? `身份背景：${background}` : '',
+        appearance ? `外形标识：${appearance}` : '',
         normalizeText(item.chapter_function || item.chapterFunction) ? `本章职责：${normalizeText(item.chapter_function || item.chapterFunction)}` : '',
         normalizeText(item.dimension) ? `观察维度：${normalizeText(item.dimension)}` : '',
         normalizeText(item.direction) ? `变化方向：${normalizeText(item.direction)}` : '',
@@ -203,16 +208,17 @@ class DeepSeekService {
   async generate(options) {
     const {
       prompt,
-      model = 'deepseek-chat',
       temperature = 0.7,
       maxTokens = 4000,
       responseFormat = null
     } = options;
+    const model = 'deepseek-v4-pro';
 
     try {
       const payload = {
         model,
         messages: [{ role: 'user', content: prompt }],
+        thinking: { type: 'disabled' },
         temperature,
         max_tokens: maxTokens,
         stream: false
@@ -286,18 +292,19 @@ class DeepSeekService {
   async *generateStream(options) {
     const {
       prompt,
-      model = 'deepseek-chat',
       temperature = 0.7,
       maxTokens = 4000,
       responseFormat = null,
       signal
     } = options;
+    const model = 'deepseek-v4-pro';
 
     let response;
     try {
       const payload = {
         model,
         messages: [{ role: 'user', content: prompt }],
+        thinking: { type: 'disabled' },
         temperature,
         max_tokens: maxTokens,
         stream: true
@@ -413,7 +420,8 @@ class DeepSeekService {
       enhanceDialogue = true,
       avoidAIFeel = true,
       fastPace = false,
-      detailedDesc = false
+      detailedDesc = false,
+      customInstruction = ''
     } = params;
 
     const genreName = GENRE_LABELS[genre] || normalizeText(genre) || '未分类';
@@ -430,6 +438,8 @@ class DeepSeekService {
     const promptParts = [
       `你现在要以 ${platformInfo.name} 网文作者的口吻，创作一章${subgenreName ? ` ${genreName} · ${subgenreName}` : ` ${genreName}`}小说正文。`,
       '这不是自由发挥，也不是随手续写，而是根据已给出的章节细纲，生成可以直接入库的下一章正文。',
+      '你必须把全书设定、分卷大纲、剧情线约束、章节细纲都视为客观事实。它们不是参考灵感，不允许被改写、偷换、跳过或反向推进。',
+      '如果正文推进与这些客观事实发生冲突，必须以客观事实为准回收正文推进，不能为了戏剧性或爽点违背既有事实。',
       '',
       `平台风格参考：${platformInfo.style.join('、')}`,
       styleTemplate ? `写法模板：${styleTemplate}` : '',
@@ -447,9 +457,11 @@ class DeepSeekService {
       fastPace ? '9. 节奏偏快，尽快进入冲突、变化或关键推进。' : '',
       detailedDesc ? '10. 关键场景要补足动作、感官和环境细节。' : '',
       addCliffhanger ? '11. 章节结尾保留明确钩子、压力或未解决问题。' : '',
+      customInstruction ? `12. 用户补充控制：${customInstruction}` : '',
       '',
       '硬约束：',
       '- 只输出正文，不要输出标题、提纲、解释、注释或总结。',
+      '- 全书设定、分卷大纲、剧情线约束、章节细纲都属于本章客观事实，正文只能服从，不能改写这些事实。',
       '- 情节必须围绕章节任务推进，不要偏题开支线。',
       '- 人物行为必须贴合既有设定，不能为了推进剧情强行降智。',
       roleNames.length > 0
@@ -461,6 +473,8 @@ class DeepSeekService {
       '- 如必须补充新信息，也只能补充已有角色或已有设定的直接后果，而且要立刻服务本章任务，不能借机另开一条大支线。',
       '- 已有设定一旦在上下文中被赋予明确含义，正文必须沿用该含义，不能中途改写。',
       '- 如果规划里写了上章承接、情绪目标、伏笔和结尾钩子，正文里必须落地。',
+      '- 如果剧情线要求某角色继续完成当前功能、继续承担当前冲突或继续服务后续推进，正文就不能让该角色在功能兑现前提前退场、提前失效或提前结束剧情作用。',
+      '- 如果剧情线写了“本章必须推进”与“本章禁止提前发生”，它们属于硬事实：必须推进的要落地，禁止提前发生的绝不能写出来。',
       '- 角色相关约束分三层：角色执行要求负责“本章角色怎么演”；剧情线推进要求负责“本章剧情必须推进什么”；角色变化边界负责“角色不能在剧情线上越级变化到哪里”。',
       '- 三类约束的优先级固定为：第一优先级是剧情线角色变化边界，第二优先级是章节角色执行要求，第三优先级是角色底层资料。',
       '- 当角色执行要求与剧情线角色变化边界存在冲突时，必须优先遵守剧情线角色变化边界。',

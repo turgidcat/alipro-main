@@ -50,19 +50,26 @@ export default function RevisionEditor(props) {
     >
       <div className="revision-editor">
         <div className="revision-review-topbar">
-          <label className="editor-field">
-            <span>校改目标</span>
-            <textarea
-              className="modal-textarea modal-textarea-compact"
-              value={revisionRequirement}
-              onChange={(event) => setRevisionRequirement(event.target.value)}
-              placeholder="增强画面、收紧节奏、修正重复。"
-            />
-          </label>
-          <section className={'revision-summary-line' + (revisionError ? ' is-error' : '')}>
-            <span>校改建议</span>
-            <strong>{revisionError || revisionSummaryText || revisionNotice || '待生成校改稿。'}</strong>
-          </section>
+          {/* Two-column input row — columns align with diff panel below */}
+          <div className="revision-input-row">
+            <label className="editor-field">
+              <span>校改目标</span>
+              <textarea
+                className="modal-textarea modal-textarea-compact"
+                value={revisionRequirement}
+                onChange={(event) => setRevisionRequirement(event.target.value)}
+                placeholder="增强画面、收紧节奏、修正重复。"
+              />
+            </label>
+            <div className={'revision-input-row-right' + (revisionError ? ' is-error' : '')}>
+              <label className="editor-field" style={{ display: 'flex', flexDirection: 'column', gap: 6, height: '100%' }}>
+                <span>校改建议</span>
+                <section className={'revision-summary-line'}>
+                  <strong>{revisionError || revisionSummaryText || revisionNotice || '待生成校改稿。'}</strong>
+                </section>
+              </label>
+            </div>
+          </div>
           <div className="revision-editor-meta">
             <span>原文 {revisionOriginal.length} 字</span>
             <span>校改稿 {revisionDraft.length} 字</span>

@@ -56,8 +56,30 @@ function normalizePositiveInteger(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
+function normalizeBoolean(value, fallback = false) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
+function normalizePercentage(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.min(100, Math.max(0, parsed)) : fallback;
+}
+
+function normalizeTemperature(value, fallback = 0.7) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.min(1.2, Math.max(0, parsed)) : fallback;
+}
+
 function getRelatedBeatIdsFromSlot(slot = {}) {
-  return normalizeJsonArray(slot.relatedBeatIds || slot.related_beat_ids)
+  const safeSlot = slot && typeof slot === 'object' ? slot : {};
+  return normalizeJsonArray(safeSlot.relatedBeatIds || safeSlot.related_beat_ids)
     .map((item) => normalizeText(item))
     .filter(Boolean);
 }
@@ -181,16 +203,24 @@ function resolveAutoChapterPlanStorylines({
   }
 
   const volumeStorylines = storylines.filter((item) => normalizePositiveInteger(item.volume_number || item.volumeNumber) === volumeNumber);
-  const slotBeatIds = getRelatedBeatIdsFromSlot(matchedSlot);
-  const beatMatchedStorylines = volumeStorylines.filter((item) => storylineContainsBeatId(item, slotBeatIds));
-  const effectiveStorylines = beatMatchedStorylines.length > 0 ? beatMatchedStorylines : volumeStorylines;
-  const mainStorylineId = pickPreferredStorylineId(effectiveStorylines);
-  const targetStorylineIds = [...new Set(effectiveStorylines.map((item) => normalizeText(item.id)).filter(Boolean))];
+  const mainStorylineId = pickPreferredStorylineId(volumeStorylines);
+  const activeBranchStorylines = volumeStorylines.filter((item) => {
+    const storylineId = normalizeText(item.id);
+    if (!storylineId || storylineId === mainStorylineId) return false;
+    const startChapter = normalizePositiveInteger(item.start_chapter || item.startChapter) || 1;
+    const endChapter = normalizePositiveInteger(item.end_chapter || item.endChapter) || Number.MAX_SAFE_INTEGER;
+    return Number(requestBody.chapterNumber || requestBody.chapter_number || 0) >= startChapter
+      && Number(requestBody.chapterNumber || requestBody.chapter_number || 0) <= endChapter;
+  });
+  const targetStorylineIds = [...new Set([
+    mainStorylineId,
+    ...activeBranchStorylines.map((item) => normalizeText(item.id))
+  ].filter(Boolean))];
 
   return {
     mainStorylineId,
     targetStorylineIds,
-    source: beatMatchedStorylines.length > 0 ? 'timeline_related_beats' : (volumeStorylines.length > 0 ? 'volume_storylines' : 'fallback_empty'),
+    source: volumeStorylines.length > 0 ? 'volume_main_and_active_branches' : 'fallback_empty',
     fallback: !mainStorylineId && targetStorylineIds.length === 0
   };
 }
@@ -207,7 +237,10 @@ async function ensureChapterPlanForOutlineGeneration({ bookId, chapterNumber, re
     [bookId, chapterNumber]
   );
 
-  if (existingPlan) {
+  const existingTargetStorylineIds = normalizeJsonArray(existingPlan?.target_storylines)
+    .map((item) => normalizeText(item))
+    .filter(Boolean);
+  if (existingPlan && normalizeText(existingPlan.main_storyline_id) && existingTargetStorylineIds.length > 0) {
     return {
       chapterPlan: existingPlan,
       autoCreated: false
@@ -244,7 +277,7 @@ async function ensureChapterPlanForOutlineGeneration({ bookId, chapterNumber, re
     .find((item) => normalizePositiveInteger(item.chapterNumber || item.chapter) === chapterNumber) || null;
 
   const storylineResolution = resolveAutoChapterPlanStorylines({
-    requestBody,
+    requestBody: { ...requestBody, chapterNumber },
     storylines,
     volumeNumber: volumeResolution.volumeNumber,
     matchedSlot
@@ -252,14 +285,38 @@ async function ensureChapterPlanForOutlineGeneration({ bookId, chapterNumber, re
 
   const chapterName = normalizeText(requestBody.chapter_name || requestBody.chapterName || requestBody.chapterTitle || '');
   const structuredContent = {
-    autoCreatedChapterPlan: true,
-    autoCreateReason: 'missing_chapter_plan_for_outline_generation',
+    ...parseStructuredContent(existingPlan?.structured_content),
+    autoCreatedChapterPlan: !existingPlan,
+    autoCreateReason: existingPlan
+      ? 'missing_storyline_link_for_outline_generation'
+      : 'missing_chapter_plan_for_outline_generation',
     autoCreateFallback: volumeResolution.source === 'default' || storylineResolution.fallback,
     autoCreateMeta: {
       volumeNumberSource: volumeResolution.source,
       storylineSource: storylineResolution.source
     }
   };
+
+  if (existingPlan) {
+    db.run(
+      `UPDATE chapter_plans
+       SET volume_number = ?, main_storyline_id = ?, target_storylines = ?, structured_content = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [
+        volumeResolution.volumeNumber,
+        storylineResolution.mainStorylineId,
+        JSON.stringify(storylineResolution.targetStorylineIds),
+        JSON.stringify(structuredContent),
+        existingPlan.id
+      ]
+    );
+    saveDatabase(db);
+    return {
+      chapterPlan: execQueryOne(db, 'SELECT * FROM chapter_plans WHERE id = ?', [existingPlan.id]),
+      autoCreated: false,
+      storylineLinked: true
+    };
+  }
 
   const createdPlan = await chapterPlanService.upsert(bookId, chapterNumber, {
     volume_number: volumeResolution.volumeNumber,
@@ -481,6 +538,23 @@ function buildStoredCharacterContext(characters = []) {
     .join('\n');
 }
 
+function buildOutlineCharacterContext(characters = [], chapterPlan = null) {
+  if (!Array.isArray(characters) || characters.length === 0) return '';
+  const ignoredNames = new Set(['全书角色设定', '本章新增角色']);
+  const formalNames = characters
+    .filter((character) => normalizeText(character.character_type || '') !== 'chapter_character')
+    .map((character) => normalizeText(character.name))
+    .filter((name) => name && !ignoredNames.has(name));
+  const formalNameSet = new Set(formalNames);
+  const selectedNames = normalizeJsonArray(chapterPlan?.appearing_roles)
+    .map((item) => typeof item === 'string'
+      ? normalizeText(item)
+      : normalizeText(item?.name || item?.characterName || item?.title || ''))
+    .filter((name) => formalNameSet.has(name));
+  const allowedNames = selectedNames.length > 0 ? [...new Set(selectedNames)] : [...new Set(formalNames)];
+  return allowedNames.join(' / ');
+}
+
 function buildCharacterSummaryContext(characters = []) {
   if (!Array.isArray(characters) || characters.length === 0) return '';
   const globalSummary = characters.find((character) => normalizeText(character.name) === '全书角色设定');
@@ -547,6 +621,7 @@ function normalizeRoleExecutionItem(item) {
   if (!item || typeof item !== 'object') return null;
   const role = normalizeText(item.role || item.name || '');
   const baseline = normalizeText(item.baseline || '');
+  const appearanceMarker = normalizeText(item.appearance_marker || item.appearanceMarker || item.appearance || '');
   const chapterFunction = normalizeText(item.chapter_function || item.chapterFunction || '');
   const allowedChange = normalizeText(item.allowed_change || item.allowedChange || '');
   const forbiddenChange = normalizeText(item.forbidden_change || item.forbiddenChange || '');
@@ -554,12 +629,13 @@ function normalizeRoleExecutionItem(item) {
   const direction = normalizeText(item.direction || item.change_direction || item.changeDirection || '');
   const scope = normalizeText(item.scope || item.change_scope || item.changeScope || '');
   const confidence = normalizeText(item.confidence || '');
-  if (!role && !baseline && !chapterFunction && !allowedChange && !forbiddenChange && !dimension && !direction && !scope && !confidence) {
+  if (!role && !baseline && !appearanceMarker && !chapterFunction && !allowedChange && !forbiddenChange && !dimension && !direction && !scope && !confidence) {
     return null;
   }
   return {
     role,
     baseline,
+    appearance_marker: appearanceMarker,
     chapter_function: chapterFunction,
     allowed_change: allowedChange,
     forbidden_change: forbiddenChange,
@@ -1366,7 +1442,7 @@ async function repairGeneratedEndingIfNeeded({
   finishReason = '',
   chapterTitle = '',
   targetWordCount = 0,
-  model = 'deepseek-chat'
+  model = 'deepseek-v4-pro'
 } = {}) {
   const initialContent = sanitizeGeneratedText(content);
   const initialTruncation = buildGenerationTruncationState({
@@ -1698,6 +1774,7 @@ function buildFallbackChapterFeedback({
       ? `本章围绕任务推进：${mission}`
       : '本章已生成正文，但连续性反馈暂时仅能提供基础核对提示。',
     character_progress: normalizeText(chapterPlan.character_notes || '') || '关键角色的后续承接暂需结合模型判断或人工复核。',
+    chapter_characters: normalizeJsonArray(continuityReport.new_characters),
     open_hooks: endingHook || continuityReport.must_carry_forward.join(' / ') || '下一章仍需承接当前冲突或新出现的关键信息。',
     next_chapter_focus: continuityReport.must_carry_forward[0] || endingHook || '承接本章结果，先确认哪些新内容需要转入后续。',
     continuity_report: continuityReport,
@@ -2142,91 +2219,8 @@ function buildQualityCheckFromAuditResult(auditResult = {}, overrides = {}) {
   });
 }
 
-function getChapterOutlineStructure(plan) {
-  if (!plan) return {};
-  return parseStructuredContent(plan.structured_content).chapter_outline_structure || {};
-}
-
-function buildStructuredOutlineText(outlineStructure = {}) {
-  if (!outlineStructure || typeof outlineStructure !== 'object') return '';
-  const sections = [
-    ['本章目标', outlineStructure.chapter_goal],
-    ['关键场景', outlineStructure.key_scenes],
-    ['冲突升级', outlineStructure.conflict_escalation],
-    ['结尾钩子', outlineStructure.ending_hook]
-  ];
-
-  return sections
-    .map(([label, value]) => {
-      const normalized = normalizeText(value);
-      return normalized ? `${label}\n${normalized}` : '';
-    })
-    .filter(Boolean)
-    .join('\n\n');
-}
-
 function buildOutlineFromChapterPlan(plan) {
-  if (!plan) return '';
-  const sections = [];
-  const outlineStructure = getChapterOutlineStructure(plan);
-  const structuredOutlineText = buildStructuredOutlineText(outlineStructure);
-  const chapterName = normalizeText(plan.chapter_name || '');
-  const summary = normalizeText(plan.summary || '');
-  const mission = normalizeText(plan.chapter_mission || '');
-  const emotion = normalizeText(plan.emotion_target || '');
-  const previousHook = normalizeText(plan.previous_hook || '');
-  const endingHook = normalizeText(plan.ending_hook || '');
-  const outlineText = normalizeText(plan.outline_text || '');
-  const sceneOutline = normalizeJsonArray(plan.scene_outline);
-  const characterNotes = normalizeText(plan.character_notes || '');
-  const appearingRoles = normalizeJsonArray(plan.appearing_roles);
-  const mainStorylineId = normalizeText(plan.main_storyline_id || '');
-  const targetStorylines = normalizeJsonArray(plan.target_storylines);
-
-  if (outlineText) return outlineText;
-  if (structuredOutlineText) return structuredOutlineText;
-  if (chapterName) sections.push(`章节名：${chapterName}`);
-  if (summary) sections.push(`章节摘要：${summary}`);
-  if (mission) sections.push(`本章任务：${mission}`);
-  if (emotion) sections.push(`情绪目标：${emotion}`);
-  if (previousHook) sections.push(`上章承接：${previousHook}`);
-  if (characterNotes) sections.push(`本章角色说明：${characterNotes}`);
-
-  if (appearingRoles.length > 0) {
-    const roleLines = appearingRoles
-      .map((item, index) => {
-        if (typeof item === 'string') return `${index + 1}. ${item.trim()}`;
-        if (item && typeof item === 'object') {
-          const name = normalizeText(item.name || item.characterName || item.title || '');
-          const role = normalizeText(item.role || item.summary || item.description || '');
-          return [name, role].filter(Boolean).join('：');
-        }
-        return '';
-      })
-      .filter(Boolean);
-    if (roleLines.length > 0) sections.push(`出场角色：\n${roleLines.join('\n')}`);
-  }
-
-  if (sceneOutline.length > 0) {
-    const sceneLines = sceneOutline
-      .map((item, index) => {
-        if (typeof item === 'string') return `${index + 1}. ${item.trim()}`;
-        if (item && typeof item === 'object') {
-          const title = normalizeText(item.title || item.sceneTitle || item.name || '');
-          const action = normalizeText(item.action || item.summary || item.content || '');
-          const merged = [title, action].filter(Boolean).join('：');
-          return merged ? `${index + 1}. ${merged}` : '';
-        }
-        return '';
-      })
-      .filter(Boolean);
-    if (sceneLines.length > 0) sections.push(`场景拆解：\n${sceneLines.join('\n')}`);
-  }
-
-  if (mainStorylineId) sections.push(`主推进剧情线 ID：${mainStorylineId}`);
-  if (targetStorylines.length > 0) sections.push(`关联剧情线 ID：${targetStorylines.join(' / ')}`);
-  if (endingHook) sections.push(`结尾钩子：${endingHook}`);
-  return sections.join('\n\n');
+  return normalizeText(plan?.outline_text || '');
 }
 
 function normalizeChapterRange(value) {
@@ -2285,15 +2279,54 @@ function buildChapterStorylineContext({
   const targetStorylineIds = normalizeJsonArray(chapterPlan?.target_storylines);
   const selectedIds = [...new Set([mainStorylineId, ...targetStorylineIds].filter(Boolean))];
   const selectedStorylines = Array.isArray(storylines)
-    ? storylines.filter((item) => selectedIds.includes(item.id))
+    ? storylines
+      .filter((item) => selectedIds.includes(item.id)
+        && Number(chapterIndex) >= Number(item.start_chapter || 1)
+        && Number(chapterIndex) <= Number(item.end_chapter || Number.MAX_SAFE_INTEGER))
+      .sort((left, right) => Number(right.id === mainStorylineId) - Number(left.id === mainStorylineId))
     : [];
 
   const timelineSlots = normalizeJsonArray(volumeTimeline?.chapterSlots || volumeTimeline?.timeline);
   const matchedSlot = timelineSlots.find((slot) => Number(slot.chapter || slot.chapterNumber || 0) === Number(chapterIndex)) || null;
+  const futureFormalBoundaries = (Array.isArray(storylines) ? storylines : []).flatMap((row) => {
+    const structured = parseStructuredContent(row.structured_content);
+    return normalizeJsonArray(structured.keyBeats || structured.beats || structured.development)
+      .filter((item) => Number(item?.chapterApprox || item?.chapter || 0) > Number(chapterIndex))
+      .map((item) => ({
+        storylineId: row.id,
+        storylineTitle: normalizeText(structured.title || row.storyline_name || ''),
+        chapterApprox: Number(item?.chapterApprox || item?.chapter || 0),
+        title: normalizeText(item?.title || ''),
+        summary: [
+          normalizeText(item?.summary || item?.title || ''),
+          normalizeText(item?.expectedChange || item?.expected_change || '')
+        ].filter(Boolean).join('；')
+      }))
+      .filter((item) => item.summary);
+  });
 
   const storylineContexts = selectedStorylines.map((row) => {
     const structured = parseStructuredContent(row.structured_content);
     const beat = pickBeatForChapter(chapterIndex, structured, row);
+    const orderedBeats = normalizeJsonArray(structured.keyBeats || structured.beats || structured.development)
+      .map((item) => ({ item, chapter: Number(item?.chapterApprox || item?.chapter || 0) }))
+      .filter((item) => item.chapter > 0)
+      .sort((left, right) => left.chapter - right.chapter);
+    const beatChapter = Number(beat?.chapterApprox || beat?.chapter || row.start_chapter || chapterIndex);
+    const nextBeatChapter = orderedBeats.find((item) => item.chapter > beatChapter)?.chapter || Number(row.end_chapter || chapterIndex) + 1;
+    const beatSpan = Math.max(1, nextBeatChapter - beatChapter);
+    const beatStep = Math.min(beatSpan, Math.max(1, Number(chapterIndex) - beatChapter + 1));
+    const futureFormalBeats = normalizeJsonArray(structured.keyBeats || structured.key_beats)
+      .filter((item) => Number(item?.chapterApprox || item?.chapter_approx || item?.chapter || 0) > Number(chapterIndex))
+      .map((item) => {
+        const chapterApprox = Number(item?.chapterApprox || item?.chapter_approx || item?.chapter || 0);
+        const content = [
+          normalizeText(item?.summary || item?.title || item?.beat || ''),
+          normalizeText(item?.expectedChange || item?.expected_change || '')
+        ].filter(Boolean).join('；');
+        return content ? `第${chapterApprox}章正式节点不得提前发生：${content}` : '';
+      })
+      .filter(Boolean);
     const explicitBeatId = normalizeText(beat?.beatId || beat?.beat_id || '');
     const fallbackBeatId = row.id
       ? `fallback:${row.id}:chapter:${Number(chapterIndex || 0) || 'unknown'}`
@@ -2308,6 +2341,7 @@ function buildChapterStorylineContext({
     });
     return {
       storylineId: row.id,
+      isMain: row.id === mainStorylineId,
       title: normalizeText(structured.title || row.storyline_name || ''),
       type: normalizeText(structured.type || row.storyline_type || ''),
       dramaticQuestion: normalizeText(structured.dramaticQuestion || row.core_conflict || ''),
@@ -2316,9 +2350,14 @@ function buildChapterStorylineContext({
       beatTitle: normalizeText(beat?.title || beat?.beat || '') || (fallbackBeatId ? '剧情线摘要兜底节点' : ''),
       beatSummary: normalizeText(beat?.summary || beat?.beat || ''),
       expectedChange: normalizeText(beat?.expectedChange || beat?.expected_change || ''),
+      beatStep,
+      beatSpan,
       isFallbackBeat: !explicitBeatId && !!fallbackBeatId,
       mustInclude: normalizeJsonArray(beat?.must_include || beat?.mustInclude),
-      mustAvoid: normalizeJsonArray(beat?.must_avoid || beat?.mustAvoid),
+      mustAvoid: [...new Set([
+        ...normalizeJsonArray(beat?.must_avoid || beat?.mustAvoid).map((entry) => normalizeText(entry)).filter(Boolean),
+        ...futureFormalBeats
+      ])],
       relatedCharacters: normalizeJsonArray(structured.relatedCharacters || []).map((item) => item?.name || item).filter(Boolean),
       foreshadowingToPlant,
       payoffs,
@@ -2337,11 +2376,12 @@ function buildChapterStorylineContext({
     lines.push('- 暂无已挂接剧情线；仅能依赖章节任务与章节目标。');
   } else {
     storylineContexts.forEach((item, index) => {
-      lines.push(`- 关联剧情线 ${index + 1}：${item.title || '未命名'}${item.type ? `（${item.type}）` : ''}`);
+      lines.push(`- ${item.isMain ? '当前剧情主线' : `关联剧情线 ${index + 1}`}：${item.title || '未命名'}${item.type ? `（${item.type}）` : ''}`);
       lines.push(`  - 当前剧情节点：${item.beatTitle || '未定位到结构化 beat，fallback 到剧情线摘要'}`);
       if (item.beatSummary) lines.push(`  - 本章必须推进：${item.beatSummary}`);
       else if (item.summary) lines.push(`  - 本章必须推进（fallback）：${item.summary}`);
       if (item.expectedChange) lines.push(`  - 角色 / 局势变化：${item.expectedChange}`);
+      if (item.beatSpan > 1) lines.push(`  - 节点内进度：第 ${item.beatStep}/${item.beatSpan} 段；只写本段新增进展，不得重新讲述该节点起点。`);
       if (item.dramaticQuestion) lines.push(`  - 冲突升级方向：${item.dramaticQuestion}`);
       if (item.mustInclude.length > 0) lines.push(`  - 本章必须出现：${item.mustInclude.join('；')}`);
       if (item.mustAvoid.length > 0) lines.push(`  - 本章禁止提前发生：${item.mustAvoid.join('；')}`);
@@ -2352,6 +2392,13 @@ function buildChapterStorylineContext({
       if (item.payoffs.length > 0) {
         lines.push(`  - 需要回收的伏笔：${item.payoffs.map((entry) => normalizeText(entry.title || entry.name || '')).filter(Boolean).join('；')}`);
       }
+    });
+  }
+
+  if (futureFormalBoundaries.length > 0) {
+    lines.push('- 全局未来正式节点（仅作为时间禁区，当前章不得提前兑现）：');
+    futureFormalBoundaries.forEach((item) => {
+      lines.push(`  - 第${item.chapterApprox}章 · ${item.storylineTitle}${item.title ? ` · ${item.title}` : ''}：${item.summary}`);
     });
   }
 
@@ -2383,6 +2430,7 @@ function buildChapterStorylineContext({
     isFallback,
     matchedSlot,
     storylineContexts,
+    futureFormalBoundaries,
     promptText: lines.join('\n')
   };
 }
@@ -2409,14 +2457,17 @@ function buildPersistedStorylineContext(storylineContext = {}) {
     : [];
 
   const mustAdvance = Array.isArray(storylineContext.storylineContexts)
-    ? storylineContext.storylineContexts
-      .map((item) => normalizeText(item.beatSummary || item.summary || ''))
-      .filter(Boolean)
+    ? storylineContext.storylineContexts.map((item) => normalizeText(item.beatSummary || item.summary || '')).filter(Boolean)
     : [];
 
-  const mustNotHappen = Array.isArray(storylineContext.storylineContexts)
-    ? storylineContext.storylineContexts.flatMap((item) => normalizeJsonArray(item.mustAvoid).map((entry) => normalizeText(entry)).filter(Boolean))
-    : [];
+  const mustNotHappen = [
+    ...(Array.isArray(storylineContext.storylineContexts)
+      ? storylineContext.storylineContexts.flatMap((item) => normalizeJsonArray(item.mustAvoid).map((entry) => normalizeText(entry)).filter(Boolean))
+      : []),
+    ...normalizeJsonArray(storylineContext.futureFormalBoundaries)
+      .map((item) => normalizeText(item?.summary || item?.title || ''))
+      .filter(Boolean)
+  ];
 
   const foreshadowingToPlant = Array.isArray(storylineContext.storylineContexts)
     ? storylineContext.storylineContexts.flatMap((item) =>
@@ -2485,8 +2536,8 @@ function buildPersistedStorylineContext(storylineContext = {}) {
     isFallback,
     relatedStorylines,
     currentBeats,
-    mustAdvance,
-    mustNotHappen,
+    mustAdvance: [...new Set(mustAdvance)],
+    mustNotHappen: [...new Set(mustNotHappen)],
     foreshadowingToPlant,
     foreshadowingToPayoff,
     characterChangeBoundaries,
@@ -2770,7 +2821,7 @@ async function reviseGeneratedContentToWordCount({
   content = '',
   targetWordCount = 0,
   chapterTitle = '',
-  model = 'deepseek-chat'
+  model = 'deepseek-v4-pro'
 } = {}) {
   let currentContent = sanitizeGeneratedText(content);
   const target = Number(targetWordCount || 0) || 0;
@@ -2945,6 +2996,22 @@ async function saveChapterFeedback({ bookId, chapterNumber, feedback, content = 
     content
   });
   structuredContent.chapter_feedback = enrichedFeedback;
+  structuredContent.character_feedback = {
+    summary: normalizeText(enrichedFeedback.character_progress || ''),
+    characters: normalizeJsonArray(enrichedFeedback.chapter_characters),
+    newCharacters: normalizeJsonArray(enrichedFeedback?.continuity_report?.new_characters),
+    updatedAt: enrichedFeedback.updated_at || new Date().toISOString(),
+    source: enrichedFeedback.source || 'model_feedback'
+  };
+  structuredContent.plot_feedback = {
+    chapterSummary: normalizeText(enrichedFeedback.chapter_summary || ''),
+    summary: normalizeText(enrichedFeedback.story_progress || ''),
+    openHooks: normalizeText(enrichedFeedback.open_hooks || ''),
+    nextChapterFocus: normalizeText(enrichedFeedback.next_chapter_focus || ''),
+    newElements: normalizeJsonArray(enrichedFeedback?.continuity_report?.new_elements),
+    updatedAt: enrichedFeedback.updated_at || new Date().toISOString(),
+    source: enrichedFeedback.source || 'model_feedback'
+  };
 
   let storylineProgressUpdated = false;
   let requiresStorylineReview = false;
@@ -2978,6 +3045,15 @@ async function saveChapterFeedback({ bookId, chapterNumber, feedback, content = 
   }
 
   saveDatabase(db);
+  logger.info('Chapter feedback persisted', {
+    bookId,
+    chapterNumber,
+    hasCharacterFeedback: !!structuredContent.character_feedback.summary,
+    hasPlotFeedback: !!structuredContent.plot_feedback.summary,
+    storylineProgressUpdated,
+    requiresStorylineReview,
+    storylineProgressError: storylineProgressError || null
+  });
   return {
     feedback: enrichedFeedback,
     storylineProgressUpdated,
@@ -2986,7 +3062,7 @@ async function saveChapterFeedback({ bookId, chapterNumber, feedback, content = 
   };
 }
 
-async function loadBookGenerationContext(bookId, chapterNumber) {
+async function loadBookGenerationContext(bookId, chapterNumber, options = {}) {
   if (!bookId) {
     return {
       bookTitle: '',
@@ -3001,15 +3077,6 @@ async function loadBookGenerationContext(bookId, chapterNumber) {
 
   const db = await dbPromise;
   const book = execQueryOne(db, 'SELECT title FROM books WHERE id = ?', [bookId]);
-
-  let outlineRow = null;
-  try {
-    outlineRow = execQueryOne(
-      db,
-      'SELECT * FROM novel_outlines WHERE book_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT 1',
-      [bookId]
-    );
-  } catch (_) {}
 
   let bookPlanRow = null;
   try {
@@ -3061,40 +3128,52 @@ async function loadBookGenerationContext(bookId, chapterNumber) {
     );
   } catch (_) {}
 
+  let volumePlanRows = [];
+  try {
+    volumePlanRows = execQuery(
+      db,
+      'SELECT * FROM volume_plans WHERE book_id = ? ORDER BY volume_number ASC, updated_at DESC',
+      [bookId]
+    );
+  } catch (_) {}
+
   const currentChapterNumber = Number(chapterNumber);
   const currentChapter = Number.isFinite(currentChapterNumber)
     ? chapterRows.find((row) => Number(row.chapter_number || 0) === currentChapterNumber) || null
     : null;
-  const previousChapter = Number.isFinite(currentChapterNumber)
+  const previousChapter = Number.isFinite(currentChapterNumber) && currentChapterNumber > 1
     ? [...chapterRows].reverse().find((row) => Number(row.chapter_number || 0) < currentChapterNumber) || null
     : chapterRows[chapterRows.length - 1] || null;
   const chapterPlanRow = Number.isFinite(currentChapterNumber)
     ? chapterPlanRows.find((row) => Number(row.chapter_number || 0) === currentChapterNumber) || null
     : null;
-  const previousChapterPlan = Number.isFinite(currentChapterNumber)
+  const contextCharacterRows = options.forOutline
+    ? characterRows.filter((character) => normalizeText(character.character_type || '') !== 'chapter_character')
+    : characterRows;
+  const previousChapterPlan = Number.isFinite(currentChapterNumber) && currentChapterNumber > 1
     ? [...chapterPlanRows].reverse().find((row) => Number(row.chapter_number || 0) < currentChapterNumber) || null
     : null;
 
   const previousChapterFeedback = parseStructuredContent(previousChapterPlan?.structured_content)?.chapter_feedback || null;
+  const previousChapterOutline = normalizeText(buildOutlineFromChapterPlan(previousChapterPlan));
   const bookPremise = normalizeText(bookPlanRow?.premise || '');
   const bookMainGoal = normalizeText(bookPlanRow?.main_goal || '');
   const bookCoreConflict = normalizeText(bookPlanRow?.core_conflict || '');
   const bookWorldRules = normalizeText(bookPlanRow?.world_rules || '');
   const bookRoleSummary = normalizeText(bookPlanRow?.role_summary || '');
-  const bookOutline = normalizeText(outlineRow?.content || outlineRow?.main_outline || '');
-  const volumeOutline = normalizeText(outlineRow?.volume_outline || '');
-  const detailedOutline = normalizeText(outlineRow?.detailed_outline || '');
   const bookPlanMainOutline = normalizeText(bookPlanRow?.main_outline || '');
   const bookPlanVolumeOutline = normalizeText(bookPlanRow?.volume_outline || '');
   const bookPlanDetailedOutline = normalizeText(bookPlanRow?.detailed_outline || '');
-  const chapterOutline = normalizeText(buildOutlineFromChapterPlan(chapterPlanRow));
-  const chapterOutlineStructure = getChapterOutlineStructure(chapterPlanRow);
-  const structuredOutlineText = normalizeText(buildStructuredOutlineText(chapterOutlineStructure));
-  const firstKeyScene = extractFirstKeySceneFromOutlineStructure(chapterOutlineStructure);
-  const characterSummary = buildCharacterSummaryContext(characterRows);
+  const includeCurrentOutline = !options.excludeCurrentOutline;
+  const chapterOutline = includeCurrentOutline ? normalizeText(buildOutlineFromChapterPlan(chapterPlanRow)) : '';
+  const firstKeyScene = chapterOutline;
+  const characterSummary = buildCharacterSummaryContext(contextCharacterRows);
   const storedCharacters = buildStoredCharacterContext(characterRows);
-  const previousHook = normalizeText(chapterPlanRow?.previous_hook || '');
+  const outlineCharacters = buildOutlineCharacterContext(contextCharacterRows, chapterPlanRow);
+  const previousHook = currentChapterNumber > 1 ? normalizeText(chapterPlanRow?.previous_hook || '') : '';
   const chapterCharacterNotes = normalizeText(chapterPlanRow?.character_notes || '');
+  const chapterStructuredContent = parseStructuredContent(chapterPlanRow?.structured_content);
+  const chapterPlotNotes = normalizeText(chapterStructuredContent.plot_notes || '');
   const chapterMission = normalizeText(chapterPlanRow?.chapter_mission || '');
   const emotionTarget = normalizeText(chapterPlanRow?.emotion_target || '');
   const endingHook = normalizeText(chapterPlanRow?.ending_hook || '');
@@ -3105,7 +3184,9 @@ async function loadBookGenerationContext(bookId, chapterNumber) {
     : null;
   const targetStorylineIds = normalizeJsonArray(chapterPlanRow?.target_storylines);
   const targetStorylineLabels = storylineRows
-    .filter((item) => targetStorylineIds.includes(item.id))
+    .filter((item) => targetStorylineIds.includes(item.id)
+      && currentChapterNumber >= Number(item.start_chapter || 1)
+      && currentChapterNumber <= Number(item.end_chapter || Number.MAX_SAFE_INTEGER))
     .map((item) => item.storyline_name)
     .filter(Boolean);
   const currentVolumeNumber = Number(chapterPlanRow?.volume_number || mainStoryline?.volume_number || targetStorylineIds.map((id) => storylineRows.find((item) => item.id === id)?.volume_number).find(Boolean) || 0) || 0;
@@ -3113,7 +3194,10 @@ async function loadBookGenerationContext(bookId, chapterNumber) {
     ? volumeTimelineRows.find((item) => Number(item.volume_number || 0) === currentVolumeNumber) || null
     : null;
   const volumeTimeline = volumeTimelineRow ? parseStructuredContent(volumeTimelineRow.timeline_data) : null;
-  const keyCharacterNames = characterRows
+  const currentVolumePlan = currentVolumeNumber
+    ? volumePlanRows.find((item) => Number(item.volume_number || 0) === currentVolumeNumber) || null
+    : null;
+  const keyCharacterNames = contextCharacterRows
     .map((item) => normalizeText(item.name))
     .filter((name) => name && name !== '全书角色设定' && name !== '本章新增角色')
     .slice(0, 8);
@@ -3133,23 +3217,34 @@ async function loadBookGenerationContext(bookId, chapterNumber) {
   if (bookWorldRules) notes.push(`世界规则：${bookWorldRules}`);
   if (bookRoleSummary && !storedCharacters) notes.push(`全书角色摘要：${bookRoleSummary}`);
   if (keyCharacterNames.length > 0) {
-    notes.push(`姓名硬约束：本书当前可用核心角色名为 ${keyCharacterNames.join(' / ')}。正文只能使用这套人物体系，严禁替换主角姓名或串入其他作品人物名。`);
+    notes.push(`姓名硬约束：本书当前可用核心角色名为 ${keyCharacterNames.join(' / ')}。${options.forOutline ? '细纲' : '正文'}只能使用这套人物体系，严禁替换主角姓名或串入其他作品人物名。`);
   }
-  if (bookOutline) notes.push(`全书大纲：${bookOutline}`);
-  if (bookPlanMainOutline && bookPlanMainOutline !== bookOutline) notes.push(`全书主线：${bookPlanMainOutline}`);
-  if (volumeOutline && volumeOutline !== bookOutline && volumeOutline !== bookPlanMainOutline) notes.push(`分卷大纲：${volumeOutline}`);
-  if (bookPlanVolumeOutline && bookPlanVolumeOutline !== volumeOutline) notes.push(`分卷规划：${bookPlanVolumeOutline}`);
-  if (detailedOutline) notes.push(`详细大纲：${detailedOutline}`);
-  if (bookPlanDetailedOutline && bookPlanDetailedOutline !== detailedOutline) notes.push(`详细推进：${bookPlanDetailedOutline}`);
-  if (chapterOutline && chapterOutline !== structuredOutlineText) notes.push(`章节规划：${chapterOutline}`);
-  if (chapterMission && !structuredOutlineText) notes.push(`章节任务：${chapterMission}`);
+  if (bookPlanMainOutline) notes.push(`全书规划边界：${bookPlanMainOutline}`);
+  if (bookPlanVolumeOutline) notes.push(`全书分卷总规划：${bookPlanVolumeOutline}`);
+  if (currentVolumePlan) {
+    notes.push([
+      `当前分卷规划：第 ${currentVolumeNumber} 卷${currentVolumePlan.volume_name ? `《${currentVolumePlan.volume_name}》` : ''}`,
+      currentVolumePlan.volume_theme ? `卷主题：${currentVolumePlan.volume_theme}` : '',
+      currentVolumePlan.stage_goal ? `阶段目标：${currentVolumePlan.stage_goal}` : '',
+      currentVolumePlan.core_conflict ? `卷核心冲突：${currentVolumePlan.core_conflict}` : '',
+      currentVolumePlan.start_role_state ? `卷初角色状态：${currentVolumePlan.start_role_state}` : '',
+      currentVolumePlan.end_role_state ? `卷末角色状态：${currentVolumePlan.end_role_state}` : '',
+      currentVolumePlan.notes ? `卷内推进：${currentVolumePlan.notes}` : ''
+    ].filter(Boolean).join('\n'));
+  }
+  if (bookPlanDetailedOutline) notes.push(`详细推进：${bookPlanDetailedOutline}`);
+  if (chapterOutline) notes.push(`章节细纲：${chapterOutline}`);
+  if (chapterMission) notes.push(`章节任务：${chapterMission}`);
   if (emotionTarget) notes.push(`情绪目标：${emotionTarget}`);
   if (previousHook) notes.push(`上章承接：${previousHook}`);
-  if (chapterCharacterNotes) notes.push(`本章角色说明：${chapterCharacterNotes}`);
-  if (endingHook && !structuredOutlineText.includes(endingHook)) notes.push(`结尾钩子：${endingHook}`);
+  if (includeCurrentOutline && chapterCharacterNotes) notes.push(`本章角色说明：${chapterCharacterNotes}`);
+  if (chapterPlotNotes) notes.push(`用户修订的本章情节约束：${chapterPlotNotes}`);
   if (mainStoryline) notes.push(`主剧情线：${mainStoryline.storyline_name}${mainStoryline.storyline_type ? ' · ' + mainStoryline.storyline_type : ''}`);
   if (targetStorylineLabels.length > 0) notes.push(`关联剧情线：${targetStorylineLabels.join(' / ')}`);
   if (characterSummary) notes.push(`角色摘要：\n${characterSummary}`);
+  if (previousChapterOutline) {
+    notes.push(`上一章细纲（已发生事实，只能承接其结尾，不得重新概述或改写）：\n${previousChapterOutline}`);
+  }
   if (previousChapterFeedback) {
     const continuityReport = previousChapterFeedback.continuity_report || {};
     const newCharacters = normalizeFeedbackLedgerItems(continuityReport.new_characters);
@@ -3188,7 +3283,7 @@ async function loadBookGenerationContext(bookId, chapterNumber) {
   const openingBridgeText = buildChapterOpeningBridgeText({
     previousChapterTail,
     firstKeyScene,
-    chapterGoal: chapterMission || chapterOutlineStructure.chapter_goal
+    chapterGoal: chapterMission
   });
   if (openingBridgeText) {
     notes.push(openingBridgeText);
@@ -3197,13 +3292,13 @@ async function loadBookGenerationContext(bookId, chapterNumber) {
   notes.push(buildDynamicGenerationConstraints({
     chapterPlan: chapterPlanRow || {},
     previousChapterFeedback,
-    characterRows,
+    characterRows: contextCharacterRows,
     storylineRows
   }));
   const generationConstraints = buildDynamicGenerationConstraintState({
     chapterPlan: chapterPlanRow || {},
     previousChapterFeedback,
-    characterRows,
+    characterRows: contextCharacterRows,
     storylineRows
   });
   return {
@@ -3212,6 +3307,7 @@ async function loadBookGenerationContext(bookId, chapterNumber) {
     generationConstraints,
     chapterStorylineContext,
     storedCharacters,
+    outlineCharacters,
     characterSummary,
     chapterPlan: chapterPlanRow || null,
     currentChapter,
@@ -3232,10 +3328,11 @@ function buildChapterFeedbackPrompt({ bookTitle, chapterNumber, chapterTitle, ou
     '  "chapter_summary": "用 1-2 句话总结这一章实际发生了什么",',
     '  "story_progress": "这一章把主剧情推进到了哪里",',
     '  "character_progress": "关键角色关系或状态发生了什么变化",',
+    '  "chapter_characters": [{"name": "本章实际出场角色名", "role": "本章职责", "appearance": "正文中可确认的外形标识，没有则为空", "relation": "本章关系变化", "status": "章末状态", "note": "后续连续性提醒"}],',
     '  "open_hooks": "这一章结束时还悬着什么",',
     '  "next_chapter_focus": "下一章最值得优先承接的写作重点",',
     '  "continuity_report": {',
-    '    "new_characters": [{"name": "新增角色名", "role": "本章职责", "relation": "与主角/主线关系", "status": "合理/偏突兀", "note": "是否值得继续保留"}],',
+    '    "new_characters": [{"name": "新增角色名", "role": "本章职责", "appearance": "最有辨识度的外形标识，没有则为空", "relation": "与主角/主线关系", "status": "合理/偏突兀", "note": "是否值得继续保留"}],',
     '    "new_elements": [{"name": "新增势力/地点/规则/道具", "role": "本章职责", "relation": "与当前主线关系", "status": "合理/偏突兀", "note": "后续是否应继续使用"}],',
     '    "must_carry_forward": ["下一章必须继续承接的信息"],',
     '    "continuity_risks": ["本章里可能导致后续失控的点"]',
@@ -3250,6 +3347,8 @@ function buildChapterFeedbackPrompt({ bookTitle, chapterNumber, chapterTitle, ou
     '5. chapter_summary / story_progress / character_progress 都要写成具体事实，不要写评价性语言。',
     '6. must_carry_forward 只保留真正会影响下一章主线推进、角色关系、规则约束或关键线索的内容；低影响场景细节不要塞进去。',
     '7. 不要把你对风险的判断反推成新的设定台账项；风险就是风险，设定就是设定，两者分开。',
+    '8. chapter_characters 必须覆盖正文中实际参与事件的主要人物，不限于新增角色；只保留正文能够证明姓名或明确称谓的角色。',
+    '9. appearance 只提取正文已经写出的外形或辨识标记，不要凭空补设定；正文没有就留空，交给下一章人物速查补约束。',
     '',
     '如果本章没有合理新增角色或新增设定，就返回空数组，不要硬编。',
     '如果本章新增内容缺少已知挂接来源，或与当前主线连接证据不足，请在 continuity_risks 里直接指出。',
@@ -3282,10 +3381,11 @@ function buildChapterFeedbackRepairPrompt(rawOutput = '') {
     '  "chapter_summary": "用 1-2 句话总结这一章实际发生了什么",',
     '  "story_progress": "这一章把主剧情推进到了哪里",',
     '  "character_progress": "关键角色关系或状态发生了什么变化",',
+    '  "chapter_characters": [{"name": "本章实际出场角色名", "role": "本章职责", "appearance": "正文中可确认的外形标识，没有则为空", "relation": "本章关系变化", "status": "章末状态", "note": "后续连续性提醒"}],',
     '  "open_hooks": "这一章结束时还悬着什么",',
     '  "next_chapter_focus": "下一章最值得优先承接的写作重点",',
     '  "continuity_report": {',
-    '    "new_characters": [{"name": "新增角色名", "role": "本章职责", "relation": "与主角/主线关系", "status": "合理/偏突兀", "note": "是否值得继续保留"}],',
+    '    "new_characters": [{"name": "新增角色名", "role": "本章职责", "appearance": "最有辨识度的外形标识，没有则为空", "relation": "与主角/主线关系", "status": "合理/偏突兀", "note": "是否值得继续保留"}],',
     '    "new_elements": [{"name": "新增势力/地点/规则/道具", "role": "本章职责", "relation": "与当前主线关系", "status": "合理/偏突兀", "note": "后续是否应继续使用"}],',
     '    "must_carry_forward": ["下一章必须继续承接的信息"],',
     '    "continuity_risks": ["本章里可能导致后续失控的点"]',
@@ -3313,43 +3413,223 @@ function buildBookTitlePrompt({ genre, subgenre }) {
   ].join('\n');
 }
 
-function buildChapterNamePrompt({ genre, subgenre, chapterNumber }) {
+function buildChapterNamePrompt({
+  genre,
+  subgenre,
+  chapterNumber,
+  outlineText = '',
+  bookTitle = '',
+  recentTitles = [],
+  avoidPhrases = []
+}) {
   const typeInfo = subgenre ? genre + ' - ' + subgenre : genre;
+  const normalizedRecentTitles = Array.isArray(recentTitles)
+    ? recentTitles.map((title) => normalizeText(title)).filter(Boolean).slice(0, 12)
+    : [];
+  const normalizedAvoidPhrases = Array.isArray(avoidPhrases)
+    ? avoidPhrases.map((phrase) => normalizeText(phrase)).filter(Boolean).slice(0, 8)
+    : [];
   return [
-    '你是一位精通网文章节节奏的编辑。',
-    '请为第 ' + chapterNumber + ' 章生成一个章节名。',
+    '你是一位受严格约束的网文大神作家，擅长给长篇连载章节命名。',
+    '你要像成熟作者一样命名，但不能自由发挥；你的唯一任务是为第 ' + chapterNumber + ' 章生成一个贴合细纲、区别于本书其他章节、避免重复意象的章节名。',
+    '如果标题空泛、套词、重复已有高频意象，或与本章细纲不贴合，就视为失败。',
     '',
     '类型：' + typeInfo,
+    bookTitle ? `书名：${bookTitle}` : '',
+    outlineText ? `章节细纲：\n${normalizeText(outlineText)}` : '',
+    normalizedRecentTitles.length > 0 ? `本书已有章节名：\n${normalizedRecentTitles.join('\n')}` : '',
+    normalizedAvoidPhrases.length > 0 ? `近期高频重复词/意象：${normalizedAvoidPhrases.join('、')}` : '',
     '',
     '要求：',
     '1. 只输出一个章节名，不要解释。',
-    '2. 章节名要有画面感。',
-    '3. 不要带“第X章”前缀。',
-    '4. 要体现本章核心冲突或转折。'
+    '2. 不要带“第X章”前缀，优先控制在 4-10 个汉字内。',
+    '3. 标题必须从章节细纲里提炼，优先抓本章最关键的冲突、动作、物件、地点或转折，不要脱离细纲另起炉灶。',
+    '4. 不要空泛，不要只写情绪词或抽象词，尽量落到具体意象或具体事件。',
+    '5. 避免重复字词、重复意象和同义堆叠，不要把相近词硬拼在一个标题里。',
+    '6. 如果提供了已有章节名，默认视为避重参考；除非本章细纲确实强制要求，否则不要复用已有标题里的核心词和主意象。',
+    '7. 如果提供了高频重复词/意象，默认禁止继续复用它们；只有当细纲核心悬念完全离不开该词时才允许保留。',
+    '8. 如果细纲里有明确的核心物件、事件、场景或悬念，优先围绕它命名；如果没有，再围绕本章决定性冲突命名。',
+    '9. 风格要像网文章名，但不要油滑，不要模板化套词。'
   ].join('\n');
 }
 
-function buildOutlinePrompt({ genre, subgenre, bookTitle, chapterTitle, characters, contextNotes, chapterStorylinePrompt }) {
-  const typeInfo = subgenre ? genre + ' - ' + subgenre : genre;
+function normalizeChapterTitleCandidate(title = '') {
+  const extractTitleText = (value, depth = 0) => {
+    if (depth > 4 || value === null || value === undefined) return '';
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+        try {
+          return extractTitleText(JSON.parse(trimmed), depth + 1) || trimmed;
+        } catch (_) {}
+      }
+      return trimmed;
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => extractTitleText(item, depth + 1)).find(Boolean) || '';
+    }
+    if (typeof value === 'object') {
+      const preferredKeys = ['title', 'chapterTitle', 'chapter_title', 'chapterName', 'chapter_name', 'name', 'text', 'content', 'output'];
+      for (const key of preferredKeys) {
+        const extracted = extractTitleText(value[key], depth + 1);
+        if (extracted) return extracted;
+      }
+      for (const nestedValue of Object.values(value)) {
+        const extracted = extractTitleText(nestedValue, depth + 1);
+        if (extracted && extracted !== 'text' && extracted !== 'output_text') return extracted;
+      }
+    }
+    return '';
+  };
+  const candidate = extractTitleText(title);
+  return normalizeText(candidate)
+    .replace(/^第\s*\d+\s*章\s*/i, '')
+    .replace(/\s+/g, '')
+    .trim();
+}
+
+function collectTitleBigrams(title = '') {
+  const normalized = normalizeChapterTitleCandidate(title);
+  const result = new Set();
+  for (let index = 0; index <= normalized.length - 2; index += 1) {
+    result.add(normalized.slice(index, index + 2));
+  }
+  return result;
+}
+
+function inspectChapterTitleCandidate(candidate = '', recentTitles = [], avoidPhrases = []) {
+  const normalizedCandidate = normalizeChapterTitleCandidate(candidate);
+  if (!normalizedCandidate) {
+    return { ok: false, reasons: ['标题为空'], normalizedCandidate };
+  }
+
+  const normalizedAvoidPhrases = Array.isArray(avoidPhrases)
+    ? avoidPhrases.map((phrase) => normalizeChapterTitleCandidate(phrase)).filter(Boolean)
+    : [];
+  const hitAvoidPhrase = normalizedAvoidPhrases.find((phrase) => normalizedCandidate.includes(phrase));
+  if (hitAvoidPhrase) {
+    return { ok: false, reasons: [`命中禁用高频词“${hitAvoidPhrase}”`], normalizedCandidate };
+  }
+
+  const normalizedRecentTitles = Array.isArray(recentTitles)
+    ? recentTitles.map((title) => normalizeChapterTitleCandidate(title)).filter(Boolean)
+    : [];
+  if (normalizedRecentTitles.includes(normalizedCandidate)) {
+    return { ok: false, reasons: ['与已有章节名完全重复'], normalizedCandidate };
+  }
+
+  const candidateBigrams = collectTitleBigrams(normalizedCandidate);
+  const overlapTitle = normalizedRecentTitles.find((title) => {
+    if (!title || title === normalizedCandidate) return false;
+    const titleBigrams = collectTitleBigrams(title);
+    const overlapCount = [...candidateBigrams].filter((item) => titleBigrams.has(item)).length;
+    return overlapCount >= 2 || (normalizedCandidate.length >= 4 && title.includes(normalizedCandidate));
+  });
+  if (overlapTitle) {
+    return { ok: false, reasons: [`与已有标题“${overlapTitle}”重合过高`], normalizedCandidate };
+  }
+
+  return { ok: true, reasons: [], normalizedCandidate };
+}
+
+function buildChapterNameRetryPrompt(basePrompt, rejectedTitle, reasons = []) {
   return [
-    '请为以下章节创作极简大纲。',
-    '你必须优先遵守章节任务与剧情线约束，不要自由偏航。',
+    basePrompt,
     '',
+    `上一版候选标题：${normalizeChapterTitleCandidate(rejectedTitle) || '空标题'}`,
+    `退回原因：${reasons.filter(Boolean).join('；') || '与限制冲突'}`,
+    '重新生成时必须避开上一版标题及其核心意象，禁止再次输出同类词。'
+  ].join('\n');
+}
+
+function buildOutlinePrompt({ genre, subgenre, bookTitle, chapterTitle, chapterNumber, characters, contextNotes, chapterStorylinePrompt }) {
+  const typeInfo = subgenre ? genre + ' - ' + subgenre : genre;
+  const isFirstChapter = Number(chapterNumber) === 1;
+  return [
+    '你是一位受严格约束的长篇网文章节策划师。你的任务是为当前一章制定可直接执行的章节细纲，不是续写正文，也不是扩写世界观。',
+    '',
+    '【信息优先级】',
+    '章节细纲必须满足包含关系：章节细纲 ⊆ 当前剧情主线 ⊆ 当前分卷规划 ⊆ 全书规划。',
+    '1. 先锁定“当前剧情主线”的本章节点，章节核心事件必须直接推进该节点。',
+    '2. 当前剧情主线不得超出当前卷阶段目标、核心冲突和卷末状态。',
+    '3. 当前分卷规划不得偏离全书主线；全书规划只校验方向，不能把远期事件塞进本章。',
+    '4. 章节任务和上一章承接事项只能决定本章如何推进，不能替换或绕开当前剧情主线。',
+    '不同信息冲突时必须服从更高优先级；没有明确依据的内容不得自行补设定。',
+    '',
+    '【当前章节】',
     '类型：' + typeInfo,
     '书名：' + (bookTitle || '未提供'),
-    '章节名：' + (chapterTitle || '未提供'),
-    '角色：' + (characters || '未提供'),
+    '章节：' + (chapterTitle || '未提供'),
+    '当前正式角色名单（仅名称）：' + (characters || '暂无明确角色'),
+    '角色名单是本章可用人物的唯一边界；历史摘要、旧正文或反馈中出现但不在名单内的人名，一律视为失效信息，不得写入细纲。',
     '',
-    contextNotes ? '上下文：\n' + contextNotes : '',
-    chapterStorylinePrompt ? '\n剧情线约束：\n' + chapterStorylinePrompt : '\n剧情线约束：\n暂无结构化剧情线，仅使用章节目标兜底。',
-    '输出要求：',
-    '1. 用最简洁的语言列出 5 个要点。',
-    '2. 总字数控制在 50-250 字。',
-    '3. 不要写完整句子，不要解释。',
-    '4. 每个要点都要服务当前章必须推进的剧情节点，不能提前写出被禁止发生的事件。',
-    '5. 要点需要与章节名形成语义呼应，但必须以整体书籍设定、人物关系、章节任务和剧情线约束为边界，不能为了贴题改写主线事实。',
-    '6. 直接输出要点。'
+    contextNotes ? '【背景事实与连续性】\n' + contextNotes : '',
+    chapterStorylinePrompt ? '【本章剧情线硬约束】\n' + chapterStorylinePrompt : '【本章剧情线硬约束】\n暂无结构化剧情线，只围绕已给出的章节任务推进。',
+    '',
+    '【规划方法】',
+    isFirstChapter
+      ? '这是全书第 1 章：从全书或本卷设定的初始状态直接开篇，按“初始状态 → 触发事件 → 冲突推进 → 角色选择 → 产生明确结果 → 形成下一章承接”建立因果链。严禁声称存在上一章、前文或前情。'
+      : '先确定本章唯一核心目标，再按“承接上章 → 触发事件 → 冲突推进 → 角色选择 → 产生明确结果 → 形成下一章承接”建立因果链。',
+    '每个剧情节点必须由上一个节点的结果触发，并产生一个可验证的新结果；删除任何不影响本章目标的闲笔、背景介绍和无关支线。',
+    '本章通常只重点推进 1 条主线；关联线只有在直接影响主线因果时才能出现，不要求平均照顾所有剧情线。',
+    '',
+    '【输出要求】',
+    '只输出一段连贯的章节剧情摘要，不要标题、编号、列表、字段名、前言或解释。',
+    isFirstChapter
+      ? '按实际发生顺序写清：初始状态如何建立、触发什么事件、人物为何行动、冲突如何逐步升级、关键选择造成什么结果，以及本章最终停在哪里。'
+      : '按实际发生顺序写清：如何承接前文、触发什么事件、人物为何行动、冲突如何逐步升级、关键选择造成什么结果，以及本章最终停在哪里。',
+    '保持在剧情规划层：只写事件节点、行动目的、关键选择、信息变化和事件结果，不设计正文的具体表达。',
+    '人物动机只需说明“为何作出选择”，不要描写思考过程、情绪感受或内心独白；地点只在影响事件成立时简短交代。',
+    '摘要要足以指导正文作者从头到尾完成本章，但必须给正文创作保留对白、氛围、动作过程、心理活动和描写空间。',
+    '',
+    '【质量禁区】',
+    '1. 禁止引入上下文没有支持的新人物、新势力、新规则、新道具或新任务。',
+    '2. 禁止提前完成后续章节、后续分卷才允许发生的事件。',
+    '3. 禁止写任何直接或间接对白、对白意图示例、人物语气，以及可直接复制进正文的句子。',
+    '4. 禁止让角色无动机地行动；关键选择必须能从已知目标、关系或压力中推出。',
+    '5. 禁止环境氛围、感官细节、外貌神态、动作过程、心理活动、修辞和镜头语言；禁止用这些内容填充篇幅。',
+    '6. 禁止重复事件或用不同说法堆叠同一信息；每句话都必须推动因果链。',
+    '7. 输出控制在 220-400 字，语言简洁、客观、概括，不写创作建议。'
   ].filter(Boolean).join('\n');
+}
+
+async function auditGeneratedOutlineAgainstStorylineContext(outlineText, storylineContext = {}, chapterNumber = 0) {
+  const persisted = buildPersistedStorylineContext(storylineContext);
+  const mustAdvance = normalizeJsonArray(persisted.mustAdvance).map((item) => normalizeText(item)).filter(Boolean);
+  const mustNotHappen = normalizeJsonArray(persisted.mustNotHappen).map((item) => normalizeText(item)).filter(Boolean);
+  const isFirstChapter = Number(chapterNumber) === 1;
+  if (mustAdvance.length === 0 && mustNotHappen.length === 0 && !isFirstChapter) {
+    return { status: 'not_applicable', missingSetup: [], triggeredForbidden: [], summary: '' };
+  }
+
+  const auditPrompt = [
+    '你是章节细纲约束审校员。只判断细纲是否完成本章要求，以及是否提前兑现未来剧情。',
+    '严格输出 JSON：{"status":"passed|needs_revision","missingSetup":[],"triggeredForbidden":[],"summary":""}',
+    '判断规则：mustAdvance 缺失则放入 missingSetup；mustNotHappen 已经实际发生或完成则放入 triggeredForbidden；仅提及问题或线索不等于提前完成。',
+    '冲突规则：mustNotHappen 的优先级高于 mustAdvance；如果某个 mustAdvance 会导致未来正式节点或禁止项提前发生，不得要求补写该 mustAdvance，也不得将其列为缺失。',
+    isFirstChapter ? '第一章规则：不得出现“承接上一章”“承接上章”“承接前文”“延续前情”等声称已有前置章节的内容；命中时列入 triggeredForbidden。' : '',
+    '',
+    `mustAdvance：${JSON.stringify(mustAdvance)}`,
+    `mustNotHappen：${JSON.stringify(mustNotHappen)}`,
+    '',
+    `待审章节细纲：${normalizeText(outlineText)}`
+  ].join('\n');
+  const result = await runTextGeneration(auditPrompt, { temperature: 0.1, maxTokens: 500 });
+  if (!result.success) {
+    return { status: 'skipped', missingSetup: [], triggeredForbidden: [], summary: result.error || '细纲审校未执行' };
+  }
+  const parsed = tryParseJsonObject(result.content) || {};
+  const missingSetup = normalizeJsonArray(parsed.missingSetup || parsed.missing_setup).map((item) => normalizeText(item)).filter(Boolean);
+  const triggeredForbidden = normalizeJsonArray(parsed.triggeredForbidden || parsed.triggered_forbidden).map((item) => normalizeText(item)).filter(Boolean);
+  if (isFirstChapter && /承接(?:上一章|上章|前文)|延续前情/.test(normalizeText(outlineText))) {
+    triggeredForbidden.push('第1章不得声称承接上一章、前文或前情');
+  }
+  return {
+    status: missingSetup.length > 0 || triggeredForbidden.length > 0 ? 'needs_revision' : 'passed',
+    missingSetup,
+    triggeredForbidden: [...new Set(triggeredForbidden)],
+    summary: normalizeText(parsed.summary || '')
+  };
 }
 
 function buildCharacterNamesPrompt({ genre, subgenre, importantCount = 5, otherCount = 5 }) {
@@ -3427,11 +3707,24 @@ function buildCleanPolishPrompt(content, requirements, options = {}) {
   return parts.join('\n');
 }
 
-function buildChapterOutlineBreakdownPrompt({ outlineText = '', chapterTitle = '' } = {}) {
+function buildChapterOutlineBreakdownPrompt({
+  outlineText = '',
+  chapterTitle = '',
+  bookTitle = '',
+  characters = '',
+  contextNotes = '',
+  chapterStorylinePrompt = ''
+} = {}) {
   return [
-    '你是网文章节细纲编辑。请把用户输入的一段章节细纲拆成 4 个可编辑字段。',
+    '你是网文章节细纲编辑。请把用户输入的一段章节细纲整理成 3 个必需字段。',
+    '你必须把全书设定、分卷大纲、剧情线约束、章节任务都视为客观事实。',
+    '你的工作不是自由重写细纲，而是在不违背这些客观事实的前提下，把已有细纲整理成可编辑字段。',
     '',
+    bookTitle ? `【书名】${bookTitle}` : '',
     chapterTitle ? `【章节】${chapterTitle}` : '',
+    characters ? `【角色】\n${characters}` : '',
+    contextNotes ? `【全书与章节上下文】\n${contextNotes}` : '',
+    chapterStorylinePrompt ? `【剧情线约束】\n${chapterStorylinePrompt}` : '',
     '【用户输入的章节细纲】',
     normalizeText(outlineText),
     '',
@@ -3440,18 +3733,18 @@ function buildChapterOutlineBreakdownPrompt({ outlineText = '', chapterTitle = '
     '字段必须是：',
     '{',
     '  "chapter_goal": "本章目标：一句话说明本章必须完成的剧情推进",',
-    '  "key_scenes": "关键场景：按行列出 3-6 个场景节点",',
-    '  "conflict_escalation": "冲突升级：说明本章矛盾如何变得更危险或更复杂",',
-    '  "ending_hook": "结尾钩子：说明章节最后钩住读者的悬念或动作"',
+    '  "key_scenes": "关键场景：按行列出 3-6 个有因果关系的场景节点，每个节点包含冲突、角色或局势结果及有效兑现",',
+    '  "ending_hook": "章末结果与下章承接：说明章末局面、人物状态和下一章需要接续的问题"',
     '}',
     '',
     '约束：',
     '1. 不要新增用户没有暗示的大设定。',
-    '2. 必须在不改变整体书籍设定、人物关系和既有剧情线事实的前提下，让四个字段与章节名称形成一定呼应。',
-    '3. 如果章节名称带有意象、事件或情绪倾向，要把它自然落到本章目标、关键场景或结尾钩子里；不要为了贴题硬造新设定。',
-    '4. 可以补足表达，但不要替用户扩写成正文。',
+    '2. 必须在不改变整体书籍设定、分卷大纲、人物关系和既有剧情线事实的前提下，让三个字段与章节名称形成一定呼应。',
+    '3. 如果章节名称带有意象、事件或情绪倾向，要把它自然落到本章目标、关键场景或章末结果里；不要为了贴题硬造新设定。',
+    '4. 可以补足表达，但不要替用户扩写成正文，也不要把剧情线尚未允许发生的事件提前写进字段。',
     '5. key_scenes 用换行分隔，不要输出数组。',
-    '6. 每个字段都要尽量可直接用于生成正文。'
+    '6. 三个字段必须保持同一条因果链，不得把上下文中的远期事件或无关支线重新塞回细纲。',
+    '7. 每个字段都要尽量可直接用于生成正文。'
   ].filter(Boolean).join('\n');
 }
 
@@ -3706,7 +3999,7 @@ function buildTranslatePrompt(content, targetLanguage) {
 }
 
 async function runTextGeneration(prompt, {
-  model = 'deepseek-chat',
+  model = 'deepseek-v4-pro',
   temperature = 0.7,
   maxTokens = 2000,
   responseFormat = null
@@ -3737,13 +4030,64 @@ async function handleBookTitleGeneration(req, res) {
 
 async function handleChapterNameGeneration(req, res) {
   try {
-    const { genre = 'urban', subgenre, chapterNumber = '1' } = req.body;
-    const prompt = buildChapterNamePrompt({ genre, subgenre, chapterNumber });
-    const result = await runTextGeneration(prompt, { temperature: 0.95, maxTokens: 64 });
-    if (!result.success) {
-      return res.status(result.statusCode || 500).json({ success: false, error: result.error });
+    const {
+      genre = 'urban',
+      subgenre,
+      chapterNumber = '1',
+      outlineText = '',
+      outline_text = '',
+      bookTitle = '',
+      book_title = '',
+      recentTitles = [],
+      recent_titles = [],
+      avoidPhrases = [],
+      avoid_phrases = []
+    } = req.body;
+    const recentTitleList = Array.isArray(recentTitles) ? recentTitles : recent_titles;
+    const avoidPhraseList = Array.isArray(avoidPhrases) ? avoidPhrases : avoid_phrases;
+    const basePrompt = buildChapterNamePrompt({
+      genre,
+      subgenre,
+      chapterNumber,
+      outlineText: outlineText || outline_text || '',
+      bookTitle: bookTitle || book_title || '',
+      recentTitles: recentTitleList,
+      avoidPhrases: avoidPhraseList
+    });
+
+    let finalResult = null;
+    let lastInspection = { ok: false, reasons: ['未生成结果'] };
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const prompt = attempt === 0
+        ? basePrompt
+        : buildChapterNameRetryPrompt(basePrompt, finalResult?.content || '', lastInspection.reasons);
+      const result = await runTextGeneration(prompt, { temperature: 0.35, maxTokens: 48 });
+      if (!result.success) {
+        return res.status(result.statusCode || 500).json({ success: false, error: result.error });
+      }
+      finalResult = result;
+      lastInspection = inspectChapterTitleCandidate(result.content, recentTitleList, avoidPhraseList);
+      if (lastInspection.ok) break;
     }
-    return res.json({ success: true, data: { content: normalizeText(result.content), usage: result.usage } });
+
+    if (!finalResult) {
+      return res.status(502).json({ success: false, error: '章节名生成失败：未返回结果。' });
+    }
+
+    if (!lastInspection.ok) {
+      logger.warn('Chapter name generation fell back with duplicated candidate', {
+        chapterNumber,
+        candidate: normalizeChapterTitleCandidate(finalResult.content),
+        reasons: lastInspection.reasons
+      });
+    }
+    return res.json({
+      success: true,
+      data: {
+        content: normalizeChapterTitleCandidate(finalResult.content),
+        usage: finalResult.usage
+      }
+    });
   } catch (error) {
     logger.error('Chapter name generation failed', { error: error.message, stack: error.stack });
     return res.status(500).json({ success: false, error: 'Server error' });
@@ -3757,11 +4101,12 @@ async function handleOutlineGeneration(req, res) {
       subgenre,
       bookTitle = '',
       chapterTitle = '',
-      characters = '',
+      characters: requestedCharacters = '',
       contextNotes = '',
       bookId = '',
       chapterNumber
     } = req.body;
+    let characters = normalizeText(requestedCharacters);
     let mergedContextNotes = contextNotes;
     let storylineContextMeta = {
       usedStorylineIds: [],
@@ -3771,13 +4116,24 @@ async function handleOutlineGeneration(req, res) {
     };
 
     if (normalizeText(bookId || '') && Number.parseInt(chapterNumber, 10)) {
-      await ensureChapterPlanForOutlineGeneration({
+      const ensuredPlan = await ensureChapterPlanForOutlineGeneration({
         bookId: normalizeText(bookId),
         chapterNumber: Number.parseInt(chapterNumber, 10),
         requestBody: req.body || {}
       });
-      const storedContext = await loadBookGenerationContext(normalizeText(bookId), Number.parseInt(chapterNumber, 10));
+      if (!normalizeText(ensuredPlan.chapterPlan?.main_storyline_id || '')) {
+        return res.status(400).json({
+          success: false,
+          error: '当前章节没有可用的剧情主线，请先为当前分卷建立主线后再生成章节细纲。'
+        });
+      }
+      const storedContext = await loadBookGenerationContext(
+        normalizeText(bookId),
+        Number.parseInt(chapterNumber, 10),
+        { excludeCurrentOutline: true, forOutline: true }
+      );
       mergedContextNotes = [storedContext.contextNotes, contextNotes].filter(Boolean).join('\n\n');
+      characters = storedContext.outlineCharacters || '';
       storylineContextMeta = storedContext.chapterStorylineContext || storylineContextMeta;
     }
 
@@ -3786,13 +4142,30 @@ async function handleOutlineGeneration(req, res) {
       subgenre,
       bookTitle,
       chapterTitle,
+      chapterNumber: Number.parseInt(chapterNumber, 10),
       characters,
       contextNotes: mergedContextNotes,
       chapterStorylinePrompt: storylineContextMeta?.promptText || ''
     });
-    const result = await runTextGeneration(prompt, { temperature: 0.85, maxTokens: 800 });
+    let result = await runTextGeneration(prompt, { temperature: 0.45, maxTokens: 1200 });
     if (!result.success) {
       return res.status(result.statusCode || 500).json({ success: false, error: result.error });
+    }
+    let outlineAudit = await auditGeneratedOutlineAgainstStorylineContext(result.content, storylineContextMeta, chapterNumber);
+    if (outlineAudit.status === 'needs_revision') {
+      const correctionPrompt = [
+        prompt,
+        '',
+        '【上一版细纲审校未通过，必须纠正】',
+        outlineAudit.missingSetup.length > 0 ? `缺少铺垫：${outlineAudit.missingSetup.join('；')}` : '',
+        outlineAudit.triggeredForbidden.length > 0 ? `提前兑现：${outlineAudit.triggeredForbidden.join('；')}` : '',
+        '重新输出完整章节细纲，不要解释。'
+      ].filter(Boolean).join('\n');
+      const repairedResult = await runTextGeneration(correctionPrompt, { temperature: 0.35, maxTokens: 1200 });
+      if (repairedResult.success) {
+        result = repairedResult;
+        outlineAudit = await auditGeneratedOutlineAgainstStorylineContext(result.content, storylineContextMeta, chapterNumber);
+      }
     }
     let persistedStorylineContext = null;
     if (normalizeText(bookId || '') && Number.parseInt(chapterNumber, 10)) {
@@ -3807,6 +4180,7 @@ async function handleOutlineGeneration(req, res) {
       data: {
         content: normalizeText(result.content),
         usage: result.usage,
+        outlineAudit,
         storylineContext: {
           ...(persistedStorylineContext || buildPersistedStorylineContext(storylineContextMeta))
         },
@@ -3823,13 +4197,31 @@ async function handleChapterOutlineBreakdown(req, res) {
   try {
     const outlineText = normalizeText(req.body.outlineText || req.body.outline_text || req.body.content || '');
     const chapterTitle = normalizeText(req.body.chapterTitle || req.body.chapter_title || '');
+    const bookId = normalizeText(req.body.bookId || req.body.book_id || '');
+    const chapterNumber = Number.parseInt(req.body.chapterNumber || req.body.chapter_number, 10);
+    let bookTitle = normalizeText(req.body.bookTitle || req.body.book_title || '');
+    let characters = normalizeText(req.body.characters || '');
+    let mergedContextNotes = normalizeText(req.body.contextNotes || req.body.context_notes || '');
+    let chapterStorylinePrompt = normalizeText(req.body.chapterStorylinePrompt || req.body.chapter_storyline_prompt || '');
     if (!outlineText) {
       return res.status(400).json({ success: false, error: '请先输入章节细纲。' });
     }
 
+    if (bookId && chapterNumber) {
+      const storedContext = await loadBookGenerationContext(bookId, chapterNumber, { excludeCurrentOutline: true, forOutline: true });
+      bookTitle = bookTitle || storedContext.bookTitle || '';
+      characters = [storedContext.storedCharacters, characters].filter(Boolean).join('\n\n');
+      mergedContextNotes = [storedContext.contextNotes, mergedContextNotes].filter(Boolean).join('\n\n');
+      chapterStorylinePrompt = chapterStorylinePrompt || storedContext.chapterStorylineContext?.promptText || '';
+    }
+
     const result = await runTextGeneration(buildChapterOutlineBreakdownPrompt({
       outlineText,
-      chapterTitle
+      chapterTitle,
+      bookTitle,
+      characters,
+      contextNotes: mergedContextNotes,
+      chapterStorylinePrompt
     }), {
       temperature: 0.35,
       maxTokens: 900
@@ -3851,7 +4243,6 @@ async function handleChapterOutlineBreakdown(req, res) {
       data: {
         chapter_goal: normalizeText(parsed.chapter_goal || parsed.chapterGoal || ''),
         key_scenes: normalizeText(parsed.key_scenes || parsed.keyScenes || ''),
-        conflict_escalation: normalizeText(parsed.conflict_escalation || parsed.conflictEscalation || ''),
         ending_hook: normalizeText(parsed.ending_hook || parsed.endingHook || ''),
         raw_content: normalizeText(result.content),
         usage: result.usage
@@ -4017,6 +4408,12 @@ async function handleChapterFeedbackGeneration(req, res) {
       mainStoryline,
       targetStorylines
     });
+    const sanitizedChapterCharacters = sanitizeFeedbackLedgerItems(parsed?.chapter_characters, {
+      content,
+      chapterPlan,
+      mainStoryline,
+      targetStorylines
+    });
     const sanitizedElements = sanitizeFeedbackLedgerItems(parsed?.continuity_report?.new_elements, {
       content,
       chapterPlan,
@@ -4028,6 +4425,7 @@ async function handleChapterFeedbackGeneration(req, res) {
       chapter_summary: normalizeText(parsed.chapter_summary || ''),
       story_progress: normalizeText(parsed.story_progress || ''),
       character_progress: normalizeText(parsed.character_progress || ''),
+      chapter_characters: sanitizedChapterCharacters.keptItems.slice(0, 12),
       open_hooks: normalizeText(parsed.open_hooks || ''),
       next_chapter_focus: normalizeText(parsed.next_chapter_focus || ''),
       continuity_report: {
@@ -4119,6 +4517,17 @@ async function handleChapterFeedbackGeneration(req, res) {
 }
 
 async function prepareChapterContentGeneration(body = {}) {
+  const requestGenerationSettings = body.generationSettings && typeof body.generationSettings === 'object'
+    ? body.generationSettings
+    : {};
+  const planGenerationSettings = {
+    ...((body.chapterPlan || {}).structured_content || {}).generation_settings,
+    ...((body.chapterPlan || {}).generation_settings || {})
+  };
+  const mergedGenerationSettings = {
+    ...planGenerationSettings,
+    ...requestGenerationSettings
+  };
   const {
     bookId,
     bookTitle,
@@ -4130,15 +4539,57 @@ async function prepareChapterContentGeneration(body = {}) {
     outline = '',
     characters = '',
     shuangTags = [],
-    emotionIntensity = 70,
-    colloquialLevel = 80,
-    dialogueRatio = 30,
-    wordCount = 2000,
-    addCliffhanger,
-    enhanceDialogue,
-    avoidAIFeel,
-    fastPace,
-    detailedDesc,
+    emotionIntensity = normalizePercentage(
+      body.emotionIntensity ?? mergedGenerationSettings.emotionIntensity,
+      70
+    ),
+    colloquialLevel = normalizePercentage(
+      body.colloquialLevel ?? mergedGenerationSettings.colloquialLevel,
+      80
+    ),
+    dialogueRatio = normalizePercentage(
+      body.dialogueRatio ?? mergedGenerationSettings.dialogueRatio,
+      30
+    ),
+    wordCount = Number(
+      body.wordCount
+      ?? mergedGenerationSettings.word_count
+      ?? mergedGenerationSettings.wordCount
+      ?? 2000
+    ) || 2000,
+    addCliffhanger = normalizeBoolean(
+      body.addCliffhanger ?? mergedGenerationSettings.addCliffhanger,
+      true
+    ),
+    enhanceDialogue = normalizeBoolean(
+      body.enhanceDialogue ?? mergedGenerationSettings.enhanceDialogue,
+      true
+    ),
+    avoidAIFeel = normalizeBoolean(
+      body.avoidAIFeel ?? mergedGenerationSettings.avoidAIFeel,
+      true
+    ),
+    fastPace = normalizeBoolean(
+      body.fastPace ?? mergedGenerationSettings.fastPace,
+      false
+    ),
+    detailedDesc = normalizeBoolean(
+      body.detailedDesc
+      ?? mergedGenerationSettings.detailedDesc
+      ?? mergedGenerationSettings.detailedDescription,
+      false
+    ),
+    temperature = normalizeTemperature(
+      body.temperature ?? mergedGenerationSettings.temperature,
+      0.7
+    ),
+    customInstruction = normalizeText(
+      body.custom_instruction
+      || body.customInstruction
+      || mergedGenerationSettings.custom_instruction
+      || mergedGenerationSettings.customInstruction
+      || ''
+    ),
     model
   } = body;
 
@@ -4171,15 +4622,14 @@ async function prepareChapterContentGeneration(body = {}) {
   const requestedWordCount = Number(wordCount) || 2000;
   const wordCountConstraint = `【字数约束】本章目标 ${requestedWordCount} 有效字，允许上限最多 +15%，不得超过 ${Math.ceil(requestedWordCount * 1.15)} 有效字。统计口径按网文平台发布口径估算：空格、换行、标点符号不计入有效字数。可以略短，但不要为了铺陈额外扩写；接近上限时必须收束。`;
   const finalContextNotes = [storedContext.contextNotes, draftStorylineConstraint.text, wordCountConstraint, briefText].filter(Boolean).join('\n\n');
-  const structuredOutline = normalizeText(buildStructuredOutlineText(getChapterOutlineStructure(chapterPlan)));
   const roleExecution = normalizeRoleExecutionList(
     body.chapterPlan?.role_execution
     || body.chapterPlan?.structured_content?.role_execution
     || chapterPlan?.structured_content?.role_execution
   );
   const finalOutline = normalizeText(outline)
-    || structuredOutline
-    || normalizeText(chapterPlan.outline_text || buildOutlineFromChapterPlan(chapterPlan));
+    || normalizeText(chapterPlan.outline_text)
+    || normalizeText(buildOutlineFromChapterPlan(chapterPlan));
 
   if (!finalOutline) {
     const error = new Error('Outline is required');
@@ -4210,7 +4660,8 @@ async function prepareChapterContentGeneration(body = {}) {
       enhanceDialogue: enhanceDialogue !== undefined ? enhanceDialogue : true,
       avoidAIFeel: avoidAIFeel !== undefined ? avoidAIFeel : true,
       fastPace: fastPace || false,
-      detailedDesc: detailedDesc || false
+      detailedDesc: detailedDesc || false,
+      customInstruction
     });
 
   return {
@@ -4222,14 +4673,254 @@ async function prepareChapterContentGeneration(body = {}) {
     finalBookTitle,
     finalContextNotes,
     finalCharacters,
-    storedContext,
-    chapterPlan,
-    storylineContext,
-    draftStorylineConstraint,
-    requestedWordCount,
-    maxTokens,
-    prompt
+      storedContext,
+      chapterPlan,
+      storylineContext,
+      draftStorylineConstraint,
+      requestedWordCount,
+      generationTemperature: temperature,
+      maxTokens,
+      prompt
   };
+}
+
+async function handlePromptPreview(req, res) {
+  try {
+    const body = req.body || {};
+    const bookId = normalizeText(body.bookId || '');
+    const chapterNumber = Number.parseInt(body.chapterNumber, 10);
+
+    if (!bookId || !chapterNumber) {
+      return res.status(400).json({ success: false, error: 'bookId and chapterNumber are required' });
+    }
+
+    await ensureChapterPlanForOutlineGeneration({
+      bookId,
+      chapterNumber,
+      requestBody: body
+    });
+
+    const previewTypes = Array.isArray(body.previewTypes) && body.previewTypes.length > 0
+      ? body.previewTypes
+      : ['chapter_name', 'outline', 'chapter_outline_breakdown', 'chapter', 'chapter_feedback'];
+    const storedContext = await loadBookGenerationContext(bookId, chapterNumber);
+    const outlineStoredContext = await loadBookGenerationContext(bookId, chapterNumber, { excludeCurrentOutline: true, forOutline: true });
+    const chapterPlan = storedContext.chapterPlan || {};
+    const effectiveBookTitle = normalizeText(body.bookTitle || body.book_title || '') || storedContext.bookTitle || '';
+    const effectiveChapterTitle = normalizeText(body.chapterTitle || body.chapter_title || '')
+      || normalizeText(body.chapterName || body.chapter_name || '')
+      || normalizeText(chapterPlan.chapter_name || '')
+      || `第 ${chapterNumber} 章`;
+    const effectiveOutline = normalizeText(body.outlineText || body.outline_text || body.outline || '')
+      || normalizeText(buildOutlineFromChapterPlan(chapterPlan));
+    const effectiveCharacters = outlineStoredContext.outlineCharacters || '';
+    const effectiveContextNotes = [
+      storedContext.contextNotes,
+      normalizeText(body.contextNotes || body.context_notes || '')
+    ].filter(Boolean).join('\n\n');
+    const effectiveOutlineContextNotes = [
+      outlineStoredContext.contextNotes,
+      normalizeText(body.contextNotes || body.context_notes || '')
+    ].filter(Boolean).join('\n\n');
+    const effectiveStorylinePrompt = normalizeText(
+      body.chapterStorylinePrompt
+      || body.chapter_storyline_prompt
+      || storedContext.chapterStorylineContext?.promptText
+      || ''
+    );
+    const recentTitles = Array.isArray(body.recentTitles)
+      ? body.recentTitles
+      : normalizeJsonArray(body.recent_titles);
+    const avoidPhrases = Array.isArray(body.avoidPhrases)
+      ? body.avoidPhrases
+      : normalizeJsonArray(body.avoid_phrases);
+    const entries = [];
+    const requestedTypes = new Set(previewTypes.map((item) => normalizeText(item)).filter(Boolean));
+
+    const pushEntry = (entry) => {
+      entries.push({
+        key: normalizeText(entry.key || ''),
+        title: normalizeText(entry.title || ''),
+        description: normalizeText(entry.description || ''),
+        prompt: normalizeText(entry.prompt || ''),
+        status: normalizeText(entry.status || 'ready') || 'ready',
+        reason: normalizeText(entry.reason || ''),
+        meta: Array.isArray(entry.meta) ? entry.meta.map((item) => normalizeText(item)).filter(Boolean) : []
+      });
+    };
+
+    if (requestedTypes.has('chapter_name')) {
+      if (!effectiveOutline) {
+        pushEntry({
+          key: 'chapter_name',
+          title: '章节名生成',
+          description: '根据当前章节细纲提炼章节名。',
+          status: 'empty',
+          reason: '当前还没有可用章节细纲。'
+        });
+      } else {
+        pushEntry({
+          key: 'chapter_name',
+          title: '章节名生成',
+          description: '根据当前章节细纲提炼章节名。',
+          prompt: buildChapterNamePrompt({
+            genre: body.genre || 'urban',
+            subgenre: body.subgenre || '',
+            chapterNumber,
+            outlineText: effectiveOutline,
+            bookTitle: effectiveBookTitle,
+            recentTitles,
+            avoidPhrases
+          }),
+          meta: [
+            `题材：${body.genre || 'urban'}`,
+            recentTitles.length > 0 ? `历史标题：${recentTitles.length} 条` : '',
+            avoidPhrases.length > 0 ? `禁复用短语：${avoidPhrases.join(' / ')}` : ''
+          ]
+        });
+      }
+    }
+
+    if (requestedTypes.has('outline')) {
+      pushEntry({
+        key: 'outline',
+        title: '章节细纲生成',
+        description: '根据当前书籍设定、剧情线与章节上下文生成细纲。',
+        prompt: buildOutlinePrompt({
+          genre: body.genre || 'urban',
+          subgenre: body.subgenre || '',
+          bookTitle: effectiveBookTitle,
+          chapterTitle: effectiveChapterTitle,
+          chapterNumber,
+          characters: effectiveCharacters,
+          contextNotes: effectiveOutlineContextNotes,
+          chapterStorylinePrompt: effectiveStorylinePrompt
+        }),
+        meta: [
+          `题材：${body.genre || 'urban'}`,
+          effectiveStorylinePrompt ? '已挂接剧情线约束' : '当前无剧情线约束'
+        ]
+      });
+    }
+
+    if (requestedTypes.has('chapter_outline_breakdown')) {
+      if (!effectiveOutline) {
+        pushEntry({
+          key: 'chapter_outline_breakdown',
+          title: '细纲拆解',
+          description: '把章节细纲拆成结构化字段。',
+          status: 'empty',
+          reason: '当前还没有可拆解的章节细纲。'
+        });
+      } else {
+        pushEntry({
+          key: 'chapter_outline_breakdown',
+          title: '细纲拆解',
+          description: '把章节细纲拆成结构化字段。',
+          prompt: buildChapterOutlineBreakdownPrompt({
+            outlineText: effectiveOutline,
+            chapterTitle: effectiveChapterTitle,
+            bookTitle: effectiveBookTitle,
+            characters: effectiveCharacters,
+            contextNotes: effectiveContextNotes,
+            chapterStorylinePrompt: effectiveStorylinePrompt
+          }),
+          meta: ['结构化拆解', '输出 JSON']
+        });
+      }
+    }
+
+    if (requestedTypes.has('chapter')) {
+      try {
+        const prepared = await prepareChapterContentGeneration(body);
+        pushEntry({
+          key: 'chapter',
+          title: '正文生成',
+          description: '根据当前章节细纲与控制参数生成正文。',
+          prompt: prepared.prompt,
+          meta: [
+            `目标字数：${prepared.requestedWordCount}`,
+            `temperature：${prepared.generationTemperature}`,
+            `maxTokens：${prepared.maxTokens}`
+          ]
+        });
+      } catch (error) {
+        pushEntry({
+          key: 'chapter',
+          title: '正文生成',
+          description: '根据当前章节细纲与控制参数生成正文。',
+          status: 'error',
+          reason: error.message || '当前正文生成 prompt 无法预览。'
+        });
+      }
+    }
+
+    if (requestedTypes.has('chapter_feedback')) {
+      const content = normalizeText(body.content || body.generatedContent || '');
+      if (!content) {
+        pushEntry({
+          key: 'chapter_feedback',
+          title: '章节反馈',
+          description: '根据当前正文和章节细纲生成反馈。',
+          status: 'empty',
+          reason: '当前还没有可供分析的正文内容。'
+        });
+      } else {
+        let mainStoryline = '';
+        if (normalizeText(chapterPlan.main_storyline_id || '')) {
+          const db = await dbPromise;
+          const storylineRow = execQueryOne(db, 'SELECT storyline_name, storyline_type FROM storylines WHERE id = ?', [chapterPlan.main_storyline_id]);
+          if (storylineRow) {
+            mainStoryline = [storylineRow.storyline_name, storylineRow.storyline_type].filter(Boolean).join(' · ');
+          }
+        }
+
+        let targetStorylines = [];
+        try {
+          const ids = normalizeJsonArray(chapterPlan.target_storylines);
+          if (ids.length > 0) {
+            const db = await dbPromise;
+            const placeholders = ids.map(() => '?').join(',');
+            const rows = execQuery(db, `SELECT storyline_name FROM storylines WHERE id IN (${placeholders})`, ids);
+            targetStorylines = rows.map((item) => normalizeText(item.storyline_name)).filter(Boolean);
+          }
+        } catch (_) {}
+
+        pushEntry({
+          key: 'chapter_feedback',
+          title: '章节反馈',
+          description: '根据当前正文和章节细纲生成反馈。',
+          prompt: buildChapterFeedbackPrompt({
+            bookTitle: storedContext.bookTitle,
+            chapterNumber,
+            chapterTitle: effectiveChapterTitle,
+            outline: effectiveOutline || buildOutlineFromChapterPlan(chapterPlan),
+            mission: normalizeText(chapterPlan.chapter_mission || ''),
+            emotionTarget: normalizeText(chapterPlan.emotion_target || ''),
+            mainStoryline,
+            targetStorylines,
+            content
+          }),
+          meta: [
+            `正文长度：${countPlatformEffectiveWords(content)} 字`,
+            mainStoryline ? `主推脉络：${mainStoryline}` : '',
+            targetStorylines.length > 0 ? `关联脉络：${targetStorylines.join(' / ')}` : ''
+          ]
+        });
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        entries,
+        updatedAt: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    logger.error('Prompt preview failed', { error: error.message, stack: error.stack });
+    return res.status(500).json({ success: false, error: 'Prompt 预览失败' });
+  }
 }
 
 async function handleChapterContentGeneration(req, res) {
@@ -4248,6 +4939,7 @@ async function handleChapterContentGeneration(req, res) {
       storylineContext,
       draftStorylineConstraint,
       requestedWordCount,
+      generationTemperature,
       maxTokens,
       prompt
     } = prepared;
@@ -4264,8 +4956,8 @@ async function handleChapterContentGeneration(req, res) {
     });
 
     const result = await runTextGeneration(prompt, {
-      model: model || 'deepseek-chat',
-      temperature: 0.7,
+      model: model || 'deepseek-v4-pro',
+      temperature: generationTemperature,
       maxTokens
     });
 
@@ -4278,14 +4970,14 @@ async function handleChapterContentGeneration(req, res) {
       content: result.content,
       targetWordCount: requestedWordCount,
       chapterTitle,
-      model: model || 'deepseek-chat'
+      model: model || 'deepseek-v4-pro'
     });
     const endingRepair = await repairGeneratedEndingIfNeeded({
       content: wordCountEnforcement.content,
       finishReason: result.finishReason,
       chapterTitle,
       targetWordCount: requestedWordCount,
-      model: model || 'deepseek-chat'
+      model: model || 'deepseek-v4-pro'
     });
     const generatedContent = endingRepair.content;
     const truncationState = endingRepair.truncation;
@@ -4299,7 +4991,7 @@ async function handleChapterContentGeneration(req, res) {
       targetStorylineLabels: relatedStorylineTitlesFromContext(storylineContext)
     });
     logger.info('Content generation succeeded', {
-      model: result.model || model || 'deepseek-chat',
+      model: result.model || model || 'deepseek-v4-pro',
       targetWordCount: requestedWordCount,
       actualLength: countPlatformEffectiveWords(generatedContent),
       rawCharacterLength: generatedContent.length,
@@ -4314,7 +5006,7 @@ async function handleChapterContentGeneration(req, res) {
         content: generatedContent,
         usage: result.usage,
         metadata: {
-          model: result.model || model || 'deepseek-chat',
+          model: result.model || model || 'deepseek-v4-pro',
           finishReason: result.finishReason || null,
           timestamp: new Date().toISOString(),
           targetWordCount: requestedWordCount,
@@ -4355,9 +5047,19 @@ function writeSseEvent(res, type, payload = {}) {
 }
 
 async function handleChapterContentStream(req, res) {
+  const abortController = new AbortController();
+  const abortUpstream = () => {
+    if (!abortController.signal.aborted) abortController.abort();
+  };
+  const handleResponseClose = () => {
+    if (!res.writableEnded) abortUpstream();
+  };
+  req.once('aborted', abortUpstream);
+  res.once('close', handleResponseClose);
   let prepared = null;
   try {
     prepared = await prepareChapterContentGeneration(req.body || {});
+    if (abortController.signal.aborted) return;
     const {
       bookId,
       genre,
@@ -4371,6 +5073,7 @@ async function handleChapterContentStream(req, res) {
       storylineContext,
       draftStorylineConstraint,
       requestedWordCount,
+      generationTemperature,
       maxTokens,
       prompt
     } = prepared;
@@ -4395,11 +5098,12 @@ async function handleChapterContentStream(req, res) {
     let latestUsage = null;
     for await (const event of deepseekService.generateStream({
       prompt,
-      model: model || 'deepseek-chat',
-      temperature: 0.7,
+      model: model || 'deepseek-v4-pro',
+      temperature: generationTemperature,
       maxTokens,
-      signal: req.signal
+      signal: abortController.signal
     })) {
+      if (abortController.signal.aborted || res.destroyed) return;
       if (event.type === 'delta') {
         generatedContent = String(event.fullContent || `${generatedContent}${event.content || ''}`);
         writeSseEvent(res, 'delta', {
@@ -4418,19 +5122,23 @@ async function handleChapterContentStream(req, res) {
       }
     }
 
+    if (abortController.signal.aborted || res.destroyed) return;
+
     const wordCountEnforcement = await reviseGeneratedContentToWordCount({
       content: generatedContent,
       targetWordCount: requestedWordCount,
       chapterTitle,
-      model: model || 'deepseek-chat'
+      model: model || 'deepseek-v4-pro'
     });
+    if (abortController.signal.aborted || res.destroyed) return;
     const endingRepair = await repairGeneratedEndingIfNeeded({
       content: wordCountEnforcement.content,
       finishReason: '',
       chapterTitle,
       targetWordCount: requestedWordCount,
-      model: model || 'deepseek-chat'
+      model: model || 'deepseek-v4-pro'
     });
+    if (abortController.signal.aborted || res.destroyed) return;
     generatedContent = endingRepair.content;
     const truncationState = endingRepair.truncation;
     const auditResult = await auditGeneratedContent({
@@ -4442,6 +5150,7 @@ async function handleChapterContentStream(req, res) {
       mainStoryline: normalizeText(relatedStorylineTitleFromContext(storylineContext, true)),
       targetStorylineLabels: relatedStorylineTitlesFromContext(storylineContext)
     });
+    if (abortController.signal.aborted || res.destroyed) return;
 
     writeSseEvent(res, 'audit', {
       audit: auditResult,
@@ -4454,7 +5163,7 @@ async function handleChapterContentStream(req, res) {
       effective_word_count: countPlatformEffectiveWords(generatedContent),
       usage: latestUsage,
       metadata: {
-        model: model || 'deepseek-chat',
+        model: model || 'deepseek-v4-pro',
         finishReason: null,
         timestamp: new Date().toISOString(),
         targetWordCount: requestedWordCount,
@@ -4480,16 +5189,24 @@ async function handleChapterContentStream(req, res) {
     });
     res.end();
   } catch (error) {
+    if (abortController.signal.aborted || res.destroyed) {
+      logger.info('Streaming content generation stopped by client');
+      return;
+    }
     logger.error('Streaming content generation failed', { error: error.message, stack: error.stack });
     if (!res.headersSent) {
       return res.status(error.statusCode || 500).json({ success: false, error: error.message || '流式生成失败' });
     }
     writeSseEvent(res, 'error', { message: error.message || '流式生成失败' });
     res.end();
+  } finally {
+    req.removeListener('aborted', abortUpstream);
+    res.removeListener('close', handleResponseClose);
   }
 }
 
 router.post('/generate/stream', handleChapterContentStream);
+router.post('/generate/prompt-preview', handlePromptPreview);
 
 router.post('/generate', async (req, res) => {
   const promptType = normalizeText(req.body.promptType || 'chapter') || 'chapter';

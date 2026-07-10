@@ -1,7 +1,6 @@
 import './app-shell.css';
-import { useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { applyThemePopoverSettings, getStoredThemePopoverSettings } from './styleTheme.js';
+import { brand } from './config/brand.js';
 
 const NAV_ITEMS = [
   { path: '/books', label: '资料库' },
@@ -18,10 +17,6 @@ export default function AppLayout() {
   const location = useLocation();
   const currentPath = location.pathname;
 
-  useEffect(() => {
-    applyThemePopoverSettings(getStoredThemePopoverSettings());
-  }, []);
-
   function isActive(path) {
     return currentPath === path || currentPath.startsWith(`${path}/`);
   }
@@ -32,31 +27,36 @@ export default function AppLayout() {
 
   return (
     <>
-      <nav className="sticky top-0 z-50 border-b border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--nav-surface)_92%,transparent)] backdrop-blur-xl">
-        <div className="mx-auto flex h-16 w-[min(var(--layout-max-width),calc(100%-2.5rem))] items-center justify-between gap-6">
+      <nav className="al-nav">
+        <div className="al-nav-inner">
           <button
             type="button"
-            className="flex items-center gap-2 font-serif text-[1.55rem] font-semibold tracking-[-0.03em] text-[var(--text)] transition hover:text-[var(--brand-deep)]"
-            onClick={() => navigateTo('/workbench')}
+            className="al-nav-brand"
+            onClick={() => navigateTo('/')}
+            aria-label={`${brand.fullName} 首页`}
           >
-            <span className="text-[var(--brand)]">~</span>
-            <span>Alipro</span>
+            <span className="al-nav-brand-dot" aria-hidden="true" />
+            <span className="al-nav-brand-name">
+              {brand.chineseName}
+            </span>
+            <span className="al-nav-brand-code">
+              {brand.shortName}
+            </span>
           </button>
-          <div className="flex flex-wrap items-center gap-1">
+
+          <div className="al-nav-links">
             {NAV_ITEMS.map((item) => (
               <button
                 key={item.path}
                 type="button"
                 onClick={() => navigateTo(item.path)}
                 className={joinClasses(
-                  'min-h-10 rounded-[var(--radius-button)] px-3.5 text-[14px] font-medium transition',
-                  'border border-[color:transparent] text-[color:var(--muted)] hover:bg-[color:rgba(243,237,225,0.75)] hover:text-[color:var(--text)]',
-                  isActive(item.path)
-                    ? 'border-[color:rgba(61,53,48,0.08)] bg-[color:rgba(243,237,225,0.95)] text-[color:var(--brand-deep)]'
-                    : ''
+                  'al-nav-link',
+                  isActive(item.path) && 'al-nav-link--active'
                 )}
               >
                 {item.label}
+                {isActive(item.path) && <span className="al-nav-link-indicator" />}
               </button>
             ))}
           </div>

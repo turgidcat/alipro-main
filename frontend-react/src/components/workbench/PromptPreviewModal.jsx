@@ -1,5 +1,6 @@
 import Modal from './Modal.jsx';
 import { getLatestChapterOutline, getOutlineSourceLabel } from '../../lib/chapterPlan.js';
+import { normalizeChapterName } from '../../lib/chapterName.js';
 
 export default function PromptPreviewModal({
   chapterNumber,
@@ -35,7 +36,7 @@ export default function PromptPreviewModal({
           <span>当前章节细纲</span>
           <pre className="modal-pre">
             {[
-              '章名：' + (draftChapterPlan.chapter_name || '未命名章节'),
+              '章名：' + (normalizeChapterName(draftChapterPlan.chapter_name) || '未命名章节'),
               '来源：' + outlineSourceLabel,
               '',
               latestOutline || '暂无填写章节细纲。'
@@ -43,12 +44,12 @@ export default function PromptPreviewModal({
           </pre>
         </section>
         <section className="outline-preview-block">
-          <span>剧情线承接</span>
+          <span>叙事脉络承接</span>
           <pre className="modal-pre">
             {[
-              '主剧情线：' + selectedMainStorylineLabel,
-              '关联剧情线：' + selectedTargetStorylineLabel,
-              '节奏提示：' + (storylineRhythmHints.length > 0 ? storylineRhythmHints.map((hint) => '- ' + hint.text).join(' | ') : '暂无挂接剧情线')
+              '当前卷主线：' + selectedMainStorylineLabel,
+              '关联脉络：' + selectedTargetStorylineLabel,
+              '节奏提示：' + (storylineRhythmHints.length > 0 ? storylineRhythmHints.map((hint) => '- ' + hint.text).join(' | ') : '暂无挂接叙事脉络')
             ].join('\n')}
           </pre>
         </section>
@@ -58,10 +59,10 @@ export default function PromptPreviewModal({
             {[
               draftChapterPlan.character_notes || '暂无补充本章角色说明。',
               '',
-              '角色执行参数：',
+              '本章角色速查：',
               Array.isArray(draftChapterPlan.role_execution) && draftChapterPlan.role_execution.length > 0
-                ? draftChapterPlan.role_execution.map((item) => `- ${item.role || '未命名角色'}｜${describeRoleExecutionMeta(item)}｜${item.forbidden_change || '暂无禁止项'}`).join('\n')
-                : '- 暂无角色执行参数'
+                ? draftChapterPlan.role_execution.map((item) => `- ${item.role || '未命名角色'}｜${describeRoleExecutionMeta(item)}`).join('\n')
+                : '- 暂无角色资料'
             ].join('\n')}
           </pre>
         </section>

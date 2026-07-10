@@ -85,22 +85,14 @@ function loadStorylineGenerationContext(db, bookId, volumeNumber, currentStoryli
     [bookId, volumeNumber]
   )[0] || null;
 
-  const bookOutlineRow = execQuery(db,
-    "SELECT * FROM novel_outlines WHERE book_id = ? AND type = 'book' ORDER BY updated_at DESC, created_at DESC LIMIT 1",
-    [bookId]
-  )[0] || null;
-  const bookOutline = safeParseJson(bookOutlineRow?.structured_content, {}) || {};
-  if (!bookOutline.mainPlot && bookOutlineRow?.content) {
-    bookOutline.mainPlot = bookOutlineRow.content;
+  const bookOutline = safeParseJson(bookPlan?.structured_content, {}) || {};
+  if (!bookOutline.mainPlot && bookPlan?.main_outline) {
+    bookOutline.mainPlot = bookPlan.main_outline;
   }
 
-  const volumeOutlineRow = execQuery(db,
-    'SELECT * FROM novel_outlines WHERE book_id = ? AND type = "volume" AND volume_number = ? ORDER BY updated_at DESC, created_at DESC LIMIT 1',
-    [bookId, volumeNumber]
-  )[0] || null;
-  const volumeOutline = safeParseJson(volumeOutlineRow?.structured_content, {}) || {};
-  if (!volumeOutline.coreConflict && volumeOutlineRow?.content) {
-    volumeOutline.coreConflict = volumeOutlineRow.content;
+  const volumeOutline = safeParseJson(volumePlan?.structured_content, {}) || {};
+  if (!volumeOutline.coreConflict && volumePlan?.core_conflict) {
+    volumeOutline.coreConflict = volumePlan.core_conflict;
   }
   if (!volumeOutline.volumeNumber) {
     volumeOutline.volumeNumber = volumeNumber;
@@ -227,22 +219,11 @@ router.post('/:bookId/volume-settings/batch-init', localWorkbenchAuth, async (re
       }
     }
 
-    // 从全书大纲解析分卷
-    const bookOutlines = execQuery(db,
-      "SELECT * FROM novel_outlines WHERE book_id = ? AND type = 'book' LIMIT 1",
+    const bookPlan = execQuery(db,
+      'SELECT * FROM book_plans WHERE book_id = ? ORDER BY updated_at DESC LIMIT 1',
       [bookId]
-    );
-    if (bookOutlines.length === 0) {
-      return res.status(400).json({ success: false, error: '请先生成全书大纲' });
-    }
-
-    let volumes = [];
-    if (bookOutlines[0].structured_content) {
-      try {
-        const parsed = JSON.parse(bookOutlines[0].structured_content);
-        volumes = parsed.volumes || [];
-      } catch (e) {}
-    }
+    )[0] || null;
+    const volumes = safeParseJson(bookPlan?.structured_content, {})?.volumes || [];
 
     if (volumes.length === 0) {
       return res.status(400).json({ success: false, error: '全书大纲中没有分卷规划' });
@@ -436,6 +417,75 @@ router.post('/:bookId/storylines/batch-delete', localWorkbenchAuth, async (req, 
   } catch (error) {
     logger.error('批量删除剧情线失败', { error: error.message });
     res.status(500).json({ success: false, error: '批量删除失败' });
+  }
+});
+
+// 根据分卷规划生成本卷剧情线集合，不修改数据库结构。
+router.post('/:bookId/volume/:volNum/storylines/generate-set', localWorkbenchAuth, async (req, res) => {
+  try {
+    const { bookId } = req.params;
+    const volNum = Math.max(1, Number.parseInt(req.params.volNum, 10) || 1);
+    const { userGoal = '', replace = false } = req.body || {};
+    const db = await dbPromise;
+    const generationContext = loadStorylineGenerationContext(db, bookId, volNum, '');
+
+    const result = await storylineGenerationService.generateVolumeStorylineSet({
+      ...generationContext,
+      userGoal
+    });
+    if (!result.success) {
+      return res.status(500).json({ success: false, error: result.error || '本卷剧情线生成失败' });
+    }
+
+    if (replace) {
+      db.run('DELETE FROM storylines WHERE book_id = ? AND volume_number = ?', [bookId, volNum]);
+    }
+
+    const existing = execQuery(db,
+      'SELECT storyline_name, storyline_number FROM storylines WHERE book_id = ? AND volume_number = ? ORDER BY storyline_number ASC',
+      [bookId, volNum]
+    );
+    const existingNames = new Set(existing.map((item) => String(item.storyline_name || '').trim()).filter(Boolean));
+    let nextNumber = existing.reduce((max, item) => Math.max(max, Number(item.storyline_number || 0)), 0) + 1;
+    const created = [];
+
+    for (const item of result.parsed) {
+      if (existingNames.has(item.storyline_name)) continue;
+      const id = generateId();
+      db.run(
+        `INSERT INTO storylines(id, book_id, user_id, volume_number, storyline_number, storyline_name,
+         storyline_type, description, involved_characters, start_chapter, end_chapter, key_nodes, core_conflict,
+         structured_content, status)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [
+          id,
+          bookId,
+          req.user.userId || '',
+          volNum,
+          nextNumber,
+          item.storyline_name,
+          item.storyline_type,
+          item.description,
+          JSON.stringify(item.involved_characters || []),
+          item.start_chapter,
+          item.end_chapter,
+          JSON.stringify(item.key_nodes || []),
+          item.core_conflict,
+          JSON.stringify(item.structured_content || {}),
+          'generated'
+        ]
+      );
+      created.push({ id, ...item, storyline_number: nextNumber });
+      existingNames.add(item.storyline_name);
+      nextNumber += 1;
+    }
+
+    saveDatabase(db);
+    logger.info('Volume storyline set generated', { bookId, volumeNumber: volNum, createdCount: created.length });
+    return res.json({ success: true, data: { createdCount: created.length, storylines: created, usage: result.usage || null } });
+  } catch (error) {
+    logger.error('生成本卷剧情线集合失败', { error: error.message, stack: error.stack });
+    return res.status(500).json({ success: false, error: error.message || '本卷剧情线生成失败' });
   }
 });
 
@@ -753,26 +803,23 @@ router.get('/:bookId/characters/:charName/state/:chapterNumber', localWorkbenchA
     const db = await dbPromise;
 
     // 查询该角色在最近3章出现过的细纲中的characterStates
-    const recentOutlines = execQuery(db,
-      `SELECT o.chapter_id, o.inherit_from, c.chapter_number
-       FROM novel_outlines o
-       LEFT JOIN chapters c ON o.chapter_id = c.id
-       WHERE o.book_id = ? AND o.type = 'chapter' AND c.chapter_number < ?
-       ORDER BY c.chapter_number DESC LIMIT 5`,
+    const recentPlans = execQuery(db,
+      `SELECT chapter_number, structured_content
+       FROM chapter_plans
+       WHERE book_id = ? AND chapter_number < ?
+       ORDER BY chapter_number DESC, updated_at DESC LIMIT 5`,
       [bookId, chNum]
     );
 
     const stateHistory = [];
-    for (const o of recentOutlines) {
-      try {
-        const inherit = o.inherit_from ? JSON.parse(o.inherit_from) : {};
-        if (inherit.characterStates && inherit.characterStates[charName]) {
-          stateHistory.push({
-            chapterNumber: o.chapter_number,
-            state: inherit.characterStates[charName]
-          });
-        }
-      } catch (e) {}
+    for (const plan of recentPlans) {
+      const structured = safeParseJson(plan.structured_content, {}) || {};
+      const execution = Array.isArray(structured.role_execution)
+        ? structured.role_execution.find((item) => item?.role === charName || item?.name === charName)
+        : null;
+      if (execution) {
+        stateHistory.push({ chapterNumber: plan.chapter_number, state: execution });
+      }
     }
 
     // 查询该角色在章节-角色关联表中的记录

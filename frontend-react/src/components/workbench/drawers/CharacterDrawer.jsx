@@ -1,4 +1,5 @@
 import { buildCharacterSubtitle } from '../../../lib/assets.js';
+import { getRoleTierShortLabel, getRoleTierTone } from '../../../lib/roleTiers.js';
 
 export default function CharacterDrawer({ characters, appearingRoles }) {
   if (!characters || characters.length === 0) {
@@ -25,7 +26,12 @@ export default function CharacterDrawer({ characters, appearingRoles }) {
               key={index}
               className={`drawer-list-item${isAppearing ? ' is-highlight' : ' is-muted'}`}
             >
-              <strong>{name}</strong>
+              <div className="drawer-character-head">
+                <strong>{name}</strong>
+                <span className={`drawer-role-tier-badge ${getRoleTierTone(char.role_tier)}`}>
+                  {getRoleTierShortLabel(char.role_tier)}
+                </span>
+              </div>
               {isAppearing ? <span className="drawer-kicker">本章出场</span> : null}
               <div className="drawer-muted-copy">{buildCharacterSubtitle(char)}</div>
             </div>

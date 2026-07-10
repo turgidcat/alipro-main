@@ -4,13 +4,19 @@ import BooksPage from './pages/BooksPage.jsx';
 import ChangelogPage from './pages/ChangelogPage.jsx';
 import AppLayout from './AppLayout.jsx';
 import StorylineManagementPage from './pages/StorylineManagementPage.jsx';
+import HomePage from './pages/HomePage.jsx';
+
+const appBaseName = (() => {
+  const base = String(import.meta.env.BASE_URL || '/').replace(/\/+$/, '');
+  return base && base !== '' ? base : undefined;
+})();
 
 export const router = createBrowserRouter([
   {
     path: '/',
     element: <AppLayout />,
     children: [
-      { index: true, element: <App /> },
+      { index: true, element: <HomePage /> },
       { path: 'books', element: <BooksPage /> },
       { path: 'books/outlines', element: <BooksPage /> },
       { path: 'books/storylines', element: <StorylineManagementPage /> },
@@ -26,7 +32,10 @@ export const router = createBrowserRouter([
       { path: 'genre-light-novel-showcase', element: <Navigate to="/workbench" replace /> },
       { path: 'workbench-redesign-lab', element: <Navigate to="/workbench" replace /> },
       { path: 'workbench', element: <App /> },
+      { path: 'prompts', element: <App /> },
       { path: 'visual-sample', element: <Navigate to="/workbench" replace /> }
     ]
   }
-]);
+], {
+  basename: appBaseName
+});

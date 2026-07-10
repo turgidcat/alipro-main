@@ -125,6 +125,54 @@ function ensureArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function clampInteger(value, min, max, fallback = min) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function ensureVolumeStorylineSetShape(parsed, context = {}) {
+  const source = Array.isArray(parsed) ? parsed : ensureArray(parsed?.storylines || parsed?.items);
+  const volumePlan = context.volumePlan || {};
+  const totalChapters = computeExpectedSlotCount(context);
+  const quota = clampInteger(volumePlan.storyline_quota || context.storylineQuota || 3, 1, 5, 3);
+  const normalized = source.slice(0, quota).map((item, index) => {
+    const name = normalizeText(item?.storyline_name || item?.storylineName || item?.name || item?.title || '');
+    if (!name) return null;
+    const startChapter = clampInteger(item?.start_chapter || item?.startChapter || 1, 1, totalChapters, 1);
+    const endChapter = clampInteger(item?.end_chapter || item?.endChapter || totalChapters, startChapter, totalChapters, totalChapters);
+    return {
+      storyline_name: name,
+      storyline_type: String(item?.storyline_type || item?.storylineType || item?.type || '').toLowerCase() === 'main' ? 'main' : 'branch',
+      description: normalizeText(item?.description || item?.service_goal || item?.serviceGoal || item?.summary || ''),
+      core_conflict: normalizeText(item?.core_conflict || item?.coreConflict || item?.dramatic_question || item?.dramaticQuestion || ''),
+      involved_characters: ensureArray(item?.involved_characters || item?.involvedCharacters || item?.relatedCharacters)
+        .map((value) => normalizeText(typeof value === 'string' ? value : value?.name || ''))
+        .filter(Boolean)
+        .slice(0, 8),
+      start_chapter: startChapter,
+      end_chapter: endChapter,
+      key_nodes: ensureArray(item?.key_nodes || item?.keyNodes).slice(0, 8),
+      structured_content: {
+        serviceGoal: normalizeText(item?.service_goal || item?.serviceGoal || item?.description || ''),
+        canCrossVolume: Boolean(item?.can_cross_volume || item?.canCrossVolume),
+        closureExpectation: normalizeText(item?.closure_expectation || item?.closureExpectation || ''),
+        template: normalizeText(item?.template || item?.template_type || ''),
+        generatedFromVolumePlan: true
+      },
+      order: index + 1
+    };
+  }).filter(Boolean);
+
+  if (normalized.length === 0) {
+    throw new Error('剧情线集合 JSON 没有可保存的剧情线');
+  }
+  if (!normalized.some((item) => item.storyline_type === 'main')) {
+    normalized[0].storyline_type = 'main';
+  }
+  return normalized;
+}
+
 function computeExpectedSlotCount(context = {}) {
   const volumePlan = context.volumePlan || {};
   const volumeOutline = context.volumeOutline || {};
@@ -210,8 +258,21 @@ function ensureStorylineOutlineShape(parsed, context = {}) {
     expectedChange: normalizeText(item.expectedChange || item.expected_change || '')
   }));
 
-  const beats = [];
-  if (parsed.opening || startState) {
+  const providedKeyBeats = ensureArray(parsed.keyBeats || parsed.key_beats).map((item, index) => ({
+    beatId: normalizeText(item?.beatId || item?.beat_id || `beat-${index + 1}`),
+    stage: normalizeText(item?.stage || 'development'),
+    chapterApprox: Number(item?.chapterApprox || item?.chapter_approx || item?.chapter || 0) || null,
+    title: normalizeText(item?.title || item?.objective || item?.summary || `剧情节点${index + 1}`),
+    summary: normalizeText(item?.summary || item?.objective || item?.title || ''),
+    conflictLevel: Number(item?.conflictLevel || item?.conflict_level || 0) || null,
+    keyInteraction: normalizeText(item?.keyInteraction || item?.key_interaction || ''),
+    expectedChange: normalizeText(item?.expectedChange || item?.expected_change || ''),
+    mustInclude: ensureArray(item?.mustInclude || item?.must_include).map((entry) => normalizeText(entry)).filter(Boolean),
+    mustAvoid: ensureArray(item?.mustNotHappen || item?.must_not_happen || item?.mustAvoid || item?.must_avoid).map((entry) => normalizeText(entry)).filter(Boolean)
+  })).filter((item) => item.chapterApprox && item.chapterApprox >= Number(storyline.start_chapter || 1));
+
+  const beats = [...providedKeyBeats];
+  if (beats.length === 0 && (parsed.opening || startState)) {
     beats.push({
       beatId: normalizeText(parsed.opening?.beatId || parsed.opening?.beat_id || 'opening'),
       stage: 'opening',
@@ -223,8 +284,8 @@ function ensureStorylineOutlineShape(parsed, context = {}) {
       expectedChange: normalizeText(parsed.opening?.expectedChange || startState || '')
     });
   }
-  beats.push(...developmentBeats);
-  if (parsed.climax || targetEndState) {
+  if (beats.length === 0) beats.push(...developmentBeats);
+  if (beats.length === 0 && (parsed.climax || targetEndState)) {
     beats.push({
       beatId: normalizeText(parsed.climax?.beatId || parsed.climax?.beat_id || 'climax'),
       stage: 'climax',
@@ -276,6 +337,9 @@ function ensureStorylineOutlineShape(parsed, context = {}) {
   }).filter((item) => item.title);
 
   const isFallback = !summary || !dramaticQuestion || beats.length === 0;
+  const planningWarnings = ensureArray(parsed.planningWarnings || parsed.planning_warnings)
+    .map((item) => normalizeText(item))
+    .filter(Boolean);
 
   return {
     title,
@@ -288,6 +352,7 @@ function ensureStorylineOutlineShape(parsed, context = {}) {
     relatedCharacters,
     foreshadowingToPlant,
     payoffs,
+    planningWarnings,
     currentProgress,
     sourceContext: {
       bookId: context.bookId || '',
@@ -574,7 +639,12 @@ function buildStorylinePrompt(context) {
     '1. 你不是在整理字段，而是在设计这条剧情线在当前卷内的真实推进轨迹。',
     '2. 必须结合全书目标、本卷目标、角色弧光、已有章节进度和已有剧情线状态来生成新的节点。',
     '3. 严格输出 JSON，不要解释。',
-    '4. 除了既有 schema，请额外补充以下顶层字段：title、type、summary、dramaticQuestion、startState、targetEndState、keyBeats、relatedCharacters、foreshadowingToPlant、payoffs、currentProgress。',
+    '4. 除了既有 schema，请额外补充以下顶层字段：title、type、summary、dramaticQuestion、startState、targetEndState、keyBeats、relatedCharacters、foreshadowingToPlant、payoffs、currentProgress、planningWarnings。',
+    '5. keyBeat.chapterApprox 不得早于剧情线 start_chapter，也不得晚于 end_chapter。',
+    '6. 每个 keyBeat 只描述该节点实际发生的核心事件与状态变化，不为开始章节之前的内容生成前置节点。',
+    '',
+    '【输出结构示例】',
+    '{"title":"剧情线名称","type":"branch","summary":"剧情线摘要","dramaticQuestion":"核心问题","startState":"正式开始状态","targetEndState":"目标状态","keyBeats":[{"beatId":"opening","chapterApprox":4,"title":"正式节点","summary":"推进内容","expectedChange":"状态变化"}],"relatedCharacters":[],"foreshadowingToPlant":[],"payoffs":[],"currentProgress":{},"planningWarnings":[]}',
     '',
     `bookId: ${context.bookId || ''}`,
     `volumeId: ${context.volumeId || context.volumeNumber || ''}`,
@@ -627,6 +697,49 @@ function buildStorylinePrompt(context) {
   ];
 
   return lines.join('\n');
+}
+
+function buildVolumeStorylineSetPrompt(context) {
+  const bookPlan = context.bookPlan || {};
+  const volumePlan = context.volumePlan || {};
+  const volumeOutline = context.volumeOutline || {};
+  const totalChapters = computeExpectedSlotCount(context);
+  const quota = clampInteger(volumePlan.storyline_quota || context.storylineQuota || 3, 1, 5, 3);
+  return [
+    '你是一名网文卷内剧情线策划编辑。请根据全书规划、分卷目标、核心冲突和角色状态，设计当前卷应存在的剧情线集合。',
+    '严格输出一个 JSON 对象，不要解释，不要 Markdown。',
+    `storylines 必须包含 ${quota} 条剧情线，其中至少 1 条 main，其余为 branch。`,
+    `章节范围只能在 1-${totalChapters} 之间，允许多条线交叠，不要把章节切成互斥区间。`,
+    '每条剧情线都必须服务本卷目标，不能生成与现有世界观和人物无关的孤立事件。',
+    '',
+    'JSON schema:',
+    '{"storylines":[{"storyline_name":"名称","storyline_type":"main|branch","description":"服务目标和推进说明","core_conflict":"核心冲突","involved_characters":["角色名"],"start_chapter":1,"end_chapter":12,"key_nodes":["关键节点"],"can_cross_volume":false,"closure_expectation":"本卷收束预期","template":"贯穿型|阶段成长型|主题推进型|钩子伏笔型"}]}',
+    '',
+    '【全书规划】',
+    `作品前提：${normalizeText(bookPlan.premise || '') || '[缺失]'}`,
+    `全书主目标：${normalizeText(bookPlan.main_goal || '') || '[缺失]'}`,
+    `全书核心冲突：${normalizeText(bookPlan.core_conflict || '') || '[缺失]'}`,
+    `全书主线：${normalizeText(bookPlan.main_outline || '') || '[缺失]'}`,
+    `角色摘要：${normalizeText(bookPlan.role_summary || '') || '[缺失]'}`,
+    '',
+    '【当前分卷】',
+    `卷号：${context.volumeNumber || 1}`,
+    `卷名：${normalizeText(volumePlan.volume_name || volumeOutline.volumeTitle || '') || '[缺失]'}`,
+    `卷主题：${normalizeText(volumePlan.volume_theme || '') || '[缺失]'}`,
+    `阶段目标：${normalizeText(volumePlan.stage_goal || '') || '[缺失]'}`,
+    `核心冲突：${normalizeText(volumePlan.core_conflict || volumeOutline.coreConflict || '') || '[缺失]'}`,
+    `卷初角色状态：${normalizeText(volumePlan.start_role_state || '') || '[缺失]'}`,
+    `卷末角色状态：${normalizeText(volumePlan.end_role_state || '') || '[缺失]'}`,
+    `预计章节数：${totalChapters}`,
+    '',
+    '【角色资料】',
+    formatCharacters(context.characters) || '[缺失]',
+    '',
+    '【已有剧情线，避免重复】',
+    formatExistingStorylines(context.existingStorylines) || '[无]',
+    '',
+    normalizeText(context.userGoal || '') ? `【用户补充要求】\n${normalizeText(context.userGoal)}` : ''
+  ].filter(Boolean).join('\n');
 }
 
 function buildVolumeTimelinePrompt(context) {
@@ -712,19 +825,63 @@ class StorylineGenerationService {
     }
   }
 
+  parseVolumeStorylineSetResponse(raw, context = {}) {
+    try {
+      const parsed = tryExtractJson(raw);
+      return {
+        ok: true,
+        data: ensureVolumeStorylineSetShape(parsed, context),
+        rawPreview: redactForDebug(raw)
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error.message,
+        rawPreview: redactForDebug(raw)
+      };
+    }
+  }
+
+  async generateVolumeStorylineSet(context = {}) {
+    const prompt = buildVolumeStorylineSetPrompt(context);
+    const result = await deepseekService.generate({
+      prompt,
+      model: 'deepseek-v4-pro',
+      temperature: 0.65,
+      maxTokens: 2600,
+      responseFormat: { type: 'json_object' }
+    });
+    if (!result.success) return result;
+
+    const parsed = this.parseVolumeStorylineSetResponse(result.content, context);
+    if (!parsed.ok) {
+      return {
+        success: false,
+        error: `解析剧情线集合失败：${parsed.error}`,
+        rawPreview: parsed.rawPreview,
+        usage: result.usage || null
+      };
+    }
+    return {
+      success: true,
+      content: result.content,
+      usage: result.usage || null,
+      prompt,
+      parsed: parsed.data,
+      rawPreview: parsed.rawPreview
+    };
+  }
+
   async generateStorylineOutline(context = {}) {
     const prompt = buildStorylinePrompt(context);
     const result = await deepseekService.generate({
       prompt,
-      model: 'deepseek-chat',
+      model: 'deepseek-v4-pro',
       temperature: 0.7,
       maxTokens: 3200,
       responseFormat: { type: 'json_object' }
     });
-
-    if (!result.success) {
-      return result;
-    }
+    if (!result.success) return result;
 
     const parsed = this.parseStorylineOutlineResponse(result.content, context);
     if (!parsed.ok) {
@@ -750,7 +907,7 @@ class StorylineGenerationService {
     const prompt = buildVolumeTimelinePrompt(context);
     const result = await deepseekService.generate({
       prompt,
-      model: 'deepseek-chat',
+      model: 'deepseek-v4-pro',
       temperature: 0.65,
       maxTokens: 4500,
       responseFormat: { type: 'json_object' }

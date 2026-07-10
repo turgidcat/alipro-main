@@ -87,27 +87,27 @@ export function buildQualityCheckState(chapterFeedback = {}) {
   const statusMeta = {
     passed: {
       kind: 'success',
-      title: '质量检查通过'
+      title: '创作审校通过'
     },
     warning: {
       kind: 'warning',
-      title: '质量检查提示复核'
+      title: '创作审校提示复核'
     },
     failed: {
       kind: 'error',
-      title: '质量检查未通过'
+      title: '创作审校未通过'
     },
     degraded: {
       kind: 'warning',
-      title: '质量检查走了降级链路'
+      title: '创作审校走了降级链路'
     },
     not_run: {
       kind: 'warning',
-      title: '本章还没有正式质量检查'
+      title: '本章还没有正式创作审校'
     }
   }[qualityCheck.status] || {
     kind: 'warning',
-    title: '质量检查状态未知'
+    title: '创作审校状态未知'
   };
 
   const detailParts = [];
@@ -121,7 +121,7 @@ export function buildQualityCheckState(chapterFeedback = {}) {
     detailParts.push(`原因：${qualityCheck.degradedReason}`);
   }
   if (qualityCheck.storylineAudit.status && qualityCheck.storylineAudit.status !== 'not_applicable') {
-    detailParts.push(`剧情线：${formatAuditStatus(qualityCheck.storylineAudit.status)}`);
+    detailParts.push(`叙事脉络：${formatAuditStatus(qualityCheck.storylineAudit.status)}`);
   }
   if (qualityCheck.wordCountAudit.status && qualityCheck.wordCountAudit.status !== 'not_applicable') {
     detailParts.push(`字数：${formatAuditStatus(qualityCheck.wordCountAudit.status)}`);
@@ -130,7 +130,7 @@ export function buildQualityCheckState(chapterFeedback = {}) {
   let summary = detailParts.join(' · ');
   if (!summary) {
     summary = qualityCheck.status === 'passed'
-      ? '本章摘要、质量检查和正文已形成完整回写。'
+      ? '本章摘要、创作审校和正文已形成完整回写。'
       : qualityCheck.status === 'not_run'
         ? '当前只看到正文和反馈，还没有拿到正式质检结果。'
         : '建议结合正文和反馈一起人工复核这一章。';
@@ -184,8 +184,8 @@ function buildStatusMeta({
       statusKind: 'warning',
       statusTitle: `${successTitle}（降级）`,
       statusText: degradedReason
-        ? `正文已保存，但摘要/质量检查走了降级链路：${degradedReason}。`
-        : '正文已保存，但摘要/质量检查走了降级链路，建议人工复核后再继续下一章。'
+        ? `正文已保存，但摘要/创作审校走了降级链路：${degradedReason}。`
+        : '正文已保存，但摘要/创作审校走了降级链路，建议人工复核后再继续下一章。'
     };
   }
 

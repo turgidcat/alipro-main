@@ -94,30 +94,11 @@ export function normalizeNarrativeOutlineText(outlineText = '') {
 }
 
 export function getLatestChapterOutline(plan = {}) {
-  const directOutline = normalizeNarrativeOutlineText(plan?.outline_text || '');
-  if (directOutline) return directOutline;
-
-  const snapshotOutline = normalizeNarrativeOutlineText(
-    plan?.structured_content?.chapter_outline_snapshot?.outline_text
-    || plan?.structuredContent?.chapter_outline_snapshot?.outline_text
-    || ''
-  );
-  return snapshotOutline;
+  return normalizeNarrativeOutlineText(plan?.outline_text || '');
 }
 
 export function getGenerationChapterOutline(plan = {}) {
-  const latestOutline = getLatestChapterOutline(plan);
-  if (latestOutline) return latestOutline;
-
-  const chapterStructure = plan?.chapter_structure || emptyChapterStructure;
-  return composeStructuredOutline({
-    chapter_goal: chapterStructure.chapter_goal || plan?.chapter_mission || '',
-    key_scenes: chapterStructure.key_scenes || '',
-    conflict_escalation: chapterStructure.conflict_escalation || '',
-    character_change: chapterStructure.character_change || plan?.character_notes || '',
-    reader_payoff: chapterStructure.reader_payoff || plan?.emotion_target || '',
-    ending_hook: chapterStructure.ending_hook || plan?.ending_hook || ''
-  }).trim();
+  return getLatestChapterOutline(plan);
 }
 
 export function buildOutlineExcerpt(outlineText = '', fallback = '尚未建立章节细纲') {
@@ -135,56 +116,6 @@ export function getOutlineSourceLabel(source) {
   return '手动编辑';
 }
 
-export function composeStructuredOutline(structure) {
-  const sections = [
-    ['本章目标', structure.chapter_goal],
-    ['关键场景', structure.key_scenes],
-    ['冲突升级', structure.conflict_escalation],
-    ['结尾钩子', structure.ending_hook]
-  ];
-
-  return sections
-    .map(([label, value]) => {
-      const normalized = String(value || '').trim();
-      return normalized ? `${label}\n${normalized}` : '';
-    })
-    .filter(Boolean)
-    .join('\n\n');
-}
-
-export function composeSceneOutlineText(sceneOutline) {
-  if (!Array.isArray(sceneOutline) || sceneOutline.length === 0) return '';
-  return sceneOutline
-    .map((item, index) => {
-      if (typeof item === 'string') {
-        return item.trim();
-      }
-      if (item && typeof item === 'object') {
-        const summary = String(item.summary || item.action || item.content || '').trim();
-        return summary || '';
-      }
-      return '';
-    })
-    .filter(Boolean)
-    .map((line, index) => `${index + 1}. ${line.replace(/^\d+\.\s*/, '')}`)
-    .join('\n');
-}
-
-export function buildChapterStructureFromPlan(plan) {
-  const structuredContent = plan.structuredContent || {};
-  const saved = structuredContent.chapter_outline_structure || {};
-  const outlineSnapshot = structuredContent.chapter_outline_snapshot || {};
-  const sceneOutlineText = composeSceneOutlineText(plan.sceneOutline || outlineSnapshot.scene_outline || []);
-  return {
-    chapter_goal: saved.chapter_goal || plan.chapterMission || '',
-    key_scenes: saved.key_scenes || sceneOutlineText || '',
-    conflict_escalation: saved.conflict_escalation || '',
-    character_change: saved.character_change || outlineSnapshot.character_notes || plan.characterNotes || '',
-    reader_payoff: saved.reader_payoff || plan.emotionTarget || '',
-    ending_hook: saved.ending_hook || outlineSnapshot.ending_hook || plan.endingHook || ''
-  };
-}
-
 export function normalizeRoleExecution(roleExecution, appearingRoles = [], characterNotes = '', mission = '') {
   const raw = Array.isArray(roleExecution) ? roleExecution : [];
   const normalizeEnum = (value, allowed, fallback) => {
@@ -195,7 +126,11 @@ export function normalizeRoleExecution(roleExecution, appearingRoles = [], chara
     .map((item) => {
       if (!item || typeof item !== 'object') return null;
       const role = String(item.role || '').trim();
-      const baseline = String(item.baseline || '').trim();
+      const personality = String(item.personality || item.baseline || '').trim();
+      const background = String(item.background || '').trim();
+      const appearance = String(item.appearance || item.appearance_marker || item.appearanceMarker || '').trim();
+      const baseline = String(item.baseline || personality || background).trim();
+      const appearanceMarker = appearance;
       const chapterFunction = String(item.chapter_function || item.chapterFunction || '').trim();
       const allowedChange = String(item.allowed_change || item.allowedChange || '').trim();
       const forbiddenChange = String(item.forbidden_change || item.forbiddenChange || '').trim();
@@ -215,10 +150,14 @@ export function normalizeRoleExecution(roleExecution, appearingRoles = [], chara
         'temporary'
       );
       const confidence = normalizeEnum(item.confidence, ROLE_EXECUTION_CONFIDENCE, 'low');
-      if (!role && !baseline && !chapterFunction && !allowedChange && !forbiddenChange) return null;
+      if (!role && !personality && !background && !appearanceMarker && !chapterFunction && !allowedChange && !forbiddenChange) return null;
       return {
         role,
+        personality,
+        background,
+        appearance,
         baseline,
+        appearance_marker: appearanceMarker,
         chapter_function: chapterFunction,
         allowed_change: allowedChange,
         forbidden_change: forbiddenChange,
@@ -234,7 +173,11 @@ export function normalizeRoleExecution(roleExecution, appearingRoles = [], chara
 
   return normalizeRoleList(appearingRoles).map((role) => ({
     role,
+    personality: String(characterNotes || '').trim() || '延续当前人物底色。',
+    background: '',
+    appearance: '',
     baseline: String(characterNotes || '').trim() || '延续当前人物底色。',
+    appearance_marker: '本章生成前必须补足可识别外形标识。',
     chapter_function: mission ? `围绕本章任务“${mission}”承担推进作用。` : '承担本章推进作用。',
     allowed_change: '只允许推进一步，不允许跨阶段突变。',
     forbidden_change: '不能直接完成长期关系翻转、立场逆转或真相彻底揭示。',
@@ -246,11 +189,14 @@ export function normalizeRoleExecution(roleExecution, appearingRoles = [], chara
 }
 
 export function describeRoleExecutionMeta(item) {
-  const dimension = ROLE_DIMENSION_LABELS[item.dimension] || '剧情职责';
-  const direction = ROLE_DIRECTION_LABELS[item.direction] || '保持当前底色';
-  const scope = ROLE_SCOPE_LABELS[item.scope] || '本章表现';
-  const confidence = ROLE_CONFIDENCE_LABELS[item.confidence] || '低';
-  return `${dimension}｜${direction}｜${scope}｜把握度 ${confidence}`;
+  const appearance = String(item?.appearance || item?.appearance_marker || item?.appearanceMarker || '').trim();
+  const personality = String(item?.personality || item?.baseline || '').trim();
+  const background = String(item?.background || item?.chapter_function || '').trim();
+  return [
+    personality ? `性格 ${personality}` : '',
+    background ? `背景 ${background}` : '',
+    appearance ? `外形 ${appearance}` : ''
+  ].filter(Boolean).join('｜') || '角色资料待补充';
 }
 
 export function buildGenerationRiskReview(plan, generationConstraints) {
@@ -308,90 +254,28 @@ export function getPlanWordCount(plan) {
   return Number.isFinite(saved) ? Math.min(10000, Math.max(500, saved)) : 3000;
 }
 
-export function normalizeChapterStructureForSave(plan) {
-  const currentStructure = plan?.chapter_structure || emptyChapterStructure;
-  const sceneText = String(currentStructure.key_scenes || '').trim();
-  const fallbackSceneText = composeSceneOutlineText(plan?.scene_outline || []);
-
-  return {
-    chapter_goal: String(currentStructure.chapter_goal || plan?.chapter_mission || '').trim(),
-    key_scenes: sceneText || fallbackSceneText,
-    conflict_escalation: String(currentStructure.conflict_escalation || '').trim(),
-    character_change: String(currentStructure.character_change || plan?.character_notes || '').trim(),
-    reader_payoff: String(currentStructure.reader_payoff || plan?.emotion_target || '').trim(),
-    ending_hook: String(currentStructure.ending_hook || plan?.ending_hook || '').trim()
-  };
-}
-
 export function prepareOutlineModalPlan(plan) {
-  const normalizedStructure = normalizeChapterStructureForSave(plan);
+  const outlineText = normalizeNarrativeOutlineText(plan?.outline_text || '');
   const normalizedSummary = String(plan?.summary || '').trim();
-  const normalizedCharacterNotes = String(
-    plan?.character_notes
-    || normalizedStructure.character_change
-    || ''
-  ).trim();
-
-  return withStructuredChapterPlan(
-    {
-      ...plan,
-      summary: normalizedSummary,
-      character_notes: normalizedCharacterNotes,
-      ending_hook: normalizedStructure.ending_hook || plan?.ending_hook || ''
-    },
-    normalizedStructure
-  );
-}
-
-export function buildLatestOutlinePlan(plan, outlineText, source = 'manual') {
-  const normalizedOutline = normalizeNarrativeOutlineText(outlineText);
-  const summary = buildOutlineExcerpt(normalizedOutline, '');
-  const emptyStructure = { ...emptyChapterStructure };
-  const previousStructuredContent = plan?.structured_content || {};
-  const previousSnapshot = previousStructuredContent.chapter_outline_snapshot || {};
+  const normalizedCharacterNotes = String(plan?.character_notes || '').trim();
+  const structuredContent = plan?.structured_content || {};
+  const {
+    chapter_outline_structure: _legacyStructure,
+    chapter_outline_snapshot: _legacySnapshot,
+    ...remainingStructuredContent
+  } = structuredContent;
 
   return {
     ...plan,
-    summary,
-    outline_text: normalizedOutline,
-    source,
-    chapter_structure: emptyStructure,
-    structured_content: {
-      ...previousStructuredContent,
-      chapter_outline_mode: 'single_latest',
-      chapter_outline_structure: emptyStructure,
-      chapter_outline_snapshot: {
-        ...previousSnapshot,
-        summary,
-        outline_text: normalizedOutline,
-        source,
-        mode: 'single_latest'
-      }
-    }
-  };
-}
-
-export function withStructuredChapterPlan(plan, structure) {
-  const outlineText = composeStructuredOutline(structure);
-  return {
-    ...plan,
-    summary: plan.summary || summarizeText(outlineText, structure.chapter_goal || ''),
-    chapter_mission: structure.chapter_goal || plan.chapter_mission || '',
-    emotion_target: structure.reader_payoff || plan.emotion_target || '',
+    summary: normalizedSummary || buildOutlineExcerpt(outlineText, ''),
     outline_text: outlineText,
-    ending_hook: structure.ending_hook || plan.ending_hook || '',
-    scene_outline: normalizeLines(structure.key_scenes).map((line, index) => ({
-      order: index + 1,
-      summary: line
-    })),
-    chapter_structure: structure,
+    character_notes: normalizedCharacterNotes,
+    ending_hook: '',
+    scene_outline: [],
+    chapter_structure: { ...emptyChapterStructure },
     structured_content: {
-      ...(plan.structured_content || {}),
-      chapter_outline_structure: structure,
-      generation_settings: {
-        ...((plan.structured_content || {}).generation_settings || {}),
-        word_count: getPlanWordCount(plan)
-      }
+      ...remainingStructuredContent,
+      chapter_outline_mode: 'single_latest'
     }
   };
 }
@@ -407,10 +291,5 @@ export function hasMountedStorylineAnchor(plan = {}) {
 }
 
 export function hasUsableChapterOutline(plan = {}) {
-  const chapterStructure = plan?.chapter_structure || emptyChapterStructure;
-  const chapterGoal = String(chapterStructure?.chapter_goal || plan?.chapter_mission || '').trim();
-  const keyScenes = String(chapterStructure?.key_scenes || '').trim();
-  const conflictEscalation = String(chapterStructure?.conflict_escalation || '').trim();
-  const endingHook = String(chapterStructure?.ending_hook || plan?.ending_hook || '').trim();
-  return !!chapterGoal && !!keyScenes && !!conflictEscalation && !!endingHook;
+  return !!getGenerationChapterOutline(plan);
 }

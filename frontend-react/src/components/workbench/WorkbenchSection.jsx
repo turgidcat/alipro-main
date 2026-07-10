@@ -13,11 +13,11 @@ export default function WorkbenchSection({
   return (
     <section
       className={cn(
-        'grid min-w-0 gap-3 overflow-hidden border-l border-[color:color-mix(in_srgb,var(--brand-soft-strong)_56%,var(--line))] border-t border-[color:color-mix(in_srgb,var(--line)_54%,transparent)] pl-3 pt-3',
+        'workbench-section flex min-w-0 flex-col gap-2 border-l border-[color:color-mix(in_srgb,var(--brand-soft-strong)_56%,var(--line))] border-t border-[color:color-mix(in_srgb,var(--line)_54%,transparent)] pl-3 pt-3',
         className
       )}
     >
-      <header className="grid gap-1.5">
+      <header className="flex min-w-0 flex-col gap-1 shrink-0">
         {code ? <MetaCode>{code}</MetaCode> : null}
         <div className="flex items-start justify-between gap-4">
           <div className="grid gap-1">
@@ -29,7 +29,7 @@ export default function WorkbenchSection({
           {actions ? <div className="shrink-0">{actions}</div> : null}
         </div>
       </header>
-      <div className={cn('grid min-w-0 gap-3', contentClassName)}>{children}</div>
+      <div className={cn('flex min-w-0 flex-col gap-2 min-h-0 flex-1 overflow-y-auto', contentClassName)}>{children}</div>
     </section>
   );
 }

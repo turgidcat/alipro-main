@@ -1,5 +1,10 @@
 import { useState } from 'react';
+import { brand } from '../../config/brand.js';
+import { genreOptions, getSubgenreOptions } from '../../lib/bookGenres.js';
 import './project-entry.css';
+
+const ENTRY_VIEW_STORAGE_KEY = 'alipro:entryView';
+const allowedEntryViews = new Set(['home', 'create', 'select']);
 
 const statusLabels = {
   writing: '连载中',
@@ -16,6 +21,16 @@ function getBookMeta(book) {
   return [book?.genre, book?.subgenre].filter(Boolean).join(' · ') || getStatusLabel(book?.status);
 }
 
+function getInitialEntryView() {
+  try {
+    const storedView = window.sessionStorage.getItem(ENTRY_VIEW_STORAGE_KEY);
+    window.sessionStorage.removeItem(ENTRY_VIEW_STORAGE_KEY);
+    return allowedEntryViews.has(storedView) ? storedView : 'home';
+  } catch {
+    return 'home';
+  }
+}
+
 export default function ProjectEntry({
   books,
   loadingBooks,
@@ -27,7 +42,7 @@ export default function ProjectEntry({
   onSelectBook
 }) {
   const hasBooks = Array.isArray(books) && books.length > 0;
-  const [entryView, setEntryView] = useState('home');
+  const [entryView, setEntryView] = useState(getInitialEntryView);
   const isHome = entryView === 'home';
   const isCreate = entryView === 'create';
   const isSelect = entryView === 'select';
@@ -36,10 +51,10 @@ export default function ProjectEntry({
     <main className={`project-entry-page${isHome ? ' is-home' : ''}`} data-testid="project-entry-page">
       <span className="project-entry-float project-entry-float-cloud" aria-hidden="true">☁️</span>
       <span className="project-entry-float project-entry-float-star" aria-hidden="true">✦</span>
-      <header className="project-entry-topbar" aria-label="Alipro 作品入口">
+      <header className="project-entry-topbar" aria-label={`${brand.shortName} 作品入口`}>
         <div>
-          <p className="project-entry-brand"><span>~</span> Alipro <span>==</span></p>
-          <p className="project-entry-tagline">AI 小说创作工作台</p>
+          <p className="project-entry-brand"><span>~</span> {brand.fullName} <em>内测版</em> <span>==</span></p>
+          <p className="project-entry-tagline">{brand.englishName}</p>
         </div>
         {isHome ? null : (
           <button type="button" className="project-entry-toplink" onClick={() => setEntryView('home')}>
@@ -51,14 +66,19 @@ export default function ProjectEntry({
       {isHome ? (
         <section className="project-entry-hero project-entry-hero-home">
           <div className="project-entry-copy project-entry-reveal">
-            <p className="project-entry-kicker">~ alipro@novel</p>
+            <p className="project-entry-kicker">~ {brand.shortName.toLowerCase()}@studio</p>
             <h1>
-              开始创作<br />
-              <span className="project-handdrawn">你的小说</span>
+              {brand.chineseName}<br />
+              <span className="project-handdrawn">{brand.slogan}</span>
             </h1>
             <p className="project-entry-subtitle">
-              选择作品，继续你的故事。
+              {brand.longDescription}
             </p>
+            <div className="project-entry-feature-list" aria-label="产品能力">
+              {brand.featurePoints.map((item) => (
+                <span key={item.title} title={item.description}>{item.title}</span>
+              ))}
+            </div>
           </div>
 
           <div className="project-entry-home-panel project-entry-reveal project-entry-reveal-delay" aria-label="作品入口操作">
@@ -68,6 +88,10 @@ export default function ProjectEntry({
             <button type="button" className="project-secondary-action" onClick={() => setEntryView('select')}>
               选择作品
             </button>
+            <div className="project-entry-future" aria-label="未来扩展">
+              <span>未来扩展</span>
+              <p>{brand.futureCapabilities.join(' · ')} · 规划中</p>
+            </div>
             {loadingBooks ? <p>正在读取作品...</p> : null}
           </div>
         </section>
@@ -101,21 +125,39 @@ export default function ProjectEntry({
           <div className="project-entry-field-row">
             <label className="project-entry-field">
               <span>题材</span>
-              <input
+              <select
                 value={createDraft.genre}
-                onChange={(event) => onCreateDraftChange('genre', event.target.value)}
-                placeholder="都市异能"
-              />
+                onChange={(event) => {
+                  onCreateDraftChange('genre', event.target.value);
+                  onCreateDraftChange('subgenre', '');
+                }}
+              >
+                {genreOptions.map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
             </label>
             <label className="project-entry-field">
-              <span>作者</span>
-              <input
-                value={createDraft.author}
-                onChange={(event) => onCreateDraftChange('author', event.target.value)}
-                placeholder="可选"
-              />
+              <span>子分类</span>
+              <select
+                value={createDraft.subgenre}
+                onChange={(event) => onCreateDraftChange('subgenre', event.target.value)}
+              >
+                <option value="">未细分</option>
+                {getSubgenreOptions(createDraft.genre).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
             </label>
           </div>
+          <label className="project-entry-field">
+            <span>作者</span>
+            <input
+              value={createDraft.author}
+              onChange={(event) => onCreateDraftChange('author', event.target.value)}
+              placeholder="可选"
+            />
+          </label>
           <label className="project-entry-field">
             <span>简介</span>
             <textarea

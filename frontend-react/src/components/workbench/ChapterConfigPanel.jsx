@@ -45,7 +45,6 @@ export default function ChapterConfigPanel(props) {
     selectedBookId,
     onSaveChapterPlan,
     onClearStorylineSelection,
-    onSelectMainStoryline,
     onToggleTargetStoryline,
     onAdjustStorylineRange,
     onContextChipClick,
@@ -63,8 +62,8 @@ export default function ChapterConfigPanel(props) {
   const supportItems = [
     ['outline', '章节细纲'],
     ['character-config', '角色相关配置'],
-    ['book', '全书设定'],
-    ['storyline', '剧情线'],
+    ['book', '作品设定'],
+    ['storyline', '叙事脉络'],
     ['character', '角色档案'],
     ['volume', '分卷规划']
   ];
@@ -94,8 +93,8 @@ export default function ChapterConfigPanel(props) {
       {(sectionMode === 'all' || sectionMode === 'config') ? (
         <SidebarSection
           code=""
-          title="本章剧情线"
-          badge={hasMainStoryline ? '已主推' : `${selectedTargetStorylines.length} 条`}
+          title="本章叙事脉络"
+          badge={hasMainStoryline ? '主线已挂载' : `${selectedTargetStorylines.length} 条`}
         >
         {showActionRow ? (
         <div className="workbench-sidebar-action-row">
@@ -105,7 +104,7 @@ export default function ChapterConfigPanel(props) {
             onClick={onClearStorylineSelection}
             disabled={!selectedBookId || selectedTargetStorylines.length === 0}
           >
-            清空
+            清空支线
           </button>
           <button
             type="button"
@@ -166,20 +165,6 @@ export default function ChapterConfigPanel(props) {
                             </button>
                           ) : null}
 
-                          <button
-                            type="button"
-                            className={
-                              draftChapterPlan.main_storyline_id === storyline.id
-                                ? primaryButtonClass
-                                : ghostButtonClass
-                            }
-                            onClick={(event) => {
-                              event.preventDefault();
-                              onSelectMainStoryline(storyline.id);
-                            }}
-                          >
-                            {draftChapterPlan.main_storyline_id === storyline.id ? '当前主推' : '本章主推'}
-                          </button>
                         </div>
                       </div>
 
@@ -199,7 +184,7 @@ export default function ChapterConfigPanel(props) {
             })}
           </div>
         ) : (
-          <p className="text-[14px] leading-7 text-[color:var(--muted)]">当前还没有剧情线，可先用演示书测试。</p>
+          <p className="text-[14px] leading-7 text-[color:var(--muted)]">当前还没有叙事脉络，可先从资料库创建主线或支线。</p>
         )}
         </SidebarSection>
       ) : null}

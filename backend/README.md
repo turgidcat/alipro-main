@@ -190,15 +190,16 @@ backend/
 
 ---
 
-### 大纲接口 (`/api/outlines`)
+### 全书规划接口 (`/api/books/:bookId/book-plan`)
 
 | 方法 | 路径 | 说明 | 认证 |
 |------|------|------|------|
-| GET | `/:bookId` | 获取书籍所有大纲 | Bearer Token |
-| POST | `/:bookId` | 创建/更新大纲 | Bearer Token |
-| DELETE | `/:bookId/:outlineId` | 删除单条大纲 | Bearer Token |
+| GET | `/api/books/:bookId/book-plan` | 获取全书规划 | 否 |
+| POST | `/api/books/:bookId/book-plan` | 创建/更新全书规划 | 否 |
+| GET | `/api/books/:bookId/volume-plans` | 获取分卷规划 | 否 |
+| GET | `/api/books/:bookId/chapter-plans` | 获取章节细纲 | 否 |
 
-支持三种大纲类型：`book`（全书）、`volume`（分卷）、`chapter`（章节）。
+全书、分卷、章节分别使用 `book_plans`、`volume_plans`、`chapter_plans`，不再读取旧大纲表。
 
 ---
 
@@ -246,7 +247,9 @@ backend/
 - `chapters` — 章节内容
 - `templates` — 创作模板
 - `foreshadowing` — 伏笔追踪
-- `novel_outlines` — 大纲数据
+- `book_plans` — 全书规划
+- `volume_plans` — 分卷规划
+- `chapter_plans` — 章节细纲
 
 ---
 

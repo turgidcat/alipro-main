@@ -351,87 +351,10 @@ async function initDatabase() {
   db.run('CREATE INDEX IF NOT EXISTS idx_characters_book_id ON novel_characters(book_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_characters_user_id ON novel_characters(user_id)');
 
-  // 创建大纲表（三级结构）
-  db.run(`
-    CREATE TABLE IF NOT EXISTS novel_outlines (
-      id TEXT PRIMARY KEY,
-      book_id TEXT,
-      user_id TEXT NOT NULL DEFAULT '',
-      type TEXT NOT NULL DEFAULT 'book', -- book: 全书大纲, volume: 分卷大纲, chapter: 章节大纲
-      volume_number INTEGER DEFAULT 0, -- 卷号（仅分卷大纲使用）
-      volume_title TEXT DEFAULT '', -- 卷标题（仅分卷大纲使用）
-      chapter_id TEXT DEFAULT '', -- 关联章节ID（仅章节大纲使用）
-      content TEXT, -- 大纲内容
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
-    )
-  `);
-
-  // 迁移：为旧表添加新字段
-  addColumnIfNotExists('novel_outlines', 'user_id', "TEXT NOT NULL DEFAULT ''");
-  addColumnIfNotExists('novel_outlines', 'type', "TEXT NOT NULL DEFAULT 'book'");
-  addColumnIfNotExists('novel_outlines', 'volume_number', "INTEGER DEFAULT 0");
-  addColumnIfNotExists('novel_outlines', 'volume_title', "TEXT DEFAULT ''");
-  addColumnIfNotExists('novel_outlines', 'chapter_id', "TEXT DEFAULT ''");
-  addColumnIfNotExists('novel_outlines', 'content', "TEXT");
-  addColumnIfNotExists('novel_outlines', 'main_outline', "TEXT DEFAULT ''");
-  addColumnIfNotExists('novel_outlines', 'volume_outline', "TEXT DEFAULT ''");
-  addColumnIfNotExists('novel_outlines', 'detailed_outline', "TEXT DEFAULT ''");
-  addColumnIfNotExists('novel_outlines', 'updated_at', "DATETIME DEFAULT CURRENT_TIMESTAMP");
-
-  // 迁移旧数据：将 main_outline 转换为 type='book' 的记录
-  try {
-    const oldOutlines = db.exec("SELECT id, book_id, main_outline FROM novel_outlines WHERE type='book' AND (content IS NULL OR content='') AND main_outline IS NOT NULL AND main_outline != ''");
-    if (oldOutlines.length > 0 && oldOutlines[0].values.length > 0) {
-      console.log('🔄 迁移旧的大纲数据...');
-      oldOutlines[0].values.forEach(row => {
-        const [id, bookId, mainOutline] = row;
-        if (mainOutline && mainOutline.trim()) {
-          db.run('UPDATE novel_outlines SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [mainOutline, id]);
-        }
-      });
-    }
-  } catch (e) {
-    console.log('⚠️  旧数据迁移跳过:', e.message);
-  }
-
-  // 创建索引
-  try {
-    const outlineRows = db.exec('SELECT id, type, content, main_outline, volume_outline, detailed_outline FROM novel_outlines');
-    if (outlineRows.length > 0 && outlineRows[0].values.length > 0) {
-      outlineRows[0].values.forEach(row => {
-        const [id, type, content, mainOutline, volumeOutline, detailedOutline] = row;
-        const normalizedType = String(type || 'book');
-        const normalizedContent = String(content || '').trim();
-
-        if (!normalizedContent) {
-          return;
-        }
-
-        if (normalizedType === 'book' && !String(mainOutline || '').trim()) {
-          db.run('UPDATE novel_outlines SET main_outline = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [normalizedContent, id]);
-        }
-
-        if (normalizedType === 'volume' && !String(volumeOutline || '').trim()) {
-          db.run('UPDATE novel_outlines SET volume_outline = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [normalizedContent, id]);
-        }
-
-        if (normalizedType === 'chapter' && !String(detailedOutline || '').trim()) {
-          db.run('UPDATE novel_outlines SET detailed_outline = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [normalizedContent, id]);
-        }
-      });
-    }
-  } catch (e) {
-    console.log('outline field sync skipped', e.message);
-  }
+  // 旧大纲路径已退场，不迁移也不保留旧数据。
+  db.run('DROP TABLE IF EXISTS novel_outlines');
 
   db.run('CREATE INDEX IF NOT EXISTS idx_novel_characters_book_id ON novel_characters(book_id)');
-  db.run('CREATE INDEX IF NOT EXISTS idx_novel_outlines_book_id ON novel_outlines(book_id)');
-  db.run('CREATE INDEX IF NOT EXISTS idx_novel_outlines_user_id ON novel_outlines(user_id)');
-  db.run('CREATE INDEX IF NOT EXISTS idx_novel_outlines_type ON novel_outlines(type)');
-  db.run('CREATE INDEX IF NOT EXISTS idx_novel_outlines_volume ON novel_outlines(book_id, volume_number)');
-  db.run('CREATE INDEX IF NOT EXISTS idx_novel_outlines_chapter ON novel_outlines(chapter_id)');
 
   // 分卷设定表
   db.run(`

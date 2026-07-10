@@ -1,5 +1,5 @@
 import ChapterList from './ChapterList.jsx';
-import ThemePopover from '../theme/ThemePopover.jsx';
+import { normalizeChapterName } from '../../lib/chapterName.js';
 
 export default function GlobalBar({
   bookTitle,
@@ -15,78 +15,49 @@ export default function GlobalBar({
   onSwitchBook,
   showNavigation = true
 }) {
+  const normalizedChapterName = normalizeChapterName(chapterName);
+
   return (
-    <div className="workbench-global-bar">
-      <div className="workbench-global-bar-meta">
-        <span className="workbench-global-bar-label">
-          // book
-        </span>
-        <span className="workbench-global-bar-bookline">
-          {bookTitle || '未选择书籍'}
-        </span>
-        {volumeLabel ? (
-          <>
-            <span className="workbench-global-bar-label">
-              // volume
-            </span>
-            <span className="workbench-global-bar-bookline">
-              {volumeLabel}
-            </span>
-          </>
-        ) : null}
-        <span className="workbench-global-bar-label">
-          // chapter
-        </span>
-        <span className="workbench-global-bar-chapter">
-          第 {chapterNumber} 章{chapterName ? ` ${chapterName}` : ''}
-        </span>
-        {mainStorylineLabel && mainStorylineLabel !== '暂未指定剧情线' ? (
-          <span className="workbench-global-bar-storyline">
-            {mainStorylineLabel}
-          </span>
-        ) : null}
+    <div className="wgb">
+      {/* Breadcrumb — Notion style, very subtle */}
+      <div className="wgb-crumb">
+        <span>{bookTitle || '未选择书籍'}</span>
+        {volumeLabel && <span className="wgb-crumb-arrow">/</span>}
+        {volumeLabel && <span>{volumeLabel}</span>}
+        <span className="wgb-crumb-arrow">/</span>
+        <span>第 {chapterNumber} 章</span>
+        {mainStorylineLabel && !['暂未指定剧情线', '暂未指定叙事脉络'].includes(mainStorylineLabel) && (
+          <span className="wgb-crumb-arc">{mainStorylineLabel}</span>
+        )}
       </div>
 
-      {showNavigation ? (
-      <div className="workbench-global-bar-nav">
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            className="ghost-btn"
-            onClick={onPrevChapter}
-            disabled={chapterNumber <= 1}
-          >
-            ◂ 上一章
-          </button>
-          <span className="workbench-global-bar-chapter-pos">
-            {chapterNumber} / {totalChapterCount || '?'}
-          </span>
-          <button
-            type="button"
-            className="ghost-btn"
-            onClick={onNextChapter}
-          >
-            下一章 ▸
-          </button>
-          <ChapterList
-            currentChapter={chapterNumber}
-            items={chapterListItems}
-            onSelect={onSelectChapter}
-            triggerClassName="ghost-btn"
-          />
-          <ThemePopover />
-          {onSwitchBook ? (
-            <button
-              type="button"
-              className="ghost-btn workbench-switch-book-btn"
-              onClick={onSwitchBook}
-            >
-              切换作品
+      {/* Title — large, clean, no decoration */}
+      <div className="wgb-row">
+        <h1 className="wgb-title">
+          {normalizedChapterName || `第 ${chapterNumber} 章`}
+        </h1>
+        {showNavigation ? (
+          <div className="wgb-actions">
+            <button type="button" className="wgb-icon-btn" onClick={onPrevChapter} disabled={chapterNumber <= 1} title="上一章">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
             </button>
-          ) : null}
-        </div>
+            <span className="wgb-counter">{chapterNumber} / {totalChapterCount || '–'}</span>
+            <button type="button" className="wgb-icon-btn" onClick={onNextChapter} disabled={false} title="下一章">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+            </button>
+            <ChapterList
+              currentChapter={chapterNumber}
+              items={chapterListItems}
+              onSelect={onSelectChapter}
+            />
+            {onSwitchBook && (
+              <button type="button" className="wgb-text-btn" onClick={onSwitchBook}>
+                切换作品
+              </button>
+            )}
+          </div>
+        ) : null}
       </div>
-      ) : null}
     </div>
   );
 }

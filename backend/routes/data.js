@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { BookService, ChapterService, TemplateService, ForeshadowingService, CharacterService, OutlineService, ChapterPlanService, BookPlanService, execQuery, execQueryOne } = require('../services/database');
+const { BookService, ChapterService, TemplateService, ForeshadowingService, CharacterService, ChapterPlanService, BookPlanService, execQuery, execQueryOne } = require('../services/database');
 const dbPromise = require('../database/init');
 const logger = require('../utils/logger');
 const { validateRequest } = require('../middleware/validation');
@@ -12,14 +12,14 @@ const chapterService = new ChapterService();
 const templateService = new TemplateService();
 const foreshadowingService = new ForeshadowingService();
 const characterService = new CharacterService();
-const outlineService = new OutlineService();
 const chapterPlanService = new ChapterPlanService();
 const bookPlanService = new BookPlanService();
 
-const ROLE_TIER_VALUES = ['protagonist', 'supporting_major', 'supporting_minor', 'antagonist_major', 'antagonist_minor'];
+const ROLE_TIER_VALUES = ['protagonist', 'supporting_major', 'supporting_secondary', 'supporting_minor', 'antagonist_major', 'antagonist_minor'];
 const ROLE_TIER_LABELS = {
   protagonist: '主角',
   supporting_major: '主要配角',
+  supporting_secondary: '次要配角',
   supporting_minor: '普通配角',
   antagonist_major: '大反派',
   antagonist_minor: '普通反派'
@@ -51,6 +51,7 @@ function buildRoleTierPromptSection() {
     '角色定位枚举：',
     '- protagonist：主角',
     '- supporting_major：主要配角',
+    '- supporting_secondary：次要配角',
     '- supporting_minor：普通配角',
     '- antagonist_major：大反派',
     '- antagonist_minor：普通反派'
@@ -59,9 +60,8 @@ function buildRoleTierPromptSection() {
 
 async function buildCharacterGenerationContext(bookId) {
   const db = await dbPromise;
-  const [book, outline, bookPlan, characters] = await Promise.all([
+  const [book, bookPlan, characters] = await Promise.all([
     bookService.getById(bookId),
-    outlineService.getByBookId(bookId, ''),
     bookPlanService.getByBookId(bookId, '').catch(() => null),
     characterService.getByBookId(bookId, '')
   ]);
@@ -140,7 +140,6 @@ async function buildCharacterGenerationContext(bookId) {
 
   return {
     book,
-    outline,
     bookPlan,
     existingCharacters,
     volumePlanLines,
@@ -525,6 +524,115 @@ router.post('/books/:bookId/chapters',
       success: false,
       error: '服务器内部错误'
     });
+  }
+});
+
+/**
+ * DELETE /api/books/:bookId/chapters/:chapterNumber
+ * 删除单章正文与对应细纲（纯前端应用，无需认证）
+ */
+router.delete('/books/:bookId/chapters/:chapterNumber', async (req, res) => {
+  try {
+    const userId = '';
+    const { bookId } = req.params;
+    const chapterNumber = Number.parseInt(req.params.chapterNumber, 10);
+
+    if (!Number.isFinite(chapterNumber) || chapterNumber < 1) {
+      return res.status(400).json({
+        success: false,
+        error: '章节编号无效'
+      });
+    }
+
+    const [chapter, plan] = await Promise.all([
+      chapterService.getByBookAndChapterNumber(bookId, chapterNumber, userId),
+      chapterPlanService.getByBookAndChapterNumber(bookId, chapterNumber, userId)
+    ]);
+
+    if (!chapter && !plan) {
+      return res.status(404).json({
+        success: false,
+        error: '章节不存在'
+      });
+    }
+
+    const deletedChapter = chapter
+      ? await chapterService.deleteByBookAndChapterNumber(bookId, chapterNumber, userId)
+      : false;
+    const deletedPlanCount = await chapterPlanService.deleteByBookAndChapterNumber(bookId, chapterNumber, userId);
+
+    res.json({
+      success: true,
+      data: {
+        chapterNumber,
+        deletedChapter,
+        deletedPlanCount
+      }
+    });
+  } catch (error) {
+    logger.error('删除章节失败', {
+      error: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({
+      success: false,
+      error: '服务器内部错误'
+    });
+  }
+});
+
+/**
+ * DELETE /api/books/:bookId/chapters/:chapterNumber/content
+ * 仅删除单章正文，保留章节计划、章节名和细纲。
+ */
+router.delete('/books/:bookId/chapters/:chapterNumber/content', async (req, res) => {
+  try {
+    const userId = '';
+    const { bookId } = req.params;
+    const chapterNumber = Number.parseInt(req.params.chapterNumber, 10);
+
+    if (!Number.isFinite(chapterNumber) || chapterNumber < 1) {
+      return res.status(400).json({ success: false, error: '章节编号无效' });
+    }
+
+    const chapter = await chapterService.getByBookAndChapterNumber(bookId, chapterNumber, userId);
+    if (!chapter) {
+      return res.status(404).json({ success: false, error: '本章没有可删除的正文' });
+    }
+
+    const deletedChapter = await chapterService.deleteByBookAndChapterNumber(bookId, chapterNumber, userId);
+    res.json({ success: true, data: { chapterNumber, deletedChapter } });
+  } catch (error) {
+    logger.error('删除章节正文失败', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: '服务器内部错误' });
+  }
+});
+
+/**
+ * DELETE /api/books/:bookId/chapters
+ * 清空当前书籍的全部章节正文与章节计划。
+ */
+router.delete('/books/:bookId/chapters', async (req, res) => {
+  try {
+    const userId = '';
+    const { bookId } = req.params;
+    const book = await bookService.getById(bookId);
+    if (!book) {
+      return res.status(404).json({ success: false, error: '书籍不存在' });
+    }
+
+    const deletedChapterCount = await chapterService.deleteByBookId(bookId, userId);
+    const deletedPlanCount = await chapterPlanService.deleteByBookId(bookId, userId);
+    res.json({
+      success: true,
+      data: {
+        deletedChapterCount,
+        deletedPlanCount
+      }
+    });
+  } catch (error) {
+    logger.error('清空书籍章节失败', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: '服务器内部错误' });
   }
 });
 
@@ -1086,6 +1194,41 @@ router.put('/books/:bookId/characters/:characterId',
 );
 
 /**
+ * DELETE /api/books/:bookId/characters/:characterId
+ * 删除单个角色档案（纯前端应用，无需认证）
+ */
+router.delete('/books/:bookId/characters/:characterId', async (req, res) => {
+  try {
+    const { bookId, characterId } = req.params;
+    const current = await characterService.getById(characterId);
+
+    if (!current || current.book_id !== bookId) {
+      return res.status(404).json({
+        success: false,
+        error: '角色不存在'
+      });
+    }
+
+    const deleted = await characterService.delete(characterId);
+    res.json({
+      success: true,
+      data: {
+        deleted
+      }
+    });
+  } catch (error) {
+    logger.error('删除角色失败', {
+      error: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({
+      success: false,
+      error: '服务器内部错误'
+    });
+  }
+});
+
+/**
  * POST /api/books/:bookId/characters/generate-card
  * 用模型生成角色底色卡（结构化输出）
  */
@@ -1101,7 +1244,7 @@ router.post('/books/:bookId/characters/generate-card',
       const name = normalizeJsonText(req.body.name) || '新角色';
       const hint = normalizeJsonText(req.body.hint);
       const roleTier = ROLE_TIER_VALUES.includes(req.body.role_tier) ? req.body.role_tier : 'supporting_major';
-      const { book, outline, bookPlan, existingCharacters, volumePlanLines, storylineLines, characterPoolLines } = await buildCharacterGenerationContext(bookId);
+      const { book, bookPlan, existingCharacters, volumePlanLines, storylineLines, characterPoolLines } = await buildCharacterGenerationContext(bookId);
 
       if (!book) {
         return res.status(404).json({
@@ -1132,8 +1275,8 @@ router.post('/books/:bookId/characters/generate-card',
         `主线目标：${normalizeJsonText(bookPlan?.main_goal) || '暂无主线目标'}`,
         `核心冲突：${normalizeJsonText(bookPlan?.core_conflict) || '暂无核心冲突'}`,
         `世界规则：${normalizeJsonText(bookPlan?.world_rules) || '暂无世界规则'}`,
-        `全书大纲：${normalizeJsonText(bookPlan?.main_outline || outline?.main_outline).slice(0, 1200) || '暂无全书大纲'}`,
-        `分卷补充：${normalizeJsonText(bookPlan?.volume_outline || outline?.volume_outline).slice(0, 800) || '暂无分卷补充'}`,
+        `全书大纲：${normalizeJsonText(bookPlan?.main_outline).slice(0, 1200) || '暂无全书大纲'}`,
+        `分卷补充：${normalizeJsonText(bookPlan?.volume_outline).slice(0, 800) || '暂无分卷补充'}`,
         volumePlanLines.length > 0 ? `分卷规划：\n${volumePlanLines.map((item, index) => `${index + 1}. ${item}`).join('\n')}` : '分卷规划：暂无',
         storylineLines.length > 0 ? `剧情线规划：\n${storylineLines.map((item, index) => `${index + 1}. ${item}`).join('\n')}` : '剧情线规划：暂无',
         characterPoolLines.length > 0 ? `已有角色池：\n${characterPoolLines.map((item, index) => `${index + 1}. ${item}`).join('\n')}` : '已有角色池：暂无',
@@ -1207,7 +1350,7 @@ router.post('/books/:bookId/characters/generate-batch',
         });
       }
 
-      const { book, outline, bookPlan, existingCharacters, volumePlanLines, storylineLines, characterPoolLines } = await buildCharacterGenerationContext(bookId);
+      const { book, bookPlan, existingCharacters, volumePlanLines, storylineLines, characterPoolLines } = await buildCharacterGenerationContext(bookId);
 
       if (!book) {
         return res.status(404).json({
@@ -1242,8 +1385,8 @@ router.post('/books/:bookId/characters/generate-batch',
         `主线目标：${normalizeJsonText(bookPlan?.main_goal) || '暂无主线目标'}`,
         `核心冲突：${normalizeJsonText(bookPlan?.core_conflict) || '暂无核心冲突'}`,
         `世界规则：${normalizeJsonText(bookPlan?.world_rules) || '暂无世界规则'}`,
-        `全书大纲：${normalizeJsonText(bookPlan?.main_outline || outline?.main_outline).slice(0, 1200) || '暂无全书大纲'}`,
-        `分卷补充：${normalizeJsonText(bookPlan?.volume_outline || outline?.volume_outline).slice(0, 800) || '暂无分卷补充'}`,
+        `全书大纲：${normalizeJsonText(bookPlan?.main_outline).slice(0, 1200) || '暂无全书大纲'}`,
+        `分卷补充：${normalizeJsonText(bookPlan?.volume_outline).slice(0, 800) || '暂无分卷补充'}`,
         volumePlanLines.length > 0 ? `分卷规划：\n${volumePlanLines.map((item, index) => `${index + 1}. ${item}`).join('\n')}` : '分卷规划：暂无',
         storylineLines.length > 0 ? `剧情线规划：\n${storylineLines.map((item, index) => `${index + 1}. ${item}`).join('\n')}` : '剧情线规划：暂无',
         characterPoolLines.length > 0 ? `已有角色池：\n${characterPoolLines.map((item, index) => `${index + 1}. ${item}`).join('\n')}` : '已有角色池：暂无',
@@ -1634,11 +1777,9 @@ router.get('/books/:bookId/outline', async (req, res) => {
   try {
     const userId = '';
     const bookPlan = await bookPlanService.getByBookId(req.params.bookId, userId);
-    const outline = bookPlan || await outlineService.getByBookId(req.params.bookId, userId);
-
     res.json({
       success: true,
-      data: outline || null
+      data: bookPlan || null
     });
   } catch (error) {
     logger.error('获取大纲失败', {

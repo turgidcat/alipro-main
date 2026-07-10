@@ -1,6 +1,6 @@
-import { composeStructuredOutline } from './chapterPlan.js';
 import { mergeFeedbackIntoPlan } from './chapterBundle.js';
 import { buildLocalChapterFeedback } from './revisionDiff.js';
+import { normalizeChapterName } from './chapterName.js';
 
 function normalizeText(value) {
   return String(value || '').trim();
@@ -155,13 +155,13 @@ export async function persistChapterResultCycle({
 
   await upsertGeneratedChapter(bookId, {
     title: chapterTitle,
-    chapterName: normalizedPlan.chapter_name || '',
+    chapterName: normalizeChapterName(normalizedPlan.chapter_name || ''),
     chapterNumber,
     content
   });
   cycleResult.contentSaved = true;
 
-  const outline = normalizeText(normalizedPlan.outline_text || composeStructuredOutline(chapterStructure));
+  const outline = normalizeText(normalizedPlan.outline_text);
   let feedbackResponse = null;
 
   try {
@@ -218,7 +218,7 @@ export async function persistChapterResultCycle({
 
   const canPersistFeedback = canPersistFormalFeedback(cycleResult.chapterFeedback);
   const needsLocalPersistence = canPersistFeedback && !cycleResult.feedbackSaved;
-  cycleResult.feedbackPlan = needsLocalPersistence
+  cycleResult.feedbackPlan = canPersistFeedback
     ? mergeFeedbackIntoPlan(normalizedPlan, cycleResult.chapterFeedback)
     : null;
 

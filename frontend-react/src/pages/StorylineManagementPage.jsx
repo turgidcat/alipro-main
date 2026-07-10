@@ -1,40 +1,53 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  deleteStoryline,
   fetchBookPlanningBundle,
   fetchStorylines,
+  generateStorylineDetails,
+  generateVolumeStorylineDetails,
+  generateVolumeStorylineSet,
   getStoredCurrentBookId,
-  persistCurrentBookId
+  persistCurrentBookId,
+  saveStoryline
 } from '../workbenchApi.js';
 import { formatStorylineTypeLabel } from '../lib/storylineLabel.js';
 import '../styles.css';
 import '../app-shell.css';
 
+const APP_BASE_PATH = String(import.meta.env.BASE_URL || '/');
+
+function buildAppPath(pathname = '/') {
+  const cleanPath = pathname.startsWith('/') ? pathname.slice(1) : pathname;
+  const cleanBase = APP_BASE_PATH.endsWith('/') ? APP_BASE_PATH : `${APP_BASE_PATH}/`;
+  return cleanPath ? `${cleanBase}${cleanPath}` : cleanBase;
+}
+
 function openBooksSummaryPage(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
-  window.location.href = bookId ? `/books/${encodeURIComponent(bookId)}` : '/books';
+  window.location.href = buildAppPath(bookId ? `/books/${encodeURIComponent(bookId)}` : '/books');
 }
 
 function openBooksOutlinePage(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
-  window.location.href = '/books/outlines';
+  window.location.href = buildAppPath('/books/outlines');
 }
 
 function openBooksCharacterPage(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
-  window.location.href = '/books/characters';
+  window.location.href = buildAppPath('/books/characters');
 }
 
 function openBooksChapterPage(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
-  window.location.href = '/books/chapters';
+  window.location.href = buildAppPath('/books/chapters');
 }
 
 function openWorkbench(bookId) {
@@ -42,7 +55,7 @@ function openWorkbench(bookId) {
     persistCurrentBookId(bookId);
   }
   window.sessionStorage.setItem('alipro-open-current-workbench', '1');
-  window.location.href = '/workbench';
+  window.location.href = buildAppPath('/workbench');
 }
 
 function buildStorylineGroups(storylines = []) {
@@ -147,7 +160,7 @@ function getStorylineBoard(storylines = [], volumePlans = []) {
 
       return {
         id: storyline.id || `${storyline.name}-${index}`,
-        label: storyline.name || '未命名剧情线',
+        label: storyline.name || '未命名叙事脉络',
         hint: `第 ${storyline.volumeNumber || 1} 卷 · ${formatStorylineTypeLabel(storyline.type)}`,
         tone: storyline.type === 'main' ? 'main' : `branch-${(index % 5) + 1}`,
         start,
@@ -179,6 +192,21 @@ function getTimelineBarStyle(row, totalChapters) {
   };
 }
 
+function createStorylineDraft(volumeNumber = 1) {
+  return {
+    id: '',
+    volume_number: Number(volumeNumber || 1),
+    storyline_name: '',
+    storyline_type: 'branch',
+    description: '',
+    core_conflict: '',
+    start_chapter: 1,
+    end_chapter: 10,
+    involved_characters: [],
+    key_nodes: []
+  };
+}
+
 export default function StorylineManagementPage() {
   const [bookId, setBookId] = useState(() => getStoredCurrentBookId());
   const [loading, setLoading] = useState(true);
@@ -186,6 +214,16 @@ export default function StorylineManagementPage() {
   const [book, setBook] = useState(null);
   const [volumePlans, setVolumePlans] = useState([]);
   const [storylines, setStorylines] = useState([]);
+  const [selectedVolumeNumber, setSelectedVolumeNumber] = useState(1);
+  const [storylineDraft, setStorylineDraft] = useState(() => createStorylineDraft(1));
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [actionLoading, setActionLoading] = useState('');
+  const [notice, setNotice] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [aiGoal, setAiGoal] = useState('');
+  const [completedStorylineId, setCompletedStorylineId] = useState('');
+  const [nodeDetailStoryline, setNodeDetailStoryline] = useState(null);
+  const editorRef = useRef(null);
   const sidebarCollapsed = false;
   const sidebarPeek = false;
 
@@ -210,11 +248,13 @@ export default function StorylineManagementPage() {
     ]).then(([bundle, storylineList]) => {
       if (cancelled) return;
       setBook(bundle?.currentBook || null);
-      setVolumePlans(Array.isArray(bundle?.bookPlanning?.volumePlans) ? bundle.bookPlanning.volumePlans : []);
+      const nextVolumePlans = Array.isArray(bundle?.bookPlanning?.volumePlans) ? bundle.bookPlanning.volumePlans : [];
+      setVolumePlans(nextVolumePlans);
       setStorylines(Array.isArray(storylineList) ? storylineList : []);
+      setSelectedVolumeNumber((current) => current || Number(nextVolumePlans[0]?.volumeNumber || 1));
     }).catch((loadError) => {
       if (cancelled) return;
-      setError(loadError.message || '剧情线页面加载失败');
+      setError(loadError.message || '叙事脉络页面加载失败');
       setBook(null);
       setVolumePlans([]);
       setStorylines([]);
@@ -240,6 +280,125 @@ export default function StorylineManagementPage() {
     return map;
   }, [volumePlans]);
 
+  const selectedVolumeStorylines = storylines.filter((item) => Number(item.volumeNumber || 1) === Number(selectedVolumeNumber));
+  const selectedVolumePlan = volumePlans.find((item) => Number(item.volumeNumber || 1) === Number(selectedVolumeNumber)) || null;
+
+  async function refreshStorylines() {
+    if (!bookId) return;
+    const next = await fetchStorylines(bookId);
+    setStorylines(Array.isArray(next) ? next : []);
+  }
+
+  function scrollToEditor() {
+    window.requestAnimationFrame(() => {
+      editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  function openCreateEditor() {
+    setStorylineDraft(createStorylineDraft(selectedVolumeNumber));
+    setActionError('');
+    setEditorOpen(true);
+    scrollToEditor();
+  }
+
+  function openEditEditor(storyline) {
+    setStorylineDraft({
+      id: storyline.id,
+      volume_number: Number(storyline.volumeNumber || selectedVolumeNumber || 1),
+      storyline_name: storyline.name || '',
+      storyline_type: storyline.type || 'branch',
+      description: storyline.description || storyline.structuredContent?.summary || '',
+      core_conflict: storyline.coreConflict || storyline.structuredContent?.dramaticQuestion || '',
+      start_chapter: Number(storyline.startChapter || 1),
+      end_chapter: Number(storyline.endChapter || 10),
+      involved_characters: Array.isArray(storyline.structuredContent?.relatedCharacters) ? storyline.structuredContent.relatedCharacters : [],
+      key_nodes: []
+    });
+    setActionError('');
+    setEditorOpen(true);
+    scrollToEditor();
+  }
+
+  function updateStorylineDraft(field, value) {
+    setStorylineDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleSaveStoryline() {
+    if (!bookId || !storylineDraft.storyline_name.trim()) {
+      setActionError('剧情线名称不能为空。');
+      return;
+    }
+    setActionLoading('save');
+    setActionError('');
+    setNotice('');
+    try {
+      await saveStoryline(bookId, storylineDraft);
+      await refreshStorylines();
+      setEditorOpen(false);
+      setNotice(storylineDraft.id ? '剧情线已更新。' : '剧情线已新增。');
+    } catch (saveError) {
+      setActionError(saveError.message || '剧情线保存失败');
+    } finally {
+      setActionLoading('');
+    }
+  }
+
+  async function handleGenerateVolumeStorylines() {
+    if (!bookId) return;
+    setActionLoading('volume-generate');
+    setActionError('');
+    setNotice('');
+    try {
+      if (selectedVolumeStorylines.length === 0) {
+        const result = await generateVolumeStorylineSet(bookId, selectedVolumeNumber, aiGoal);
+        setNotice(`AI 已生成 ${Number(result?.createdCount || result?.storylines?.length || 0)} 条本卷剧情线。`);
+      } else {
+        const result = await generateVolumeStorylineDetails(bookId, selectedVolumeNumber, aiGoal);
+        setNotice(`AI 已重新生成 ${Number(result?.successCount || 0)} 条本卷剧情线。`);
+      }
+      await refreshStorylines();
+    } catch (generateError) {
+      setActionError(generateError.message || '本卷剧情线生成失败');
+    } finally {
+      setActionLoading('');
+    }
+  }
+
+  async function handleGenerateStoryline(storyline) {
+    if (!bookId || !storyline?.id) return;
+    setActionLoading(`generate-${storyline.id}`);
+    setActionError('');
+    setNotice('');
+    try {
+      await generateStorylineDetails(bookId, storyline.id, aiGoal);
+      await refreshStorylines();
+      setCompletedStorylineId(storyline.id);
+      setNotice(`“${storyline.name}”已由 AI 重新生成。`);
+    } catch (generateError) {
+      setActionError(generateError.message || '剧情线补全失败');
+    } finally {
+      setActionLoading('');
+    }
+  }
+
+  async function handleDeleteStoryline(storyline) {
+    if (!bookId || !storyline?.id) return;
+    if (!window.confirm(`确认删除“${storyline.name}”吗？`)) return;
+    setActionLoading(`delete-${storyline.id}`);
+    setActionError('');
+    setNotice('');
+    try {
+      await deleteStoryline(bookId, storyline.id);
+      await refreshStorylines();
+      setNotice('剧情线已删除。');
+    } catch (deleteError) {
+      setActionError(deleteError.message || '剧情线删除失败');
+    } finally {
+      setActionLoading('');
+    }
+  }
+
   return (
     <div className={`books-admin-page library-page library-app-shell${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}${sidebarCollapsed && sidebarPeek ? ' is-sidebar-peek' : ''}`}>
       <aside
@@ -255,8 +414,7 @@ export default function StorylineManagementPage() {
               title="返回资料库列表"
               aria-current="page"
             >
-              <span className="library-sidebar-kicker">Library</span>
-              <span className="library-surface-state">当前区域</span>
+              <span className="library-sidebar-kicker">LIBRARY</span>
               <strong>资料库</strong>
             </button>
             <button
@@ -266,9 +424,8 @@ export default function StorylineManagementPage() {
               disabled={!bookId}
               title="切换到创作台"
             >
-              <span className="library-sidebar-kicker">Workbench</span>
-              <span className="library-surface-state">前往创作</span>
-              <strong>创作台 <em>↗</em></strong>
+              <span className="library-sidebar-kicker">WORKBENCH</span>
+              <strong>创作台</strong>
             </button>
           </div>
         </div>
@@ -276,7 +433,7 @@ export default function StorylineManagementPage() {
           <button type="button" data-short="列" className="library-nav-item" onClick={() => openBooksSummaryPage('')} title="书籍列表">书籍列表</button>
           <button type="button" data-short="总" className="library-nav-item" onClick={() => openBooksSummaryPage(bookId)} disabled={!bookId} title="全书汇总">全书汇总</button>
           <button type="button" data-short="纲" className="library-nav-item" onClick={() => openBooksOutlinePage(bookId)} disabled={!bookId} title="大纲链">大纲链</button>
-          <button type="button" data-short="线" className="library-nav-item is-active" disabled={!bookId} title="剧情线">剧情线</button>
+          <button type="button" data-short="脉" className="library-nav-item is-active" disabled={!bookId} title="叙事脉络">叙事脉络</button>
           <button type="button" data-short="角" className="library-nav-item" onClick={() => openBooksCharacterPage(bookId)} disabled={!bookId} title="角色资料">角色资料</button>
           <button type="button" data-short="章" className="library-nav-item" onClick={() => openBooksChapterPage(bookId)} disabled={!bookId} title="章节与正文">章节与正文</button>
         </nav>
@@ -284,14 +441,14 @@ export default function StorylineManagementPage() {
 
       <main className="library-main">
         <div className="library-page-title">
-          <h2>资料库 · 剧情线页</h2>
+          <h2>资料库 · 叙事脉络页</h2>
         </div>
       {!bookId ? (
         <section className="detail-panel">
           <div className="detail-section-head">
             <strong>还没有选中书籍</strong>
           </div>
-          <p className="excerpt-text">先在资料库汇总页选择一本书，再进入剧情线管理页。</p>
+          <p className="excerpt-text">先在资料库汇总页选择一本书，再进入叙事脉络页。</p>
           <div className="detail-inline-actions mt-4">
             <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openBooksSummaryPage('')}>
               去资料库
@@ -301,17 +458,79 @@ export default function StorylineManagementPage() {
       ) : (
         <section>
           {loading ? (
-            <div className="global-banner">正在加载剧情线...</div>
+            <div className="global-banner">正在加载叙事脉络...</div>
           ) : error ? (
             <div className="global-banner global-banner-error">{error}</div>
           ) : (
             <div className="detail-grid">
               <div className="detail-main">
+                <section className="detail-panel storyline-control-panel">
+                  <div className="detail-panel-actions">
+                    <div>
+                      <span className="storyline-board-kicker">STORYLINE EDITOR</span>
+                      <h3>本卷剧情线设置与生成</h3>
+                    </div>
+                    <div className="detail-inline-actions">
+                      <button type="button" className="ghost-btn" onClick={openCreateEditor}>新增剧情线</button>
+                      <button type="button" className="solid-btn" onClick={handleGenerateVolumeStorylines} disabled={actionLoading === 'volume-generate'}>
+                        {actionLoading === 'volume-generate'
+                          ? 'AI 处理中...'
+                          : selectedVolumeStorylines.length > 0 ? 'AI 重新生成本卷脉络' : 'AI 生成本卷脉络'}
+                      </button>
+                    </div>
+                  </div>
+                  {actionError ? <div className="global-banner global-banner-error">{actionError}</div> : null}
+                  {notice ? <div className="global-banner">{notice}</div> : null}
+                  <div className="storyline-control-grid">
+                    <label className="detail-inline-field storyline-volume-select-field">
+                      <span>当前分卷</span>
+                      <select value={selectedVolumeNumber} onChange={(event) => setSelectedVolumeNumber(Number(event.target.value || 1))}>
+                        {(volumePlans.length > 0 ? volumePlans : [{ volumeNumber: 1, volume_name: '当前卷' }]).map((plan) => (
+                          <option key={plan.id || plan.volumeNumber} value={plan.volumeNumber}>第 {plan.volumeNumber} 卷 · {plan.volume_name || '未命名分卷'}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="detail-inline-field storyline-ai-goal">
+                      <span>AI 补充要求</span>
+                      <textarea rows={1} value={aiGoal} onChange={(event) => setAiGoal(event.target.value)} placeholder="可选，例如：主线更偏悬疑，关系支线在卷末留钩子。" />
+                    </label>
+                  </div>
+                  {selectedVolumePlan ? (
+                    <p className="excerpt-text"><b>生成依据：</b>{selectedVolumePlan.stage_goal || '暂无阶段目标'} · {selectedVolumePlan.core_conflict || '暂无核心冲突'}</p>
+                  ) : null}
+
+                  {editorOpen ? (
+                    <div className="storyline-full-editor" ref={editorRef}>
+                      <div className="detail-section-head">
+                        <strong>{storylineDraft.id ? '编辑剧情线' : '新增剧情线'}</strong>
+                        <button type="button" className="ghost-btn" onClick={() => setEditorOpen(false)} disabled={actionLoading === 'save'}>取消</button>
+                      </div>
+                      <div className="storyline-editor-grid">
+                        <label className="detail-inline-field storyline-compact-field"><span>名称</span><input value={storylineDraft.storyline_name} onChange={(event) => updateStorylineDraft('storyline_name', event.target.value)} /></label>
+                        <label className="detail-inline-field storyline-compact-field"><span>类型</span><select value={storylineDraft.storyline_type} onChange={(event) => updateStorylineDraft('storyline_type', event.target.value)}><option value="main">主线</option><option value="branch">支线</option></select></label>
+                        <div className="storyline-range-field">
+                          <span>章节范围</span>
+                          <div className="storyline-range-inputs">
+                            <label><em>起始</em><input type="number" min="1" value={storylineDraft.start_chapter} onChange={(event) => updateStorylineDraft('start_chapter', Number(event.target.value || 1))} /></label>
+                            <i />
+                            <label><em>结束</em><input type="number" min={storylineDraft.start_chapter || 1} value={storylineDraft.end_chapter} onChange={(event) => updateStorylineDraft('end_chapter', Number(event.target.value || 1))} /></label>
+                          </div>
+                        </div>
+                        <label className="detail-inline-field storyline-long-field is-wide"><span>推进说明</span><textarea rows={3} value={storylineDraft.description} onChange={(event) => updateStorylineDraft('description', event.target.value)} placeholder="写这条剧情线负责推进什么、如何影响本卷节奏。" /></label>
+                        <label className="detail-inline-field storyline-long-field is-wide"><span>核心冲突</span><textarea rows={3} value={storylineDraft.core_conflict} onChange={(event) => updateStorylineDraft('core_conflict', event.target.value)} placeholder="写清主要矛盾、对抗双方、阶段性升级点。" /></label>
+                      </div>
+                      <div className="detail-inline-actions">
+                        <button type="button" className="solid-btn" onClick={handleSaveStoryline} disabled={actionLoading === 'save'}>{actionLoading === 'save' ? '保存中...' : '保存剧情线'}</button>
+                      </div>
+                    </div>
+                  ) : null}
+                </section>
+
                 <article className="storyline-board-card">
                   <div className="storyline-board-copy">
                     <div>
                       <span className="storyline-board-kicker">Storyline Board</span>
-                      <strong>剧情进度表与章数动态校正图</strong>
+                      <strong>叙事进度表与章数动态校正图</strong>
                     </div>
                     <div className="storyline-board-guide">
                       <span>初始章数</span>
@@ -384,15 +603,15 @@ export default function StorylineManagementPage() {
                     </div>
                   ) : (
                     <div className="storyline-board-empty">
-                      <strong>还没有可绘制的剧情线进度</strong>
-                      <p>创建剧情线后，这里会按起止章节生成进度表，并在章节生成回写后显示动态校正状态。</p>
+                      <strong>还没有可绘制的叙事脉络进度</strong>
+                      <p>创建主线或支线后，这里会按起止章节生成进度表，并在章节生成回写后显示动态校正状态。</p>
                     </div>
                   )}
                 </article>
 
-                <div className="detail-panel">
+                <div className="detail-panel storyline-volume-panel">
                   <div className="detail-panel-actions">
-                    <h3>按卷查看剧情线集合</h3>
+                    <h3>分卷脉络</h3>
                   </div>
 
                   {storylineGroups.length > 0 ? (
@@ -404,7 +623,7 @@ export default function StorylineManagementPage() {
                             <div className="detail-section-head">
                               <strong>第 {group.volumeNumber} 卷</strong>
                               <span className="detail-entry-meta">
-                                {group.items.length} 条剧情线
+                                {group.items.length} 条脉络
                                 {matchedVolumePlan?.estimated_chapters ? ` · 预计 ${matchedVolumePlan.estimated_chapters} 章` : ''}
                               </span>
                             </div>
@@ -424,15 +643,30 @@ export default function StorylineManagementPage() {
                                       {storyline.name}
                                       {storyline.type ? ` · ${formatStorylineTypeLabel(storyline.type)}` : ''}
                                     </strong>
-                                    <span className="detail-entry-meta">
-                                      线序 {storyline.storylineNumber} · 预计第 {storyline.startChapter} - {storyline.endChapter} 章
-                                    </span>
+                                    <div className="detail-inline-actions">
+                                      <span className="detail-entry-meta">线序 {storyline.storylineNumber} · 预计第 {storyline.startChapter} - {storyline.endChapter} 章</span>
+                                      <button type="button" className="ghost-btn" onClick={() => openEditEditor(storyline)}>编辑</button>
+                                      <button type="button" className="ghost-btn" onClick={() => handleGenerateStoryline(storyline)} disabled={actionLoading === `generate-${storyline.id}`}>{actionLoading === `generate-${storyline.id}` ? '生成中...' : 'AI 重新生成'}</button>
+                                      <button type="button" className="ghost-btn" onClick={() => handleDeleteStoryline(storyline)} disabled={actionLoading === `delete-${storyline.id}`}>删除</button>
+                                    </div>
                                   </div>
                                   {storyline.coreConflict ? (
                                     <p className="excerpt-text"><b>核心冲突：</b>{storyline.coreConflict}</p>
                                   ) : null}
                                   {storyline.description ? (
                                     <p className="excerpt-text"><b>说明：</b>{storyline.description}</p>
+                                  ) : null}
+                                  {storyline.structuredContent?.summary ? (
+                                    <p className="excerpt-text"><b>AI 大纲：</b>{storyline.structuredContent.summary}</p>
+                                  ) : null}
+                                  {Array.isArray(storyline.structuredContent?.keyBeats) ? (
+                                    <div className="storyline-node-summary">
+                                      <span>正式节点 {storyline.structuredContent?.keyBeats?.length || 0} 个</span>
+                                      <button type="button" className="ghost-btn" onClick={() => setNodeDetailStoryline(storyline)}>查看节点内容</button>
+                                    </div>
+                                  ) : null}
+                                  {completedStorylineId === storyline.id ? (
+                                    <p className="excerpt-text"><b>本次操作：</b>AI 重新生成已完成，以上大纲和节点统计已刷新。</p>
                                   ) : null}
                                 </article>
                               ))}
@@ -444,11 +678,9 @@ export default function StorylineManagementPage() {
                   ) : (
                     <div className="detail-outline-volume mt-4">
                       <div className="detail-section-head">
-                        <strong>当前还没有剧情线</strong>
+                        <strong>当前还没有叙事脉络</strong>
                       </div>
-                      <p className="excerpt-text">
-                        后续这里会补“从分卷大纲生成本卷剧情线集合”的完整闭环。现阶段仍需要先创建剧情线，再交给 AI 补全细节。
-                      </p>
+                      <p className="excerpt-text">选择分卷后，可以手动新增剧情线，也可以让 AI 根据分卷目标直接生成本卷剧情线集合。</p>
                     </div>
                   )}
                 </div>
@@ -459,6 +691,34 @@ export default function StorylineManagementPage() {
         </section>
       )}
       </main>
+
+      {nodeDetailStoryline ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setNodeDetailStoryline(null);
+        }}>
+          <section className="modal-panel storyline-node-modal" role="dialog" aria-modal="true" aria-label={`${nodeDetailStoryline.name}节点内容`}>
+            <div className="modal-head">
+              <div>
+                <h3>{nodeDetailStoryline.name} · 节点内容</h3>
+                <p>按预计章节查看这条剧情线的正式推进节点。</p>
+              </div>
+              <button type="button" className="ghost-btn modal-close-btn" onClick={() => setNodeDetailStoryline(null)}>关闭</button>
+            </div>
+            <div className="modal-body storyline-node-sections">
+              <div className="storyline-node-section">
+                <strong>正式节点（{nodeDetailStoryline.structuredContent?.keyBeats?.length || 0}）</strong>
+                {(nodeDetailStoryline.structuredContent?.keyBeats || []).map((beat, index) => (
+                  <div className="storyline-node-card is-formal" key={beat.beatId || `formal-${index}`}>
+                    <b>第 {beat.chapterApprox || '?'} 章 · {beat.title || `正式节点 ${index + 1}`}</b>
+                    {beat.summary ? <p>事件：{beat.summary}</p> : null}
+                    {beat.expectedChange ? <p>预期变化：{beat.expectedChange}</p> : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <style>{`
         .library-page.library-app-shell {
@@ -473,6 +733,263 @@ export default function StorylineManagementPage() {
           padding-top: 14px;
           padding-bottom: 36px;
           transition: grid-template-columns 160ms ease;
+        }
+        .library-page .storyline-control-panel {
+          display: grid;
+          gap: 16px;
+          margin-bottom: 16px;
+          order: 1;
+          border: 1px solid color-mix(in srgb, var(--brand) 20%, var(--line));
+          border-radius: 16px;
+          background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 96%, white), color-mix(in srgb, var(--brand-soft) 10%, var(--panel)));
+          box-shadow: 0 14px 32px color-mix(in srgb, var(--brand-deep) 7%, transparent);
+          padding: 14px;
+        }
+        .library-page .storyline-volume-panel {
+          order: 2;
+          border: 1px solid color-mix(in srgb, var(--brand) 14%, var(--line));
+          border-radius: 16px;
+          background: color-mix(in srgb, var(--panel) 94%, white);
+          box-shadow: 0 10px 24px color-mix(in srgb, var(--text) 4%, transparent);
+          padding: 14px;
+        }
+        .library-page .storyline-board-card {
+          order: 3;
+        }
+        .library-page .storyline-control-grid,
+        .library-page .storyline-editor-grid {
+          display: grid;
+          grid-template-columns: minmax(260px, 0.7fr) minmax(0, 1.3fr);
+          gap: 12px;
+        }
+        .library-page .storyline-ai-goal,
+        .library-page .storyline-editor-grid .is-wide {
+          grid-column: 1 / -1;
+        }
+        .library-page .storyline-control-grid .detail-inline-field {
+          display: grid;
+          grid-template-columns: max-content minmax(0, 1fr);
+          align-items: center;
+          min-width: 0;
+          border: 1px solid color-mix(in srgb, var(--line-strong) 28%, var(--line));
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--panel) 92%, white);
+          padding: 8px 10px;
+          gap: 10px;
+          box-shadow:
+            inset 0 1px 0 color-mix(in srgb, white 66%, transparent),
+            0 8px 18px color-mix(in srgb, var(--text) 4%, transparent);
+        }
+        .library-page .storyline-control-grid .detail-inline-field span {
+          color: color-mix(in srgb, var(--text) 72%, var(--muted));
+          font-size: 12px;
+          font-weight: 800;
+        }
+        .library-page .storyline-control-grid select,
+        .library-page .storyline-control-grid textarea {
+          width: 100%;
+          min-width: 0;
+          box-sizing: border-box;
+          border-color: color-mix(in srgb, var(--brand) 22%, var(--line));
+          background: color-mix(in srgb, white 96%, var(--panel));
+        }
+        .library-page .storyline-control-grid select:focus,
+        .library-page .storyline-control-grid textarea:focus {
+          border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+          outline: none;
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-soft) 34%, transparent);
+        }
+        .library-page .storyline-volume-select-field {
+          align-self: stretch;
+        }
+        .library-page .storyline-volume-select-field select {
+          min-height: 36px;
+        }
+        .library-page .storyline-ai-goal {
+          background: linear-gradient(180deg, color-mix(in srgb, var(--brand-soft) 24%, white), color-mix(in srgb, var(--panel) 92%, white));
+          border-color: color-mix(in srgb, var(--brand) 24%, var(--line));
+        }
+        .library-page .storyline-ai-goal textarea {
+          min-height: 36px;
+          height: 36px;
+          line-height: 1.45;
+          resize: vertical;
+        }
+        .library-page .storyline-node-summary {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          margin-top: 10px;
+          color: var(--muted);
+          font-size: 12px;
+        }
+        .library-page .storyline-node-modal {
+          width: min(1040px, calc(100vw - 32px));
+          max-height: min(820px, calc(100vh - 40px));
+        }
+        .library-page .storyline-node-sections {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+          gap: 12px;
+        }
+        .library-page .storyline-node-modal .modal-body {
+          overflow-y: auto;
+        }
+        .library-page .storyline-node-section {
+          display: grid;
+          align-content: start;
+          gap: 8px;
+          min-width: 0;
+        }
+        .library-page .storyline-node-section > strong {
+          color: var(--brand-deep);
+          font-size: 13px;
+        }
+        .library-page .storyline-node-card {
+          display: grid;
+          gap: 5px;
+          border: 1px solid var(--line);
+          border-radius: 10px;
+          padding: 10px 12px;
+          background: color-mix(in srgb, var(--panel) 94%, white);
+        }
+        .library-page .storyline-node-card.is-formal {
+          border-left: 3px solid color-mix(in srgb, var(--accent) 68%, var(--line));
+        }
+        .library-page .storyline-node-card b {
+          color: var(--text);
+          font-size: 13px;
+        }
+        .library-page .storyline-node-card p {
+          margin: 0;
+          color: var(--muted);
+          font-size: 12px;
+          line-height: 1.55;
+          overflow-wrap: anywhere;
+        }
+        .library-page .storyline-full-editor {
+          display: grid;
+          gap: 0;
+          overflow: hidden;
+          border: 1px solid color-mix(in srgb, var(--brand) 42%, var(--line));
+          border-radius: 16px;
+          background:
+            linear-gradient(180deg, color-mix(in srgb, var(--brand-soft) 52%, white) 0%, color-mix(in srgb, var(--surface) 94%, white) 100%);
+          box-shadow:
+            0 18px 38px color-mix(in srgb, var(--brand-deep) 12%, transparent),
+            inset 0 1px 0 color-mix(in srgb, white 72%, transparent);
+        }
+        .library-page .storyline-full-editor > .detail-section-head {
+          align-items: center;
+          border-bottom: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line));
+          background: linear-gradient(180deg, color-mix(in srgb, var(--brand-soft) 62%, white), color-mix(in srgb, var(--brand-soft) 42%, var(--surface)));
+          padding: 12px 14px;
+        }
+        .library-page .storyline-full-editor > .detail-section-head strong {
+          color: var(--brand-deep);
+          font-size: 1.16rem;
+        }
+        .library-page .storyline-full-editor .storyline-editor-grid {
+          border: 0;
+          border-radius: 0;
+          background: transparent;
+          padding: 12px;
+        }
+        .library-page .storyline-full-editor .detail-inline-field {
+          min-width: 0;
+          gap: 10px;
+          border: 1px solid color-mix(in srgb, var(--line-strong) 28%, var(--line));
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--panel) 92%, white);
+          padding: 8px 10px;
+          box-shadow:
+            inset 0 1px 0 color-mix(in srgb, white 66%, transparent),
+            0 8px 18px color-mix(in srgb, var(--text) 4%, transparent);
+        }
+        .library-page .storyline-full-editor .storyline-compact-field {
+          display: grid;
+          grid-template-columns: max-content minmax(0, 1fr);
+          align-items: center;
+        }
+        .library-page .storyline-full-editor .storyline-range-field {
+          display: grid;
+          grid-column: 1 / -1;
+          grid-template-columns: max-content minmax(0, 1fr);
+          align-items: center;
+          gap: 10px;
+          border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line));
+          border-radius: 10px;
+          background: linear-gradient(180deg, color-mix(in srgb, var(--brand-soft) 34%, white), color-mix(in srgb, var(--panel) 92%, white));
+          padding: 8px 10px;
+          box-shadow: inset 0 1px 0 color-mix(in srgb, white 66%, transparent);
+        }
+        .library-page .storyline-full-editor .storyline-range-field > span,
+        .library-page .storyline-full-editor .detail-inline-field span {
+          color: color-mix(in srgb, var(--text) 72%, var(--muted));
+          font-size: 12px;
+          font-weight: 800;
+        }
+        .library-page .storyline-full-editor .storyline-range-inputs {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 14px minmax(0, 1fr);
+          align-items: center;
+          gap: 8px;
+        }
+        .library-page .storyline-full-editor .storyline-range-inputs label {
+          display: grid;
+          grid-template-columns: max-content minmax(0, 1fr);
+          align-items: center;
+          gap: 6px;
+          min-width: 0;
+        }
+        .library-page .storyline-full-editor .storyline-range-inputs em {
+          color: var(--muted);
+          font-size: 11px;
+          font-style: normal;
+          font-weight: 750;
+        }
+        .library-page .storyline-full-editor .storyline-range-inputs i {
+          display: block;
+          width: 12px;
+          height: 2px;
+          margin: 0;
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--brand) 34%, var(--line));
+        }
+        .library-page .storyline-full-editor .storyline-long-field {
+          grid-column: 1 / -1;
+          background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 92%, white), color-mix(in srgb, var(--brand-soft) 10%, var(--panel)));
+        }
+        .library-page .storyline-full-editor .storyline-long-field textarea {
+          display: block;
+          width: 100%;
+          min-width: 0;
+          min-height: 92px;
+          box-sizing: border-box;
+          line-height: 1.55;
+        }
+        .library-page .storyline-full-editor input,
+        .library-page .storyline-full-editor select,
+        .library-page .storyline-full-editor textarea {
+          width: 100%;
+          min-width: 0;
+          box-sizing: border-box;
+          border-color: color-mix(in srgb, var(--brand) 22%, var(--line));
+          background: color-mix(in srgb, white 96%, var(--panel));
+        }
+        .library-page .storyline-full-editor input:focus,
+        .library-page .storyline-full-editor select:focus,
+        .library-page .storyline-full-editor textarea:focus {
+          border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+          outline: none;
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-soft) 34%, transparent);
+        }
+        .library-page .storyline-full-editor > .detail-inline-actions {
+          border-top: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+          background: linear-gradient(180deg, color-mix(in srgb, var(--panel-strong) 80%, white), color-mix(in srgb, var(--brand-soft) 12%, var(--panel)));
+          padding: 12px 14px 14px;
+          justify-content: flex-end;
         }
         .library-page.library-app-shell.is-sidebar-collapsed {
           grid-template-columns: 12px minmax(0, 1fr);
@@ -604,28 +1121,6 @@ export default function StorylineManagementPage() {
           font-weight: 900;
           line-height: 1;
           letter-spacing: -0.04em;
-        }
-        .library-surface-entry.is-secondary strong {
-          color: color-mix(in srgb, var(--text) 82%, var(--muted));
-        }
-        .library-surface-entry strong em {
-          font-style: normal;
-          font-size: 0.72em;
-          color: var(--brand);
-          vertical-align: 0.08em;
-        }
-        .library-surface-state {
-          color: color-mix(in srgb, var(--muted) 88%, white);
-          font-size: 13px;
-          font-weight: 700;
-          letter-spacing: 0.04em;
-          line-height: 1;
-        }
-        .library-surface-entry.is-primary .library-surface-state {
-          color: color-mix(in srgb, var(--brand-deep) 72%, var(--muted));
-        }
-        .library-surface-entry.is-secondary .library-surface-state {
-          color: color-mix(in srgb, var(--brand) 78%, var(--muted));
         }
         .library-surface-entry:hover strong {
           color: var(--brand-deep);
@@ -761,18 +1256,19 @@ export default function StorylineManagementPage() {
         .library-page .detail-outline-volume,
         .library-page .detail-storyline-item {
           min-width: 0;
-          border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+          border: 1px solid color-mix(in srgb, var(--line-strong) 44%, var(--line));
           border-radius: var(--books-admin-radius);
-          background: color-mix(in srgb, var(--panel) 88%, var(--panel-strong));
+          background: color-mix(in srgb, var(--panel) 92%, white);
           padding: 14px;
-          box-shadow: none;
+          box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 5%, transparent);
         }
         .library-page .detail-outline-volume {
-          background: color-mix(in srgb, var(--panel) 80%, var(--background));
+          background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 96%, white), color-mix(in srgb, var(--brand-soft) 16%, var(--panel)));
         }
         .library-page .detail-storyline-item {
           border-radius: var(--books-admin-radius-sm);
-          background: color-mix(in srgb, var(--panel-strong) 88%, white);
+          background: color-mix(in srgb, var(--panel-strong) 94%, white);
+          border-left: 4px solid color-mix(in srgb, var(--brand) 34%, var(--line));
         }
         .library-page .detail-panel-actions,
         .library-page .detail-section-head {
@@ -812,10 +1308,24 @@ export default function StorylineManagementPage() {
         }
         .library-page .solid-btn,
         .library-page .ghost-btn {
-          min-height: 34px;
-          border-radius: 10px;
-          padding: 0 12px;
+          min-height: 38px;
+          border-radius: 11px;
+          padding: 0 14px;
           font-size: 13px;
+          font-weight: 800;
+          transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, background 140ms ease;
+        }
+        .library-page .solid-btn {
+          box-shadow: 0 10px 20px color-mix(in srgb, var(--brand) 18%, transparent);
+        }
+        .library-page .solid-btn:hover,
+        .library-page .ghost-btn:hover {
+          transform: translateY(-1px);
+        }
+        .library-page .ghost-btn {
+          border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
+          background: color-mix(in srgb, var(--surface) 88%, white);
+          color: var(--brand-deep);
         }
         .library-page .global-banner {
           margin: 10px 0;
@@ -827,10 +1337,11 @@ export default function StorylineManagementPage() {
           display: grid;
           gap: 10px;
           min-width: 0;
-          border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+          border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
           border-radius: var(--books-admin-radius);
-          background: color-mix(in srgb, var(--panel) 88%, var(--panel-strong));
+          background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 96%, white), color-mix(in srgb, var(--brand-soft) 14%, var(--panel)));
           padding: 10px 12px 12px;
+          box-shadow: 0 14px 32px color-mix(in srgb, var(--brand-deep) 8%, transparent);
         }
         .library-page .storyline-board-copy {
           display: flex;
@@ -914,9 +1425,9 @@ export default function StorylineManagementPage() {
           display: grid;
           align-content: center;
           gap: 2px;
-          border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+          border: 1px solid color-mix(in srgb, var(--line-strong) 34%, var(--line));
           border-radius: var(--books-admin-radius-sm);
-          background: color-mix(in srgb, var(--panel-strong) 92%, white);
+          background: color-mix(in srgb, var(--panel-strong) 96%, white);
           padding: 7px 10px;
         }
         .library-page .storyline-header-side strong,
@@ -1019,6 +1530,7 @@ export default function StorylineManagementPage() {
           align-items: center;
           min-height: 42px;
           border-radius: 12px;
+          border: 1px solid color-mix(in srgb, var(--line-strong) 24%, var(--line));
           background:
             repeating-linear-gradient(
               to right,
@@ -1034,19 +1546,21 @@ export default function StorylineManagementPage() {
           align-content: center;
           gap: 2px;
           min-height: 38px;
-          border: 1px solid color-mix(in srgb, var(--brand) 16%, var(--line));
+          border: 1px solid color-mix(in srgb, var(--brand) 24%, var(--line));
           border-radius: 12px;
           padding: 5px 8px;
           overflow: hidden;
           background: linear-gradient(135deg, color-mix(in srgb, var(--brand-soft) 60%, white), color-mix(in srgb, var(--panel-strong) 88%, white));
+          box-shadow: 0 8px 16px color-mix(in srgb, var(--text) 6%, transparent);
         }
         .library-page .storyline-bar.is-main {
-          background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 18%, white), color-mix(in srgb, var(--brand-soft) 72%, white));
-          border-color: color-mix(in srgb, var(--brand) 28%, var(--line));
+          background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 26%, white), color-mix(in srgb, var(--brand-soft) 76%, white));
+          border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+          box-shadow: 0 10px 18px color-mix(in srgb, var(--brand) 18%, transparent);
         }
         .library-page .storyline-bar.is-branch-2,
         .library-page .storyline-bar.is-branch-4 {
-          background: linear-gradient(135deg, color-mix(in srgb, #f7d6b3 72%, white), color-mix(in srgb, var(--panel-strong) 82%, white));
+          background: linear-gradient(135deg, color-mix(in srgb, #f7d6b3 80%, white), color-mix(in srgb, var(--panel-strong) 86%, white));
         }
         .library-page .storyline-bar strong,
         .library-page .storyline-bar p,
@@ -1114,6 +1628,11 @@ export default function StorylineManagementPage() {
           }
           .library-page .storyline-board-guide {
             justify-content: flex-start;
+          }
+          .library-page .storyline-control-grid,
+          .library-page .storyline-editor-grid,
+          .library-page .storyline-node-sections {
+            grid-template-columns: 1fr;
           }
         }
       `}</style>

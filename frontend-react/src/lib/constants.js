@@ -1,9 +1,6 @@
 export const emptyChapterStructure = {
   chapter_goal: '',
   key_scenes: '',
-  conflict_escalation: '',
-  character_change: '',
-  reader_payoff: '',
   ending_hook: ''
 };
 
@@ -22,7 +19,19 @@ export const emptyChapterPlan = {
   role_execution: [],
   structured_content: {},
   chapter_structure: emptyChapterStructure,
-  generation_settings: { word_count: 3000 },
+  generation_settings: {
+    word_count: 3000,
+    temperature: 0.7,
+    emotionIntensity: 70,
+    colloquialLevel: 80,
+    dialogueRatio: 30,
+    addCliffhanger: true,
+    enhanceDialogue: true,
+    avoidAIFeel: true,
+    fastPace: false,
+    detailedDesc: false,
+    custom_instruction: ''
+  },
   main_storyline_id: '',
   target_storylines: []
 };
@@ -32,7 +41,7 @@ export const initialGenerationState = {
   content: '',
   statusKind: 'info',
   statusTitle: '等待生成',
-  statusText: '先补齐章节计划，再开始生成正文。',
+  statusText: '先补齐章节细纲，再开始章节创作。',
   metaText: '还没有生成正文',
   wordCountLabel: '暂无正文',
   previewText: '生成后这里会显示正文摘要。',

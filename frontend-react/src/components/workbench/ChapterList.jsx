@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { normalizeChapterName } from '../../lib/chapterName.js';
 
 function joinClasses(...values) {
   return values.filter(Boolean).join(' ');
@@ -57,6 +58,7 @@ export default function ChapterList({ currentChapter, items, onSelect, triggerCl
         >
           {chapterItems.map((item) => {
             const isCurrent = item.chapterNumber === currentChapter;
+            const normalizedChapterName = normalizeChapterName(item.chapterName);
             return (
               <button
                 type="button"
@@ -78,7 +80,7 @@ export default function ChapterList({ currentChapter, items, onSelect, triggerCl
                     STATUS_DOT_CLASS[item.status || 'empty'] || STATUS_DOT_CLASS.empty
                   )}
                 />
-                <span>第 {item.chapterNumber} 章{item.chapterName ? ` · ${item.chapterName}` : ''}</span>
+                <span>第 {item.chapterNumber} 章{normalizedChapterName ? ` · ${normalizedChapterName}` : ''}</span>
               </button>
             );
           })}

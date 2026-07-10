@@ -1,7 +1,10 @@
 import { formatStorylineTypeLabel } from './lib/storylineLabel.js';
 import { normalizeNarrativeOutlineText } from './lib/chapterPlan.js';
+import { compareRoleTier } from './lib/roleTiers.js';
+import { normalizeChapterName } from './lib/chapterName.js';
 
-const API_BASE = '/api';
+const APP_BASE_PATH = String(import.meta.env.BASE_URL || '/');
+const API_BASE = import.meta.env.VITE_API_BASE || `${APP_BASE_PATH.replace(/\/+$/, '')}/api`;
 const CURRENT_BOOK_KEY = 'currentBookId';
 const LEGACY_CURRENT_BOOK_KEY = 'current_book_id';
 const CURRENT_BOOK_EVENT = 'alipro:current-book-changed';
@@ -37,6 +40,9 @@ async function request(path, options = {}) {
 }
 
 function normalizeBook(book) {
+  const wordCount = Number(book.word_count || book.wordCount || book.total_word_count || book.totalWordCount || 0);
+  const chapterCount = Number(book.chapter_count || book.chapterCount || 0);
+
   return {
     id: book.id,
     title: book.title || '未命名书籍',
@@ -47,7 +53,12 @@ function normalizeBook(book) {
     genre: book.genre || '未设置',
     subgenre: book.subgenre || '',
     template: book.writing_style || 'fast_pace',
-    status: book.status || 'draft'
+    status: book.status || 'draft',
+    word_count: wordCount,
+    wordCount,
+    totalWordCount: wordCount,
+    chapter_count: chapterCount,
+    chapterCount
   };
 }
 
@@ -62,7 +73,7 @@ function normalizeStoryline(storyline) {
     id: storyline.id,
     volumeNumber: Number(storyline.volume_number || 1),
     storylineNumber: Number(storyline.storyline_number || 1),
-    name: storyline.storyline_name || '未命名剧情线',
+    name: storyline.storyline_name || '未命名叙事脉络',
     type: normalizedType,
     description: storyline.description || '',
     coreConflict: storyline.core_conflict || '',
@@ -121,13 +132,15 @@ function normalizeRoleExecutionItem(item) {
   const normalizedConfidence = String(item.confidence || '').trim();
   const role = String(item.role || item.name || '').trim();
   const baseline = String(item.baseline || '').trim();
+  const appearanceMarker = String(item.appearance_marker || item.appearanceMarker || item.appearance || '').trim();
   const chapterFunction = String(item.chapter_function || item.chapterFunction || '').trim();
   const allowedChange = String(item.allowed_change || item.allowedChange || '').trim();
   const forbiddenChange = String(item.forbidden_change || item.forbiddenChange || '').trim();
-  if (!role && !baseline && !chapterFunction && !allowedChange && !forbiddenChange && !normalizedDimension && !normalizedDirection && !normalizedScope && !normalizedConfidence) return null;
+  if (!role && !baseline && !appearanceMarker && !chapterFunction && !allowedChange && !forbiddenChange && !normalizedDimension && !normalizedDirection && !normalizedScope && !normalizedConfidence) return null;
   return {
     role,
     baseline,
+    appearance_marker: appearanceMarker,
     chapter_function: chapterFunction,
     allowed_change: allowedChange,
     forbidden_change: forbiddenChange,
@@ -153,6 +166,7 @@ function buildRoleExecutionFallback(planData = {}) {
     .map((role) => ({
       role,
       baseline: baseline || '延续当前人物底色。',
+      appearance_marker: '本章生成前必须补足可识别外形标识。',
       chapter_function: mission ? `围绕本章任务“${mission}”承担推进作用。` : '承担本章推进作用。',
       allowed_change: '只允许推进一步，不允许跨阶段突变。',
       forbidden_change: '不能直接完成长期关系翻转、立场逆转或真相彻底揭示。',
@@ -166,19 +180,13 @@ function buildRoleExecutionFallback(planData = {}) {
 function normalizeChapterPlanRecord(plan) {
   if (!plan || typeof plan !== 'object') return null;
   const structuredContent = parseJsonObject(plan.structured_content || plan.structuredContent);
-  const chapterStructure = parseJsonObject(
-    plan.chapter_structure
-    || plan.chapterStructure
-    || structuredContent.chapter_outline_structure
-    || structuredContent.chapter_structure
-    || structuredContent.chapterStructure
-  );
   return {
     ...plan,
+    outline_text: normalizeNarrativeOutlineText(plan.outline_text || ''),
     structured_content: structuredContent,
     structuredContent,
-    chapter_structure: chapterStructure,
-    chapterStructure,
+    chapter_structure: {},
+    chapterStructure: {},
     target_storylines: parseJsonArray(plan.target_storylines),
     scene_outline: parseJsonArray(plan.scene_outline)
   };
@@ -242,7 +250,7 @@ function buildVisibleGenerationConstraints({
   ].filter(Boolean);
 
   return normalizeGenerationConstraints({
-    summary: '根据本章计划、上一章反馈和当前剧情线自动整理，生成前默认生效。',
+    summary: '根据本章规划、上一章反馈和当前叙事脉络自动整理，生成前默认生效。',
     anchors,
     allowed: [
       previousCarry.length > 0 ? { label: '上一章承接项', items: previousCarry.slice(0, 4), source: 'chapter_feedback' } : null,
@@ -339,11 +347,10 @@ export async function updateBook(bookId, payload) {
 }
 
 export async function fetchBookPlanningBundle(bookId) {
-  const [book, bookPlan, characters, outline, volumePlans] = await Promise.all([
+  const [book, bookPlan, characters, volumePlans] = await Promise.all([
     request(`/books/${bookId}`),
     request(`/books/${bookId}/book-plan`).catch(() => null),
     request(`/books/${bookId}/characters`).catch(() => []),
-    request(`/books/${bookId}/outline`).catch(() => null),
     request(`/books/${bookId}/volume-plans`).catch(() => [])
   ]);
 
@@ -353,9 +360,9 @@ export async function fetchBookPlanningBundle(bookId) {
     : null;
 
   const roleSummary = bookPlan?.role_summary || roleSummaryRecord?.background || '';
-  const outlineMain = bookPlan?.main_outline || outline?.main_outline || '';
-  const outlineVolume = bookPlan?.volume_outline || outline?.volume_outline || '';
-  const outlineDetailed = bookPlan?.detailed_outline || outline?.detailed_outline || '';
+  const outlineMain = bookPlan?.main_outline || '';
+  const outlineVolume = bookPlan?.volume_outline || '';
+  const outlineDetailed = bookPlan?.detailed_outline || '';
   const outlineParts = [outlineMain, outlineVolume, outlineDetailed]
         .map((item) => String(item || '').trim())
         .filter(Boolean);
@@ -372,11 +379,17 @@ export async function fetchBookPlanningBundle(bookId) {
         id: item.id,
         name: item.name || '未命名角色',
         avatar_image: item.avatar_image || '',
+        role_tier: item.role_tier || 'supporting_minor',
         personality: String(item.personality || '').trim(),
         background: String(item.background || '').trim(),
         appearance: String(item.appearance || '').trim(),
         notes: String(item.notes || '').trim()
       }))
+      .sort((left, right) => {
+        const tierDiff = compareRoleTier(left.role_tier, right.role_tier);
+        if (tierDiff !== 0) return tierDiff;
+        return String(left.name || '').localeCompare(String(right.name || ''), 'zh-Hans-CN');
+      })
     : [];
 
   return {
@@ -398,7 +411,7 @@ export async function fetchBookPlanningBundle(bookId) {
         '还没有整理全书大纲摘要。建议先写主线目标、阶段任务、卷别推进和关键转折。'
       ),
       outlineCountLabel: outlineParts.length > 0 ? `${outlineParts.length} 段已引用` : '待补全书大纲',
-      sourceLabel: bookPlan ? 'book_plans' : 'legacy_outline',
+      sourceLabel: 'book_plans',
       volumePlans: normalizedVolumePlans,
       characters: visibleCharacters
     }
@@ -446,10 +459,16 @@ function buildChapterOutlinePayload(planData = {}) {
 
 function buildChapterStructuredContent(planData = {}, chapterGoal, chapterOutline) {
   const structuredContent = parseJsonObject(planData.structured_content || planData.structuredContent);
+  const {
+    chapter_outline_structure: _legacyStructure,
+    chapter_outline_snapshot: _legacySnapshot,
+    ...remainingStructuredContent
+  } = structuredContent;
   const roleExecution = normalizeRoleExecutionList(planData.role_execution || structuredContent.role_execution);
   const outlineSource = String(planData.source || structuredContent.chapter_outline_source || 'manual').trim() || 'manual';
   return {
-    ...structuredContent,
+    ...remainingStructuredContent,
+    plot_notes: String(planData.plot_notes || structuredContent.plot_notes || '').trim(),
     chapter_outline_mode: structuredContent.chapter_outline_mode || 'single_latest',
     chapter_outline_source: outlineSource,
     chapter_goal_snapshot: {
@@ -459,15 +478,6 @@ function buildChapterStructuredContent(planData = {}, chapterGoal, chapterOutlin
       main_storyline_id: chapterGoal.main_storyline_id,
       target_storylines: chapterGoal.target_storylines,
       previous_hook: chapterGoal.previous_hook
-    },
-    chapter_outline_snapshot: {
-      summary: chapterOutline.summary,
-      outline_text: chapterOutline.outline_text,
-      scene_outline: chapterOutline.scene_outline,
-      ending_hook: chapterOutline.ending_hook,
-      character_notes: chapterOutline.character_notes,
-      source: outlineSource,
-      mode: 'single_latest'
     },
     role_execution: roleExecution.length > 0 ? roleExecution : buildRoleExecutionFallback({
       ...planData,
@@ -500,6 +510,36 @@ export async function saveOutlineSummary(bookId, outlineData) {
       volume_outline: outlineData.volume_outline || '',
       detailed_outline: outlineData.detailed_outline || '',
       source: current?.source || 'manual'
+    })
+  });
+}
+
+export async function generateFullOutlineDraft(payload = {}) {
+  return request('/generate', {
+    method: 'POST',
+    body: JSON.stringify({
+      promptType: 'full_outline',
+      genre: payload.genre || 'urban',
+      subgenre: payload.subgenre || '',
+      bookTitle: payload.bookTitle || '',
+      description: payload.description || '',
+      characters: payload.characters || ''
+    })
+  });
+}
+
+export async function generateChapterName(payload = {}) {
+  return request('/generate', {
+    method: 'POST',
+    body: JSON.stringify({
+      promptType: 'chapter_name',
+      genre: payload.genre || 'urban',
+      subgenre: payload.subgenre || '',
+      chapterNumber: Number(payload.chapterNumber || payload.chapter_number || 1) || 1,
+      outlineText: payload.outlineText || payload.outline_text || '',
+      bookTitle: payload.bookTitle || payload.book_title || '',
+      recentTitles: Array.isArray(payload.recentTitles) ? payload.recentTitles : [],
+      avoidPhrases: Array.isArray(payload.avoidPhrases) ? payload.avoidPhrases : []
     })
   });
 }
@@ -537,9 +577,37 @@ export async function saveStoryline(bookId, storylineData) {
   });
 }
 
+export async function deleteStoryline(bookId, storylineId) {
+  return request(`/storyline-workbench/${bookId}/storylines/${storylineId}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function generateStorylineDetails(bookId, storylineId, userGoal = '') {
+  return request(`/storyline-workbench/${bookId}/storylines/${storylineId}/generate`, {
+    method: 'POST',
+    body: JSON.stringify({ controlParams: { userGoal } })
+  });
+}
+
+export async function generateVolumeStorylineSet(bookId, volumeNumber, userGoal = '') {
+  return request(`/storyline-workbench/${bookId}/volume/${volumeNumber}/storylines/generate-set`, {
+    method: 'POST',
+    body: JSON.stringify({ userGoal, replace: false })
+  });
+}
+
+export async function generateVolumeStorylineDetails(bookId, volumeNumber, userGoal = '') {
+  return request(`/storyline-workbench/${bookId}/volume/${volumeNumber}/storylines/generate-all`, {
+    method: 'POST',
+    body: JSON.stringify({ controlParams: { userGoal } })
+  });
+}
+
 function buildChapterContext(chapters = []) {
   const normalizedChapters = Array.isArray(chapters) ? chapters : [];
-  if (normalizedChapters.length === 0) {
+  const contentChapters = normalizedChapters.filter((chapter) => Boolean(String(chapter?.content || '').trim()));
+  if (contentChapters.length === 0) {
     return {
       suggestedChapterNumber: 1,
       latestChapterLabel: '还没有正式记录，建议从第 1 章开始。',
@@ -547,12 +615,12 @@ function buildChapterContext(chapters = []) {
     };
   }
 
-  const sorted = [...normalizedChapters].sort(
+  const sorted = [...contentChapters].sort(
     (a, b) => Number(a.chapter_number || 0) - Number(b.chapter_number || 0)
   );
   const latest = sorted[sorted.length - 1];
   const latestNumber = Number(latest.chapter_number || sorted.length || 1);
-  const latestName = String(latest.chapter_name || latest.title || '').trim();
+  const latestName = normalizeChapterName(latest.chapter_name || latest.title || '');
 
   return {
     suggestedChapterNumber: latestNumber + 1,
@@ -674,12 +742,12 @@ function buildChapterListItems(chapters = [], chapterPlans = [], currentChapterN
       || 1
     );
     const matchedVolume = volumeRanges.find((volume) => Number(volume.volumeNumber || 0) === volumeNumber);
-    const chapterName = String(
+    const chapterName = normalizeChapterName(
       chapter?.chapter_name
       || chapter?.title
       || plan?.chapter_name
       || ''
-    ).trim();
+    );
 
     return {
       chapterNumber,
@@ -742,12 +810,23 @@ export async function fetchChapterSetupBundle(bookId, chapterNumber) {
   const normalizedStorylines = Array.isArray(allStorylines)
     ? allStorylines.map(normalizeStoryline)
     : [];
-  const matchedStorylines = normalizedStorylines
-    ? normalizedStorylines.filter((item) => parsedTargetStorylines.includes(item.id))
-    : [];
-  const mainStoryline = normalizedStorylines.length > 0 && plan?.main_storyline_id
-    ? normalizedStorylines.find((item) => item.id === plan.main_storyline_id)
-    : null;
+  const initialVolumeNumber = Number(
+    plan?.volume_number
+    || 1
+  );
+  const volumeStorylines = normalizedStorylines.filter((item) => Number(item.volumeNumber || 1) === initialVolumeNumber);
+  const defaultMainStoryline = volumeStorylines.find((item) => item.type === 'main') || volumeStorylines[0] || null;
+  const activeBranchStorylines = volumeStorylines.filter((item) => (
+    item.id !== defaultMainStoryline?.id
+    && Number(chapterNumber) >= Number(item.startChapter || 1)
+    && Number(chapterNumber) <= Number(item.endChapter || Number.MAX_SAFE_INTEGER)
+  ));
+  const effectiveMainStorylineId = plan?.main_storyline_id || defaultMainStoryline?.id || '';
+  const effectiveTargetStorylines = parsedTargetStorylines.length > 0
+    ? parsedTargetStorylines
+    : [effectiveMainStorylineId, ...activeBranchStorylines.map((item) => item.id)].filter(Boolean);
+  const matchedStorylines = normalizedStorylines.filter((item) => effectiveTargetStorylines.includes(item.id));
+  const mainStoryline = normalizedStorylines.find((item) => item.id === effectiveMainStorylineId) || null;
   const volumeNumber = Number(
     plan?.volume_number
     || mainStoryline?.volumeNumber
@@ -813,19 +892,20 @@ export async function fetchChapterSetupBundle(bookId, chapterNumber) {
           || volumeSetting?.volume_theme
           || volumeSetting?.notes
           || '这一章还没有明确卷级推进说明。',
-        chapterTitle: plan.chapter_name || '',
+        chapterTitle: normalizeChapterName(plan.chapter_name || ''),
         chapterMission: plan.chapter_mission || '',
         emotionTarget: plan.emotion_target || '',
       previousHook: normalizedPreviousFeedbackFocus || plan.previous_hook || '',
       outlineText: normalizeNarrativeOutlineText(plan.outline_text || ''),
       source: plan.source || 'manual',
-      characterNotes: plan.character_notes || '',
+        characterNotes: plan.character_notes || '',
+        plotNotes: parsedStructuredContent.plot_notes || '',
         endingHook: plan.ending_hook || '',
-        mainStorylineId: plan.main_storyline_id || '',
+        mainStorylineId: effectiveMainStorylineId,
         mainStorylineLabel: mainStoryline
           ? `${mainStoryline.name} · ${formatStorylineTypeLabel(mainStoryline.type)}`
           : '',
-        targetStorylines: parsedTargetStorylines,
+        targetStorylines: effectiveTargetStorylines,
         targetStorylineLabels: matchedStorylines.map((item) => item.name).filter(Boolean),
         sceneOutline: parseJsonArray(plan.scene_outline),
         appearingRoles: normalizeRoleList(plan.appearing_roles),
@@ -846,6 +926,7 @@ export async function fetchChapterSetupBundle(bookId, chapterNumber) {
         previousHook: normalizedPreviousFeedbackFocus || '',
         outlineText: '',
         characterNotes: '',
+        plotNotes: '',
         endingHook: '',
         mainStorylineId: '',
         mainStorylineLabel: '',
@@ -864,6 +945,12 @@ export async function fetchChapterSetupBundle(bookId, chapterNumber) {
     chapterPlan: normalizedPlan,
     storylineOptions: normalizedStorylines
   };
+}
+
+export async function deleteChapterContentByNumber(bookId, chapterNumber) {
+  return request(`/books/${bookId}/chapters/${chapterNumber}/content`, {
+    method: 'DELETE'
+  });
 }
 
 export async function saveChapterPlan(bookId, chapterNumber, planData) {
@@ -918,10 +1005,11 @@ export async function breakdownChapterOutline(payload) {
   });
 }
 
-export async function generateChapterContent(payload) {
+export async function generateChapterContent(payload, { signal } = {}) {
   return request('/generate', {
     method: 'POST',
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal
   });
 }
 
@@ -1087,6 +1175,11 @@ export async function streamChapterContent(payload, {
     }
     throw error;
   } finally {
+    if (signal?.aborted) {
+      try {
+        await reader.cancel();
+      } catch (_) {}
+    }
     try {
       reader.releaseLock();
     } catch (_) {}
@@ -1106,6 +1199,13 @@ export async function generateChapterFeedback(payload) {
       ...payload,
       promptType: 'chapter_feedback'
     })
+  });
+}
+
+export async function fetchPromptPreview(payload) {
+  return request('/generate/prompt-preview', {
+    method: 'POST',
+    body: JSON.stringify(payload)
   });
 }
 
@@ -1282,15 +1382,7 @@ async function seedDemoWorkspace(book) {
     main_storyline_id: bloodMoonLine.id || '',
     target_storylines: [bloodMoonLine.id].filter(Boolean),
     structured_content: {
-      generation_settings: { word_count: 3000 },
-      chapter_outline_structure: {
-        chapter_goal: '让主角在反噬后仍主动追查门后呼唤的来源，并第一次意识到自己在旧案里可能既是钥匙，也是祭品。',
-        key_scenes: '1. 反噬醒来，确认呼唤并非幻听\n2. 宗门保护与试探同时压上来\n3. 旧卷缺页线索浮出\n4. 主角决定主动追查禁区与缺页',
-        conflict_escalation: '主角越想弄清门后呼唤，就越要接受宗门的监视与旧案的真正危险。',
-        character_change: '沈破雾从被动承受代价，转为带伤也要主动查下去。',
-        reader_payoff: '读者会明确看到门后呼唤和沈家旧案接上，不再只是抽象悬念。',
-        ending_hook: '残缺卷宗指向被抽走的旧约记录，而真正答案藏在宗门禁区。'
-      }
+      generation_settings: { word_count: 3000 }
     }
   });
 
@@ -1313,15 +1405,7 @@ async function seedDemoWorkspace(book) {
     main_storyline_id: bloodMoonLine.id || '',
     target_storylines: [bloodMoonLine.id].filter(Boolean),
     structured_content: {
-      generation_settings: { word_count: 3000 },
-      chapter_outline_structure: {
-        chapter_goal: '让主角第一次主动越线调查，并把缺页线索推进成可验证的旧约证据。',
-        key_scenes: '1. 夜探禁区\n2. 找到残页\n3. 雾纹异动验证旧约关联\n4. 带着更高层注视离开',
-        conflict_escalation: '主角离真相更近一步，也离被宗门彻底控制更近一步。',
-        character_change: '沈破雾从决定去查，推进到真正敢为真相越过规矩。',
-        reader_payoff: '读者会看到主线从抽象追查进入可触摸的证据阶段。',
-        ending_hook: '归门血钥不只是钥匙，更像会反噬宿主的旧约印记。'
-      }
+      generation_settings: { word_count: 3000 }
     }
   });
 

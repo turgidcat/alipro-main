@@ -2,17 +2,75 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   createBook,
   fetchBookList,
+  generateChapterName,
+  generateChapterOutline,
+  generateFullOutlineDraft,
   generateVolumePlansFromBookPlan,
   getStoredCurrentBookId,
   persistCurrentBookId,
+  saveChapterPlan,
   saveOutlineSummary,
   updateBook
 } from '../workbenchApi.js';
 import IndentedTextBlock from '../components/IndentedTextBlock.jsx';
+import { getRoleTierShortLabel, roleTierOptions } from '../lib/roleTiers.js';
+import { formatChapterLabel, normalizeChapterName } from '../lib/chapterName.js';
 import '../styles.css';
 import '../app-shell.css';
 
-const API_BASE = '/api';
+const APP_BASE_PATH = String(import.meta.env.BASE_URL || '/');
+const API_BASE = import.meta.env.VITE_API_BASE || `${APP_BASE_PATH.replace(/\/+$/, '')}/api`;
+
+function buildAppPath(pathname = '/') {
+  const cleanPath = pathname.startsWith('/') ? pathname.slice(1) : pathname;
+  const cleanBase = APP_BASE_PATH.endsWith('/') ? APP_BASE_PATH : `${APP_BASE_PATH}/`;
+  return cleanPath ? `${cleanBase}${cleanPath}` : cleanBase;
+}
+
+function getCurrentAppPathname() {
+  const rawPath = window.location.pathname || '/';
+  const cleanBase = APP_BASE_PATH.replace(/\/+$/, '');
+  if (cleanBase && cleanBase !== '/' && rawPath.startsWith(cleanBase)) {
+    return rawPath.slice(cleanBase.length) || '/';
+  }
+  return rawPath;
+}
+
+function formatLibraryChapterTitle(chapterNumber, chapterName = '') {
+  return formatChapterLabel(chapterNumber, chapterName, ' ');
+}
+
+function extractRepeatedChapterPhrases(titles = []) {
+  const phraseCounts = new Map();
+  const normalizedTitles = Array.isArray(titles)
+    ? titles
+      .map((title) => String(title || '').replace(/\s+/g, '').trim())
+      .filter(Boolean)
+    : [];
+
+  normalizedTitles.forEach((title) => {
+    const seen = new Set();
+    for (let length = 2; length <= 4; length += 1) {
+      for (let index = 0; index <= title.length - length; index += 1) {
+        const phrase = title.slice(index, index + length);
+        if (!/^[\u4e00-\u9fa5A-Za-z]{2,4}$/.test(phrase)) continue;
+        if (seen.has(phrase)) continue;
+        seen.add(phrase);
+        phraseCounts.set(phrase, (phraseCounts.get(phrase) || 0) + 1);
+      }
+    }
+  });
+
+  return Array.from(phraseCounts.entries())
+    .filter(([, count]) => count >= 3)
+    .sort((left, right) => {
+      if (right[1] !== left[1]) return right[1] - left[1];
+      return right[0].length - left[0].length;
+    })
+    .map(([phrase]) => phrase)
+    .filter((phrase, index, list) => !list.some((other, otherIndex) => otherIndex < index && other.includes(phrase)))
+    .slice(0, 8);
+}
 
 const genreCategoryMap = {
   urban: {
@@ -154,17 +212,110 @@ const statusLabels = {
 
 const genreOptions = Object.entries(genreLabels);
 const statusOptions = Object.entries(statusLabels);
-const roleTierOptions = [
-  { value: 'protagonist', label: '主角', defaultCount: 1, softLimit: '建议 1 个', max: 1, tone: 'role-tier-protagonist' },
-  { value: 'supporting_major', label: '主要配角', defaultCount: 2, softLimit: '建议 1-4 个', max: 4, tone: 'role-tier-supporting-major' },
-  { value: 'supporting_minor', label: '普通配角', defaultCount: 3, softLimit: '建议 2-8 个', max: 8, tone: 'role-tier-supporting-minor' },
-  { value: 'antagonist_major', label: '大反派', defaultCount: 1, softLimit: '建议 1-2 个', max: 2, tone: 'role-tier-antagonist-major' },
-  { value: 'antagonist_minor', label: '普通反派', defaultCount: 2, softLimit: '建议 1-6 个', max: 6, tone: 'role-tier-antagonist-minor' }
-];
-const roleTierLabelMap = Object.fromEntries(roleTierOptions.map((item) => [item.value, item.label]));
-
 function joinClasses(...values) {
   return values.filter(Boolean).join(' ');
+}
+
+function parseJsonObject(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string' || !value.trim()) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function parseJsonObjectFromText(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return {};
+  const withoutFence = raw
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+  const direct = parseJsonObject(withoutFence);
+  if (Object.keys(direct).length > 0) return direct;
+  const matched = withoutFence.match(/\{[\s\S]*\}/);
+  return matched ? parseJsonObject(matched[0]) : {};
+}
+
+function formatOutlineDraftValue(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value.trim();
+  if (Array.isArray(value)) {
+    return value
+      .map((item, index) => {
+        if (typeof item === 'string') return item.trim();
+        if (!item || typeof item !== 'object') return '';
+        const title = item.volume_title || item.title || item.name || item.stage || '';
+        const number = item.volume_number || item.number || '';
+        const summary = item.volume_summary || item.summary || item.description || item.content || '';
+        const goal = item.stage_goal || item.goal || '';
+        const conflict = item.core_conflict || item.conflict || '';
+        return [
+          title || number ? `第${number || index + 1}卷：${title || '未命名'}` : `第${index + 1}项`,
+          summary,
+          goal ? `阶段目标：${goal}` : '',
+          conflict ? `核心冲突：${conflict}` : ''
+        ].filter(Boolean).join('\n');
+      })
+      .filter(Boolean)
+      .join('\n\n');
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value)
+      .map(([key, item]) => {
+        if (typeof item === 'string') return `${key}：${item}`;
+        if (Array.isArray(item)) return `${key}：\n${formatOutlineDraftValue(item)}`;
+        if (item && typeof item === 'object') return `${key}：\n${formatOutlineDraftValue([item])}`;
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n\n');
+  }
+  return String(value || '').trim();
+}
+
+function parseJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string' || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function buildChapterLibraryDraft(entry = null, chapterNumber = 1) {
+  const plan = entry?.plan || {};
+  const structuredContent = parseJsonObject(plan.structured_content || plan.structuredContent);
+  const sceneOutline = parseJsonArray(plan.scene_outline);
+  const generationSettings = parseJsonObject(structuredContent.generation_settings);
+  return {
+    volume_number: Number(plan.volume_number || 1),
+    chapter_number: Number(entry?.chapterNumber || chapterNumber || 1),
+    chapter_name: normalizeChapterName(plan.chapter_name || entry?.chapter?.chapter_name || entry?.chapter?.title || ''),
+    summary: plan.summary || '',
+    chapter_mission: plan.chapter_mission || '',
+    emotion_target: plan.emotion_target || '',
+    previous_hook: plan.previous_hook || '',
+    outline_text: String(plan.outline_text || '').trim(),
+    ending_hook: plan.ending_hook || '',
+    scene_outline: sceneOutline,
+    appearing_roles: parseJsonArray(plan.appearing_roles),
+    role_execution: parseJsonArray(structuredContent.role_execution),
+    main_storyline_id: plan.main_storyline_id || '',
+    target_storylines: parseJsonArray(plan.target_storylines),
+    source: plan.source || 'manual',
+    structured_content: structuredContent,
+    chapter_structure: {},
+    generation_settings: {
+      ...generationSettings,
+      word_count: Number(generationSettings.word_count || 3000)
+    }
+  };
 }
 
 function requestJson(path, options = {}) {
@@ -203,7 +354,7 @@ function getTextWordCount(text) {
 
 function getChapterTitle(entry) {
   if (!entry) return '未命名章节';
-  return entry.plan?.chapter_name || entry.chapter?.chapter_name || entry.chapter?.title || '未命名章节';
+  return normalizeChapterName(entry.plan?.chapter_name || entry.chapter?.chapter_name || entry.chapter?.title || '') || '未命名章节';
 }
 
 function splitReadableParagraphs(text) {
@@ -233,6 +384,16 @@ function buildDefaultRoleCounts() {
   return Object.fromEntries(roleTierOptions.map((item) => [item.value, item.defaultCount]));
 }
 
+function buildEmptyVolumePlanDraft() {
+  return {
+    volume_name: '',
+    stage_goal: '',
+    core_conflict: '',
+    notes: '',
+    cover_image: ''
+  };
+}
+
 function getSubgenreOptions(genre) {
   return genreCategoryMap[genre]?.subgenres || [];
 }
@@ -242,42 +403,48 @@ function openWorkbench(bookId) {
     persistCurrentBookId(bookId);
   }
   window.sessionStorage.setItem('alipro-open-current-workbench', '1');
-  window.location.href = '/workbench';
+  window.location.href = buildAppPath('/workbench');
+}
+
+function openPromptManager(bookId) {
+  if (!bookId) return;
+  persistCurrentBookId(bookId);
+  window.location.href = buildAppPath('/prompts');
 }
 
 function openBooksSummaryPage(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
-  window.location.href = bookId ? `/books/${encodeURIComponent(bookId)}` : '/books';
+  window.location.href = buildAppPath(bookId ? `/books/${encodeURIComponent(bookId)}` : '/books');
 }
 
 function openBooksOutlinePage(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
-  window.location.href = '/books/outlines';
+  window.location.href = buildAppPath('/books/outlines');
 }
 
 function openBooksStorylinePage(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
-  window.location.href = '/books/storylines';
+  window.location.href = buildAppPath('/books/storylines');
 }
 
 function openBooksCharacterPage(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
-  window.location.href = '/books/characters';
+  window.location.href = buildAppPath('/books/characters');
 }
 
 function openBooksChapterPage(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
-  window.location.href = '/books/chapters';
+  window.location.href = buildAppPath('/books/chapters');
 }
 
 function createEmptyForm() {
@@ -351,7 +518,7 @@ function createCharacterBadgeDataUrl(name = '角色') {
 }
 
 export default function BooksPage() {
-  const currentPath = window.location.pathname;
+  const currentPath = getCurrentAppPathname();
   const routeBookIdMatch = currentPath.match(/^\/books\/(?!outlines$|storylines$|characters$|chapters$)([^/?#]+)$/);
   const routeBookId = routeBookIdMatch ? decodeURIComponent(routeBookIdMatch[1]) : '';
   const routeChapterReaderMatch = currentPath.match(/^\/books\/chapters\/(\d+)$/);
@@ -396,13 +563,16 @@ export default function BooksPage() {
   const [outlineError, setOutlineError] = useState('');
   const [outlineNotice, setOutlineNotice] = useState('');
   const [outlineSaving, setOutlineSaving] = useState(false);
+  const [outlineGenerating, setOutlineGenerating] = useState(false);
   const [targetVolumeCount, setTargetVolumeCount] = useState(0);
   const [volumePlanDrafts, setVolumePlanDrafts] = useState({});
   const [volumePlanSavingKey, setVolumePlanSavingKey] = useState('');
   const [editingVolumeKey, setEditingVolumeKey] = useState('');
+  const [draggingVolumeKey, setDraggingVolumeKey] = useState('');
   const [characterDrafts, setCharacterDrafts] = useState({});
   const [editingCharacterKey, setEditingCharacterKey] = useState('');
   const [characterSavingKey, setCharacterSavingKey] = useState('');
+  const [characterDeletingKey, setCharacterDeletingKey] = useState('');
   const [creatingCharacter, setCreatingCharacter] = useState(false);
   const [newCharacterDraft, setNewCharacterDraft] = useState({
     name: '',
@@ -421,6 +591,14 @@ export default function BooksPage() {
   const [aiRoleCounts, setAiRoleCounts] = useState(() => buildDefaultRoleCounts());
   const [aiCharacterLoading, setAiCharacterLoading] = useState(false);
   const [avatarCropState, setAvatarCropState] = useState(null);
+  const [chapterEditorOpen, setChapterEditorOpen] = useState(false);
+  const [chapterDraft, setChapterDraft] = useState(() => buildChapterLibraryDraft(null, 1));
+  const [chapterPlanSaving, setChapterPlanSaving] = useState(false);
+  const [chapterPlanGenerating, setChapterPlanGenerating] = useState(false);
+  const [chapterDeletingKey, setChapterDeletingKey] = useState('');
+  const [chapterClearLoading, setChapterClearLoading] = useState(false);
+  const [chapterPlanNotice, setChapterPlanNotice] = useState('');
+  const [chapterPlanError, setChapterPlanError] = useState('');
   const [pendingRouteAction, setPendingRouteAction] = useState(initialRouteAction);
   const [pendingRouteBookId, setPendingRouteBookId] = useState(initialRouteBookId);
   const sidebarCollapsed = false;
@@ -516,6 +694,14 @@ export default function BooksPage() {
       plan: planMap.get(chapterNumber) || null
     }));
   }, [detailChapters, detailChapterPlans]);
+  const chapterTitleHistory = useMemo(
+    () => chapterEntries.map((entry) => getChapterTitle(entry)).filter(Boolean),
+    [chapterEntries]
+  );
+  const repeatedChapterPhrases = useMemo(
+    () => extractRepeatedChapterPhrases(chapterTitleHistory),
+    [chapterTitleHistory]
+  );
 
   const readerChapterIndex = chapterEntries.findIndex((entry) => entry.chapterNumber === readerChapterNumber);
   const readerEntry = readerChapterIndex >= 0 ? chapterEntries[readerChapterIndex] : null;
@@ -524,7 +710,7 @@ export default function BooksPage() {
 
   useEffect(() => {
     const handlePopState = () => {
-      const nextReaderMatch = window.location.pathname.match(/^\/books\/chapters\/(\d+)$/);
+      const nextReaderMatch = getCurrentAppPathname().match(/^\/books\/chapters\/(\d+)$/);
       const nextChapter = nextReaderMatch ? Number(nextReaderMatch[1]) : 0;
       setReaderChapterNumber(Number.isFinite(nextChapter) ? nextChapter : 0);
     };
@@ -534,13 +720,13 @@ export default function BooksPage() {
 
   function openChapterReader(chapterNumber) {
     setReaderChapterNumber(chapterNumber);
-    window.history.pushState({}, '', `/books/chapters/${encodeURIComponent(chapterNumber)}`);
+    window.history.pushState({}, '', buildAppPath(`/books/chapters/${encodeURIComponent(chapterNumber)}`));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function closeChapterReader() {
     setReaderChapterNumber(0);
-    window.history.pushState({}, '', '/books/chapters');
+    window.history.pushState({}, '', buildAppPath('/books/chapters'));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -704,8 +890,8 @@ export default function BooksPage() {
   function startOutlineEditing() {
     setOutlineDraft({
       main_outline: detailOutline?.main_outline || '',
-      volume_outline: detailOutline?.volume_outline || '',
-      detailed_outline: detailOutline?.detailed_outline || ''
+      volume_outline: '',
+      detailed_outline: ''
     });
     setTargetVolumeCount(Math.max(0, detailVolumePlans.length || 0));
     setOutlineError('');
@@ -729,7 +915,7 @@ export default function BooksPage() {
     setDetailChapterPlans([]);
     setCharacterNotice('');
     setCharacterError('');
-    window.history.pushState({}, '', '/books');
+    window.history.pushState({}, '', buildAppPath('/books'));
   }
 
   function setCurrentBook(bookId) {
@@ -740,7 +926,7 @@ export default function BooksPage() {
   function openBookDetail(bookId) {
     if (!bookId) return;
     setCurrentBook(bookId);
-    window.history.pushState({}, '', `/books/${encodeURIComponent(bookId)}`);
+    window.history.pushState({}, '', buildAppPath(`/books/${encodeURIComponent(bookId)}`));
     loadDetail(bookId);
   }
 
@@ -887,6 +1073,32 @@ export default function BooksPage() {
       setCharacterError(saveError.message);
     } finally {
       setCharacterSavingKey('');
+    }
+  }
+
+  async function handleDeleteCharacter(characterId, characterName) {
+    if (!detailBook?.id) return;
+    const normalizedName = String(characterName || '').trim() || '该角色';
+    if (!window.confirm(`确定删除角色“${normalizedName}”吗？`)) {
+      return;
+    }
+
+    setCharacterDeletingKey(String(characterId));
+    setCharacterError('');
+    setCharacterNotice('');
+    try {
+      await requestJson(`/books/${detailBook.id}/characters/${characterId}`, {
+        method: 'DELETE'
+      });
+      await refreshDetail(detailBook.id);
+      if (editingCharacterKey === String(characterId)) {
+        setEditingCharacterKey('');
+      }
+      setCharacterNotice(`角色“${normalizedName}”已删除。`);
+    } catch (deleteError) {
+      setCharacterError(deleteError.message);
+    } finally {
+      setCharacterDeletingKey('');
     }
   }
 
@@ -1102,7 +1314,9 @@ export default function BooksPage() {
     setOutlineError('');
     setOutlineNotice('');
     try {
-      await saveOutlineSummary(detailBook.id, outlineDraft);
+      await saveOutlineSummary(detailBook.id, {
+        main_outline: outlineDraft.main_outline || ''
+      });
       await refreshDetail(detailBook.id);
       setOutlineNotice('大纲摘要已保存。');
       setOutlineEditing(false);
@@ -1110,6 +1324,48 @@ export default function BooksPage() {
       setOutlineError(saveError.message);
     } finally {
       setOutlineSaving(false);
+    }
+  }
+
+  async function handleGenerateFullOutlineDraft() {
+    if (!detailBook?.id) return;
+    setOutlineGenerating(true);
+    setOutlineError('');
+    setOutlineNotice('');
+    try {
+      const characters = detailCharacters
+        .filter((item) => String(item.name || '').trim() && String(item.name || '').trim() !== '全书角色设定')
+        .map((item) => [
+          `角色：${item.name || ''}`,
+          item.role_tier ? `定位：${getRoleTierShortLabel(item.role_tier)}` : '',
+          item.personality ? `性格：${item.personality}` : '',
+          item.background ? `背景：${item.background}` : '',
+          item.appearance ? `外形：${item.appearance}` : ''
+        ].filter(Boolean).join('；'))
+        .join('\n');
+      const result = await generateFullOutlineDraft({
+        genre: detailBook.genre || 'urban',
+        subgenre: detailBook.subgenre || '',
+        bookTitle: detailBook.title || '',
+        description: detailBook.description || '',
+        characters
+      });
+      const parsed = parseJsonObjectFromText(result?.content || '');
+      const nextDraft = {
+        main_outline: formatOutlineDraftValue(parsed.main_outline || parsed.mainOutline || ''),
+        volume_outline: '',
+        detailed_outline: ''
+      };
+      if (!nextDraft.main_outline) {
+        throw new Error('AI 返回的大纲草案无法解析，请稍后重试。');
+      }
+      setOutlineDraft(nextDraft);
+      setOutlineEditing(true);
+      setOutlineNotice('已生成完整大纲草案，请检查后保存。');
+    } catch (generateError) {
+      setOutlineError(generateError.message);
+    } finally {
+      setOutlineGenerating(false);
     }
   }
 
@@ -1138,14 +1394,42 @@ export default function BooksPage() {
     setVolumePlanDrafts((prev) => ({
       ...prev,
       [key]: {
-        volume_name: prev[key]?.volume_name || '',
-        stage_goal: prev[key]?.stage_goal || '',
-        core_conflict: prev[key]?.core_conflict || '',
-        notes: prev[key]?.notes || '',
-        cover_image: prev[key]?.cover_image || '',
+        ...buildEmptyVolumePlanDraft(),
+        ...(prev[key] || {}),
         [field]: value
       }
     }));
+  }
+
+  async function handleCreateVolumePlan() {
+    if (!detailBook?.id) return;
+    const nextVolumeNumber = Math.max(0, ...detailVolumePlans.map((plan) => Number(plan.volume_number || 0))) + 1;
+    setVolumePlanSavingKey(`create-${nextVolumeNumber}`);
+    setOutlineError('');
+    setOutlineNotice('');
+    try {
+      await requestJson(`/books/${detailBook.id}/volume-plans/${nextVolumeNumber}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          volume_number: nextVolumeNumber,
+          volume_name: '',
+          stage_goal: '',
+          core_conflict: '',
+          notes: '',
+          cover_image: '',
+          source: 'manual',
+          status: 'draft'
+        })
+      });
+      await refreshDetail(detailBook.id);
+      setTargetVolumeCount(nextVolumeNumber);
+      setEditingVolumeKey(String(nextVolumeNumber));
+      setOutlineNotice(`已新增第 ${nextVolumeNumber} 卷。`);
+    } catch (saveError) {
+      setOutlineError(saveError.message);
+    } finally {
+      setVolumePlanSavingKey('');
+    }
   }
 
   async function handleSaveVolumePlan(volumeNumber) {
@@ -1180,12 +1464,338 @@ export default function BooksPage() {
     }
   }
 
+  async function handleDeleteVolumePlan(volumeNumber) {
+    if (!detailBook?.id) return;
+    if (!window.confirm(`确认删除第 ${volumeNumber} 卷吗？后续卷号会自动前移。`)) {
+      return;
+    }
+
+    setVolumePlanSavingKey(`delete-${volumeNumber}`);
+    setOutlineError('');
+    setOutlineNotice('');
+    try {
+      await requestJson(`/books/${detailBook.id}/volume-plans/${volumeNumber}`, {
+        method: 'DELETE'
+      });
+      await refreshDetail(detailBook.id);
+      setTargetVolumeCount((current) => Math.max(0, current - 1));
+      setEditingVolumeKey('');
+      setOutlineNotice(`第 ${volumeNumber} 卷已删除。`);
+    } catch (deleteError) {
+      setOutlineError(deleteError.message);
+    } finally {
+      setVolumePlanSavingKey('');
+    }
+  }
+
+  async function reorderVolumePlans(nextVolumeNumbers) {
+    if (!detailBook?.id) return;
+    setOutlineSaving(true);
+    setOutlineError('');
+    setOutlineNotice('');
+    try {
+      await requestJson(`/books/${detailBook.id}/volume-plans/reorder`, {
+        method: 'POST',
+        body: JSON.stringify({
+          volume_numbers: nextVolumeNumbers
+        })
+      });
+      await refreshDetail(detailBook.id);
+      setOutlineNotice('分卷顺序已更新。');
+    } catch (reorderError) {
+      setOutlineError(reorderError.message);
+    } finally {
+      setDraggingVolumeKey('');
+      setOutlineSaving(false);
+    }
+  }
+
+  function handleVolumeDragStart(volumeNumber) {
+    setDraggingVolumeKey(String(volumeNumber));
+  }
+
+  async function handleVolumeDrop(targetVolumeNumber) {
+    const sourceVolumeNumber = Number(draggingVolumeKey || 0);
+    if (!sourceVolumeNumber || sourceVolumeNumber === targetVolumeNumber) {
+      setDraggingVolumeKey('');
+      return;
+    }
+
+    const currentOrder = detailVolumePlans
+      .slice()
+      .sort((left, right) => Number(left.volume_number || 0) - Number(right.volume_number || 0))
+      .map((plan) => Number(plan.volume_number || 0))
+      .filter((item) => Number.isFinite(item) && item > 0);
+    const sourceIndex = currentOrder.indexOf(sourceVolumeNumber);
+    const targetIndex = currentOrder.indexOf(targetVolumeNumber);
+    if (sourceIndex < 0 || targetIndex < 0) {
+      setDraggingVolumeKey('');
+      return;
+    }
+
+    const nextOrder = currentOrder.slice();
+    const [movedVolumeNumber] = nextOrder.splice(sourceIndex, 1);
+    nextOrder.splice(targetIndex, 0, movedVolumeNumber);
+    await reorderVolumePlans(nextOrder);
+  }
+
+  function getDefaultStorylineSelection(volumeNumber) {
+    const volumeStorylines = detailStorylines.filter((item) => Number(item.volume_number || 1) === Number(volumeNumber || 1));
+    const mainStoryline = volumeStorylines.find((item) => ['main', '主线'].includes(String(item.storyline_type || '').trim().toLowerCase()))
+      || volumeStorylines[0]
+      || null;
+    return {
+      main_storyline_id: mainStoryline?.id || '',
+      target_storylines: volumeStorylines.map((item) => item.id).filter(Boolean)
+    };
+  }
+
+  function openChapterPlanEditor(entry = null) {
+    const nextChapterNumber = entry?.chapterNumber
+      || Math.max(1, ...chapterEntries.map((item) => Number(item.chapterNumber || 0))) + (chapterEntries.length > 0 ? 1 : 0);
+    const nextDraft = buildChapterLibraryDraft(entry, nextChapterNumber);
+    const defaultStorylineSelection = getDefaultStorylineSelection(nextDraft.volume_number);
+    setChapterDraft({
+      ...nextDraft,
+      main_storyline_id: nextDraft.main_storyline_id || defaultStorylineSelection.main_storyline_id,
+      target_storylines: nextDraft.target_storylines.length > 0
+        ? nextDraft.target_storylines
+        : defaultStorylineSelection.target_storylines
+    });
+    setChapterPlanNotice('');
+    setChapterPlanError('');
+    setChapterEditorOpen(true);
+  }
+
+  function updateChapterDraftField(field, value) {
+    setChapterDraft((current) => {
+      if (field === 'volume_number') {
+        return {
+          ...current,
+          volume_number: value,
+          ...getDefaultStorylineSelection(value)
+        };
+      }
+      return { ...current, [field]: value };
+    });
+  }
+
+  function resizeChapterOutlineTextarea(textarea) {
+    if (!textarea) return;
+    const minHeight = 120;
+    const maxHeight = 420;
+    textarea.style.height = 'auto';
+    const nextHeight = Math.min(maxHeight, Math.max(minHeight, textarea.scrollHeight));
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }
+
+  function buildLibraryChapterSaveDraft(sourceDraft = chapterDraft) {
+    const {
+      chapter_outline_structure: _legacyStructure,
+      chapter_outline_snapshot: _legacySnapshot,
+      ...remainingStructuredContent
+    } = sourceDraft.structured_content || {};
+    return {
+      ...sourceDraft,
+      outline_text: String(sourceDraft.outline_text || '').trim(),
+      ending_hook: '',
+      scene_outline: [],
+      chapter_structure: {},
+      structured_content: {
+        ...remainingStructuredContent,
+        chapter_outline_mode: 'single_latest',
+        generation_settings: {
+          ...(remainingStructuredContent.generation_settings || {}),
+          ...(sourceDraft.generation_settings || {})
+        }
+      }
+    };
+  }
+
+  async function handleSaveLibraryChapterPlan() {
+    if (!detailBook?.id) return;
+    const nextDraft = buildLibraryChapterSaveDraft();
+    setChapterPlanSaving(true);
+    setChapterPlanError('');
+    setChapterPlanNotice('');
+    try {
+      await saveChapterPlan(detailBook.id, nextDraft.chapter_number, nextDraft);
+      await refreshDetail(detailBook.id);
+      setChapterDraft(nextDraft);
+      setChapterPlanNotice(`第 ${nextDraft.chapter_number} 章细纲已保存。`);
+    } catch (saveError) {
+      setChapterPlanError(saveError.message || '章节细纲保存失败');
+    } finally {
+      setChapterPlanSaving(false);
+    }
+  }
+
+  async function handleGenerateLibraryChapterPlan() {
+    if (!detailBook?.id) return;
+    const sourceDraft = buildLibraryChapterSaveDraft();
+    setChapterPlanGenerating(true);
+    setChapterPlanError('');
+    setChapterPlanNotice('');
+    try {
+      await saveChapterPlan(detailBook.id, sourceDraft.chapter_number, sourceDraft);
+      const generated = await generateChapterOutline({
+        bookId: detailBook.id,
+        chapterNumber: sourceDraft.chapter_number,
+        genre: detailBook.genre || 'urban',
+        subgenre: detailBook.subgenre || '',
+        bookTitle: detailBook.title || '',
+        chapterTitle: formatLibraryChapterTitle(sourceDraft.chapter_number, sourceDraft.chapter_name),
+        characters: detailCharacters.map((item) => item.name).filter(Boolean).join(' / ')
+      });
+      const generatedText = String(generated?.content || generated || '').trim();
+      if (!generatedText) throw new Error('AI 没有返回可用章节细纲');
+      const shouldGenerateChapterName = !normalizeChapterName(sourceDraft.chapter_name);
+      const generatedChapterName = shouldGenerateChapterName
+        ? await generateChapterName({
+          genre: detailBook.genre || 'urban',
+          subgenre: detailBook.subgenre || '',
+          chapterNumber: sourceDraft.chapter_number,
+          outlineText: generatedText,
+          bookTitle: detailBook.title || '',
+          recentTitles: chapterTitleHistory,
+          avoidPhrases: repeatedChapterPhrases
+        })
+        : null;
+      const resolvedChapterName = shouldGenerateChapterName
+        ? String(generatedChapterName?.content || generatedChapterName || '').trim()
+        : normalizeChapterName(sourceDraft.chapter_name || '');
+      const nextDraft = buildLibraryChapterSaveDraft({
+        ...sourceDraft,
+        source: 'ai',
+        chapter_name: resolvedChapterName,
+        outline_text: generatedText
+      });
+      await saveChapterPlan(detailBook.id, nextDraft.chapter_number, nextDraft);
+      await refreshDetail(detailBook.id);
+      setChapterDraft(nextDraft);
+      setChapterPlanNotice(`第 ${nextDraft.chapter_number} 章细纲已由 AI 生成并保存。`);
+    } catch (generateError) {
+      setChapterPlanError(generateError.message || 'AI 生成章节细纲失败');
+    } finally {
+      setChapterPlanGenerating(false);
+    }
+  }
+
+  async function handleDeleteLibraryChapter(entry) {
+    if (!detailBook?.id || !entry?.chapterNumber) return;
+    const chapterNumber = Number(entry.chapterNumber || 0);
+    const chapterTitle = getChapterTitle(entry);
+    if (!window.confirm(`确定删除第 ${chapterNumber} 章${chapterTitle ? `《${chapterTitle}》` : ''}吗？这会一并删除细纲和正文。`)) {
+      return;
+    }
+
+    setChapterDeletingKey(String(chapterNumber));
+    setChapterPlanError('');
+    setChapterPlanNotice('');
+    try {
+      await requestJson(`/books/${detailBook.id}/chapters/${chapterNumber}`, {
+        method: 'DELETE'
+      });
+      await refreshDetail(detailBook.id);
+      if (readerChapterNumber === chapterNumber) {
+        closeChapterReader();
+      }
+      if (chapterEditorOpen && Number(chapterDraft.chapter_number || 0) === chapterNumber) {
+        setChapterEditorOpen(false);
+      }
+      setChapterPlanNotice(`第 ${chapterNumber} 章已删除。`);
+    } catch (deleteError) {
+      setChapterPlanError(deleteError.message);
+    } finally {
+      setChapterDeletingKey('');
+    }
+  }
+
+  async function handleClearLibraryChapters() {
+    if (!detailBook?.id || chapterEntries.length === 0) return;
+    if (!window.confirm(`确认清空《${detailBook.title}》的全部 ${chapterEntries.length} 章吗？章节正文、章节名称和章节细纲都会永久删除；书籍、分卷、角色和剧情线会保留。`)) {
+      return;
+    }
+
+    setChapterClearLoading(true);
+    setChapterPlanError('');
+    setChapterPlanNotice('');
+    try {
+      const result = await requestJson(`/books/${detailBook.id}/chapters`, { method: 'DELETE' });
+      closeChapterReader();
+      setChapterEditorOpen(false);
+      await refreshDetail(detailBook.id);
+      const deletedCount = Math.max(
+        Number(result?.deletedChapterCount || 0),
+        Number(result?.deletedPlanCount || 0)
+      );
+      setChapterPlanNotice(`已清空 ${deletedCount} 章，书籍及其他资料已保留。`);
+    } catch (clearError) {
+      setChapterPlanError(clearError.message || '清空章节失败');
+    } finally {
+      setChapterClearLoading(false);
+    }
+  }
+
   const readerTitle = getChapterTitle(readerEntry);
   const readerContent = readerEntry?.chapter?.content || '';
   const readerParagraphs = splitReadableParagraphs(readerContent);
   const readerWordCount = readerEntry?.chapter?.word_count || getTextWordCount(readerContent);
+  const readerStructuredContent = parseJsonObject(readerEntry?.plan?.structured_content);
+  const readerFeedback = readerStructuredContent.chapter_feedback || null;
 
   return (
+    <>
+    <style>{`
+      .books-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 1.75rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); }
+      .books-page-header h1 { margin: 0; font-family: var(--font-serif); font-size: clamp(1.5rem, 2.5vw, 2rem); font-weight: 900; line-height: 1.15; letter-spacing: -0.03em; color: var(--text); }
+      .books-page-header-sub { margin: 0.35rem 0 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+      .books-page-prompt-entry { flex: 0 0 auto; height: 30px; padding: 0 11px; border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line)); border-radius: 999px; background: color-mix(in srgb, var(--brand-soft) 28%, transparent); color: var(--brand-deep); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+      .books-page-prompt-entry:hover:not(:disabled) { border-color: var(--brand); background: color-mix(in srgb, var(--brand-soft) 58%, transparent); }
+      .books-page-prompt-entry:disabled { cursor: not-allowed; opacity: 0.45; }
+      .books-page-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 1.5rem; }
+      .books-page-stat-card { border: 1px solid var(--line); border-radius: var(--radius-panel-lg); background: var(--panel); padding: 16px 20px; }
+      .books-page-stat-value { display: block; font-size: 1.5rem; font-weight: 900; line-height: 1; color: var(--brand); letter-spacing: -0.03em; }
+      .books-page-stat-label { display: block; margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+      @media (max-width: 980px) { .books-page-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+      @media (max-width: 560px) { .books-page-stats { grid-template-columns: 1fr; } }
+      .books-page-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 1.5rem; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius-panel-md); background: var(--panel); }
+      .books-page-toolbar-input, .books-page-toolbar-select { height: 36px; border: 1px solid var(--line); border-radius: var(--radius-panel-md); background: var(--panel-strong); color: var(--text); padding: 0 12px; font: inherit; font-size: 13px; outline: none; transition: border-color 160ms ease; min-width: 0; }
+      .books-page-toolbar-input { flex: 1 1 220px; }
+      .books-page-toolbar-select { flex: 0 1 140px; cursor: pointer; }
+      .books-page-toolbar-input:focus, .books-page-toolbar-select:focus { border-color: var(--brand); }
+      .books-page-toolbar-sep { width: 1px; height: 24px; background: var(--line); flex: 0 0 auto; }
+      .books-page-toolbar-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 16px; border: 1px solid var(--line); border-radius: var(--radius-panel-md); background: transparent; color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: border-color 140ms ease, background 140ms ease; }
+      .books-page-toolbar-btn:hover { border-color: color-mix(in srgb, var(--brand) 36%, var(--line)); background: color-mix(in srgb, var(--brand-soft) 48%, transparent); }
+      .books-page-toolbar-btn-primary { background: var(--btn-solid-bg); color: var(--btn-solid-text); border-color: var(--btn-solid-border); }
+      .books-page-toolbar-btn-primary:hover { opacity: 0.92; }
+      .books-page-toolbar-info { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
+      @media (max-width: 720px) { .books-page-toolbar-input { flex: 1 1 100%; } .books-page-toolbar-select { flex: 1 1 calc(50% - 5px); } .books-page-toolbar-sep { display: none; } .books-page-toolbar-info { width: 100%; margin-left: 0; } }
+      .books-page-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+      @media (max-width: 1200px) { .books-page-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+      @media (max-width: 720px) { .books-page-grid { grid-template-columns: 1fr; } }
+      .books-page-card { position: relative; border: 1px solid var(--line); border-radius: var(--radius-panel-lg); background: var(--panel); padding: 20px; cursor: pointer; transition: border-color 180ms ease, box-shadow 180ms ease; }
+      .books-page-card:hover { border-color: var(--brand); box-shadow: 0 8px 24px -6px color-mix(in srgb, var(--brand) 10%, transparent); }
+      .books-page-card-select { position: absolute; top: 12px; right: 12px; width: 24px; height: 24px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-strong); color: var(--brand); font-size: 13px; font-weight: 900; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 140ms ease, border-color 140ms ease; }
+      .books-page-card-select:hover, .books-page-card-select.is-selected { border-color: var(--brand); background: color-mix(in srgb, var(--brand-soft) 72%, white); }
+      .books-page-card-title { margin: 0 0 8px; font-family: var(--font-serif); font-size: 1.2rem; font-weight: 900; line-height: 1.25; letter-spacing: -0.025em; color: var(--text); }
+      .books-page-card-author { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+      .books-page-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+      .books-page-card-genre { display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px; border-radius: 999px; background: color-mix(in srgb, var(--brand-soft) 58%, var(--panel-strong)); color: var(--brand-deep); font-size: 11px; font-weight: 700; }
+      .books-page-card-status { display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+      .books-page-card-status-writing { background: var(--status-success-bg); border: 1px solid var(--status-success-border); color: #3d6b45; }
+      .books-page-card-status-completed { background: var(--status-warning-bg); border: 1px solid var(--status-warning-border); color: #8b6914; }
+      .books-page-card-status-paused { background: color-mix(in srgb, var(--muted) 8%, var(--panel-strong)); border: 1px solid color-mix(in srgb, var(--line) 60%, transparent); color: var(--muted); }
+      .books-page-card-stats { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 12px; border-top: 1px dashed var(--line); font-size: 12px; color: var(--muted); }
+      .books-page-card-stat-item { display: flex; align-items: center; gap: 4px; }
+      .books-page-card-stat-label { color: var(--muted); }
+      .books-page-card-stat-value { color: var(--text); font-weight: 700; }
+      .books-page-card-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+      .books-page-card-action-btn { height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-panel-sm); background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: border-color 140ms ease, color 140ms ease, background 140ms ease; }
+      .books-page-card-action-btn:hover { border-color: var(--brand); color: var(--brand-deep); background: color-mix(in srgb, var(--brand-soft) 36%, transparent); }
+      .books-page-card-current { display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px; border-radius: 999px; background: color-mix(in srgb, var(--brand-soft) 72%, var(--panel)); color: var(--brand-deep); font-size: 11px; font-weight: 700; white-space: nowrap; }
+    `}</style>
     <div className={joinClasses('books-admin-page library-app-shell mx-auto w-[min(var(--layout-max-width),calc(100%-1.5rem))] pb-[var(--page-shell-pad-bottom)] pt-8', sidebarCollapsed ? 'is-sidebar-collapsed' : '', sidebarCollapsed && sidebarPeek ? 'is-sidebar-peek' : '', isChapterReaderPage ? 'is-chapter-reader-page' : '')}>
       {!isChapterReaderPage ? (
         <>
@@ -1202,8 +1812,7 @@ export default function BooksPage() {
               title="返回资料库列表"
               aria-current="page"
             >
-              <span className="library-sidebar-kicker">Library</span>
-              <span className="library-surface-state">当前区域</span>
+              <span className="library-sidebar-kicker">LIBRARY</span>
               <strong>资料库</strong>
             </button>
             <button
@@ -1212,9 +1821,8 @@ export default function BooksPage() {
               onClick={() => openWorkbench(shellBookId)}
               title="切换到创作台"
             >
-              <span className="library-sidebar-kicker">Workbench</span>
-              <span className="library-surface-state">前往创作</span>
-              <strong>创作台 <em>↗</em></strong>
+              <span className="library-sidebar-kicker">WORKBENCH</span>
+              <strong>创作台</strong>
             </button>
           </div>
         </div>
@@ -1229,8 +1837,8 @@ export default function BooksPage() {
           <button type="button" data-short="纲" className={joinClasses('library-nav-item', isOutlinePage ? 'is-active' : '')} onClick={() => openBooksOutlinePage(shellBookId)} disabled={!shellBookId} title="大纲链">
             大纲链
           </button>
-          <button type="button" data-short="线" className="library-nav-item" onClick={() => openBooksStorylinePage(shellBookId)} disabled={!shellBookId} title="剧情线">
-            剧情线
+          <button type="button" data-short="脉" className="library-nav-item" onClick={() => openBooksStorylinePage(shellBookId)} disabled={!shellBookId} title="叙事脉络">
+            叙事脉络
           </button>
           <button type="button" data-short="角" className={joinClasses('library-nav-item', isCharacterPage ? 'is-active' : '')} onClick={() => openBooksCharacterPage(shellBookId)} disabled={!shellBookId} title="角色资料">
             角色资料
@@ -1245,15 +1853,29 @@ export default function BooksPage() {
       ) : null}
 
       <main className="library-main">
-        <div className="library-page-title">
-          <h2>{pageName}</h2>
+        <div className="books-page-header">
+          <div>
+            <h1>{pageName}</h1>
+            <p className="books-page-header-sub">{pageDescription}</p>
+          </div>
+          {view === 'list' && !isSubPage ? (
+            <button
+              type="button"
+              className="books-page-prompt-entry"
+              onClick={() => openPromptManager(shellBookId)}
+              disabled={!shellBookId}
+              title={shellBookId ? '查看当前书籍章节的模型输入' : '请先选择一本当前书籍'}
+            >
+              Prompt 管理
+            </button>
+          ) : null}
         </div>
         {error ? <div className="global-banner is-error">{error}</div> : null}
 
       {view === 'list' && !isCharacterPage ? (
         <>
           {stats ? (
-            <div className="library-stats-row mt-6 grid gap-3 xl:grid-cols-5">
+            <div className="books-page-stats">
               {[
                 ['书籍总数', stats.totalBooks || 0],
                 ['章节总数', stats.totalChapters || 0],
@@ -1261,77 +1883,58 @@ export default function BooksPage() {
                 ['角色总数', stats.totalCharacters || 0],
                 ['7天内更新', stats.recent7Days || 0]
               ].map(([label, value]) => (
-                <div
-                  key={label}
-                  className="rounded-[24px] border border-[color:var(--line)] bg-[var(--panel)] px-5 py-4 shadow-[0_10px_26px_rgba(15,23,42,0.04)]"
-                >
-                  <strong className="block text-[2rem] font-black leading-none tracking-[-0.03em] text-[color:var(--brand)]">{value}</strong>
-                  <span className="mt-2 block text-[12px] font-semibold text-[color:var(--muted)]">{label}</span>
+                <div key={label} className="books-page-stat-card">
+                  <strong className="books-page-stat-value">{value}</strong>
+                  <span className="books-page-stat-label">{label}</span>
                 </div>
               ))}
             </div>
           ) : null}
 
-          <section className="library-list-filter library-filter-box">
-            <div className="library-list-filter-head">
-              <div>
-                <span className="library-sidebar-note">显示 {filteredBooks.length}/{books.length} 本 · 筛选 {activeFilterCount} 项</span>
-              </div>
-              <div className="library-list-filter-actions">
-                <button type="button" className="solid-btn" onClick={openCreateEditor}>新建书籍</button>
-                <button type="button" className="ghost-btn" onClick={toggleSelectAll}>
-                  {selectedIds.size === filteredBooks.length && filteredBooks.length > 0 ? '取消全选' : '全选当前'}
-                </button>
-                <button type="button" className="ghost-btn" onClick={focusCurrentBook} disabled={!currentBookId}>定位当前书</button>
-                <button type="button" className="ghost-btn" onClick={loadLibrary}>刷新列表</button>
-                <button type="button" className="ghost-btn" onClick={() => {
-                  setSearchText('');
-                  setStatusFilter('all');
-                  setGenreFilter('all');
-                  setSortBy('updated_desc');
-                }}>清空筛选</button>
-                <button type="button" className="solid-btn danger-solid-btn" onClick={batchDelete} disabled={selectedIds.size === 0 || deleteLoading}>
-                  {deleteLoading ? '删除中...' : `删除已选 ${selectedIds.size || ''}`}
-                </button>
-              </div>
-            </div>
-
-            <div className="library-list-filter-fields">
-              <label>
-                <span>搜索</span>
-                <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="书名 / 作者 / 简介" />
-              </label>
-              <label>
-                <span>状态</span>
-                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                  <option value="all">全部状态</option>
-                  {statusOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              </label>
-              <label>
-                <span>题材</span>
-                <select value={genreFilter} onChange={(e) => setGenreFilter(e.target.value)}>
-                  <option value="all">全部题材</option>
-                  {genreOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              </label>
-              <label>
-                <span>排序</span>
-                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                  <option value="updated_desc">最近更新</option>
-                  <option value="updated_asc">最早更新</option>
-                  <option value="created_desc">最近创建</option>
-                  <option value="created_asc">最早创建</option>
-                  <option value="title_asc">书名 A-Z</option>
-                </select>
-              </label>
-            </div>
-          </section>
+          <div className="books-page-toolbar">
+            <input
+              className="books-page-toolbar-input"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="书名 / 作者 / 简介"
+            />
+            <select
+              className="books-page-toolbar-select"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="all">全部状态</option>
+              {statusOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+            <select
+              className="books-page-toolbar-select"
+              value={genreFilter}
+              onChange={(e) => setGenreFilter(e.target.value)}
+            >
+              <option value="all">全部题材</option>
+              {genreOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+            <select
+              className="books-page-toolbar-select"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="updated_desc">最近更新</option>
+              <option value="updated_asc">最早更新</option>
+              <option value="created_desc">最近创建</option>
+              <option value="created_asc">最早创建</option>
+              <option value="title_asc">书名 A-Z</option>
+            </select>
+            <span className="books-page-toolbar-sep" />
+            <button type="button" className="books-page-toolbar-btn books-page-toolbar-btn-primary" onClick={openCreateEditor}>新建书籍</button>
+            <button type="button" className="books-page-toolbar-btn" onClick={loadLibrary}>刷新列表</button>
+            <span className="books-page-toolbar-info">显示 {filteredBooks.length}/{books.length} 本 · 筛选 {activeFilterCount} 项</span>
+          </div>
 
           {loading ? (
             <div className="global-banner">正在加载书籍列表...</div>
           ) : (
-            <div className="mt-6 grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+            <div className="books-page-grid">
               {filteredBooks.length === 0 ? (
                 <div className="global-banner">
                   {books.length === 0 ? '还没有书籍，先新建一本吧。' : '没有符合当前筛选条件的书籍。'}
@@ -1340,22 +1943,19 @@ export default function BooksPage() {
                 filteredBooks.map((book) => {
                   const isCurrent = book.id === currentBookId;
                   const isSelected = selectedIds.has(book.id);
+                  const statusClass = book.status === 'writing' ? 'books-page-card-status-writing'
+                    : book.status === 'completed' ? 'books-page-card-status-completed'
+                    : 'books-page-card-status-paused';
                   return (
                     <div
                       key={book.id}
                       data-book-id={book.id}
-                      className={joinClasses(
-                        'book-list-card relative grid grid-cols-[minmax(96px,3fr)_minmax(0,7fr)] gap-4 rounded-[30px] border p-5 pl-16 shadow-[0_12px_30px_rgba(15,23,42,0.04)] transition duration-150 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_color-mix(in_srgb,var(--brand)_12%,transparent)]',
-                        isSelected
-                          ? 'border-[color:color-mix(in_srgb,var(--brand)_24%,var(--line))] bg-[color:color-mix(in_srgb,var(--brand-soft)_58%,var(--panel-strong))]'
-                          : 'border-[color:var(--line)] bg-[color:color-mix(in_srgb,var(--panel)_90%,var(--panel-strong))]',
-                        isCurrent ? 'ring-1 ring-[color:color-mix(in_srgb,var(--brand)_18%,transparent)]' : ''
-                      )}
+                      className="books-page-card"
                       onClick={() => openBookDetail(book.id)}
                     >
                       <button
                         type="button"
-                        className={joinClasses('book-card-select-zone', isSelected ? 'is-selected' : '')}
+                        className={joinClasses('books-page-card-select', isSelected ? 'is-selected' : '')}
                         aria-pressed={isSelected}
                         aria-label={isSelected ? `取消选择《${book.title || '未命名书籍'}》` : `选择《${book.title || '未命名书籍'}》`}
                         onClick={(e) => {
@@ -1363,66 +1963,54 @@ export default function BooksPage() {
                           toggleBookSelected(book.id);
                         }}
                       >
-                        <span className="book-card-select-box" aria-hidden="true">{isSelected ? '✓' : ''}</span>
-                        <span className="book-card-select-label">选择</span>
+                        {isSelected ? '✓' : ''}
                       </button>
-                      <div className={joinClasses('book-list-cover', book.cover_image ? 'has-image' : 'is-placeholder')} aria-label={`${book.title || '书籍'}封面`}>
-                        {book.cover_image ? (
-                          <img src={book.cover_image} alt={`${book.title || '书籍'}封面`} />
-                        ) : (
-                          <div className="book-cover-placeholder book-list-cover-placeholder" aria-hidden="true">
-                            <span>{getBookCoverInitials(book)}</span>
-                            <em>{getBookCoverGenreLabel(book)}</em>
-                          </div>
-                        )}
+                      <h3 className="books-page-card-title">{book.title || '未命名书籍'}</h3>
+                      {book.author ? <p className="books-page-card-author">{book.author}</p> : null}
+                      <div className="books-page-card-meta">
+                        <span className="books-page-card-genre">
+                          {genreLabels[book.genre] || book.genre}
+                          {book.subgenre ? ` · ${subgenreLabels[book.subgenre] || book.subgenre}` : ''}
+                        </span>
+                        <span className={joinClasses('books-page-card-status', statusClass)}>
+                          {statusLabels[book.status] || book.status}
+                        </span>
                       </div>
-                      <div className="flex min-w-0 flex-col gap-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <h3 className="font-serif text-[1.5rem] font-black leading-tight tracking-[-0.03em] text-[color:var(--text)]">{book.title}</h3>
-                          {isCurrent ? <span className="current-book-badge">当前</span> : null}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[13px] text-[color:var(--muted)]">
-                            {genreLabels[book.genre] || book.genre}
-                            {book.subgenre ? ` · ${subgenreLabels[book.subgenre] || book.subgenre}` : ''}
-                          </span>
-                          <span className="inline-flex rounded-full bg-[var(--brand-soft)] px-3 py-1 text-[12px] font-semibold text-[color:var(--brand)]">
-                            {statusLabels[book.status] || book.status}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-[color:var(--muted)]">
-                          <span>{book.updated_at || book.created_at ? formatDate(book.updated_at || book.created_at) : '刚创建'}</span>
-                          <span>{(book.word_count || 0) > 0 ? formatWords(book.word_count || 0) : '暂无字数'}</span>
-                        </div>
-                        <span className="text-[12px] font-semibold text-[color:var(--muted)]">{getPlatformLabel(book.platform)}</span>
-                        <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-dashed border-[color:color-mix(in_srgb,var(--line)_80%,transparent)] pt-4">
-                          {!isCurrent ? (
-                            <button
-                              type="button"
-                              className="ghost-btn action-btn"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCurrentBook(book.id);
-                              }}
-                            >
-                              设为当前
-                            </button>
-                          ) : (
-                            <span className="current-book-badge">
-                              主工作台使用中
-                            </span>
-                          )}
+                      <div className="books-page-card-stats">
+                        <span className="books-page-card-stat-item">
+                          <span className="books-page-card-stat-label">字数</span>
+                          <span className="books-page-card-stat-value">{(book.word_count || 0) > 0 ? formatWords(book.word_count || 0) : '暂无'}</span>
+                        </span>
+                        <span className="books-page-card-stat-item">
+                          <span className="books-page-card-stat-label">更新</span>
+                          <span className="books-page-card-stat-value">{book.updated_at || book.created_at ? formatDate(book.updated_at || book.created_at) : '刚创建'}</span>
+                        </span>
+                      </div>
+                      <div className="books-page-card-actions">
+                        {!isCurrent ? (
                           <button
                             type="button"
-                            className="ghost-btn action-btn"
+                            className="books-page-card-action-btn"
                             onClick={(e) => {
                               e.stopPropagation();
-                              deleteBook(book.id);
+                              setCurrentBook(book.id);
                             }}
                           >
-                            删除
+                            设为当前
                           </button>
-                        </div>
+                        ) : (
+                          <span className="books-page-card-current">当前使用中</span>
+                        )}
+                        <button
+                          type="button"
+                          className="books-page-card-action-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteBook(book.id);
+                          }}
+                        >
+                          删除
+                        </button>
                       </div>
                     </div>
                   );
@@ -1493,7 +2081,7 @@ export default function BooksPage() {
                           const exceeded = current > option.max;
                           return (
                             <label key={option.value} className={`detail-inline-field detail-role-count-field${exceeded ? ' is-warning' : ''}`}>
-                              <span>{option.label}</span>
+                              <span>{option.shortLabel}</span>
                               <input
                                 type="number"
                                 min="0"
@@ -1590,7 +2178,7 @@ export default function BooksPage() {
                         <label className="detail-inline-field">
                           <span>角色定位</span>
                           <select value={newCharacterDraft.role_tier} onChange={(e) => resetNewCharacterDraft({ ...newCharacterDraft, role_tier: e.target.value })}>
-                            {roleTierOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                            {roleTierOptions.map((option) => <option key={option.value} value={option.value}>{option.shortLabel}</option>)}
                           </select>
                         </label>
                       </div>
@@ -1625,7 +2213,7 @@ export default function BooksPage() {
                                   />
                                   <strong>{draft.name || character.name || '未命名角色'}</strong>
                                   <span className={`detail-role-tier-badge detail-role-tier-badge-${draft.role_tier || character.role_tier || 'supporting_major'}`}>
-                                    {roleTierLabelMap[draft.role_tier || character.role_tier || 'supporting_major'] || '普通配角'}
+                                    {getRoleTierShortLabel(draft.role_tier || character.role_tier || 'supporting_major')}
                                   </span>
                                 </div>
                                 <div className="detail-inline-actions">
@@ -1639,9 +2227,19 @@ export default function BooksPage() {
                                       </button>
                                     </>
                                   ) : (
-                                    <button type="button" className="ghost-btn" onClick={() => setEditingCharacterKey(characterKey)}>
-                                      编辑
-                                    </button>
+                                    <>
+                                      <button type="button" className="ghost-btn" onClick={() => setEditingCharacterKey(characterKey)} disabled={characterDeletingKey === characterKey}>
+                                        编辑
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="ghost-btn"
+                                        onClick={() => handleDeleteCharacter(character.id, draft.name || character.name)}
+                                        disabled={characterDeletingKey === characterKey}
+                                      >
+                                        {characterDeletingKey === characterKey ? '删除中...' : '删除'}
+                                      </button>
+                                    </>
                                   )}
                                 </div>
                               </div>
@@ -1690,7 +2288,7 @@ export default function BooksPage() {
                                   <label className="detail-inline-field">
                                     <span>角色定位</span>
                                     <select value={draft.role_tier || 'supporting_major'} onChange={(e) => updateCharacterDraft(character.id, 'role_tier', e.target.value)}>
-                                      {roleTierOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                      {roleTierOptions.map((option) => <option key={option.value} value={option.value}>{option.shortLabel}</option>)}
                                     </select>
                                   </label>
                                 </div>
@@ -1742,20 +2340,38 @@ export default function BooksPage() {
                     <div className="detail-outline-section">
                       <div className="detail-section-head">
                         <strong>全书大纲</strong>
-                        {outlineEditing ? (
-                          <button type="button" className="ghost-btn" onClick={handleSaveOutline} disabled={outlineSaving}>
-                            {outlineSaving ? '保存中...' : '保存'}
+                        <div className="detail-inline-actions">
+                          {outlineEditing ? (
+                            <>
+                              <button type="button" className="ghost-btn" onClick={stopOutlineEditing} disabled={outlineSaving || outlineGenerating}>
+                                取消
+                              </button>
+                              <button type="button" className="ghost-btn" onClick={handleSaveOutline} disabled={outlineSaving || outlineGenerating}>
+                                {outlineSaving ? '保存中...' : '保存'}
+                              </button>
+                            </>
+                          ) : (
+                            <button type="button" className="ghost-btn" onClick={startOutlineEditing} disabled={outlineGenerating}>
+                              编辑
+                            </button>
+                          )}
+                          <button type="button" className="ghost-btn detail-inline-primary-action" onClick={handleGenerateFullOutlineDraft} disabled={outlineSaving || outlineGenerating}>
+                            {outlineGenerating ? '生成中...' : 'AI 生成完整大纲'}
                           </button>
-                        ) : null}
+                        </div>
                       </div>
                       {outlineEditing ? (
-                        <textarea
-                          className="detail-inline-textarea"
-                          rows={8}
-                          value={outlineDraft.main_outline}
-                          onChange={(e) => setOutlineDraft((prev) => ({ ...prev, main_outline: e.target.value }))}
-                          placeholder="写这本书整体在讲什么。"
-                        />
+                        <div className="detail-inline-editor">
+                          <label className="detail-inline-field is-wide">
+                            <span>全书大纲</span>
+                            <textarea
+                              rows={8}
+                              value={outlineDraft.main_outline}
+                              onChange={(e) => setOutlineDraft((prev) => ({ ...prev, main_outline: e.target.value }))}
+                              placeholder="写这本书整体在讲什么。"
+                            />
+                          </label>
+                        </div>
                       ) : detailOutline?.main_outline ? (
                         <IndentedTextBlock
                           text={detailOutline.main_outline}
@@ -1774,6 +2390,9 @@ export default function BooksPage() {
                             <span className="detail-inline-count-label">目标卷数</span>
                             <input className="detail-inline-count-input" type="number" min="0" max="12" value={targetVolumeCount} onChange={(e) => setTargetVolumeCount(Math.max(0, Math.min(12, Number(e.target.value) || 0)))} />
                           </label>
+                          <button type="button" className="ghost-btn" onClick={handleCreateVolumePlan} disabled={outlineSaving}>
+                            新增一卷
+                          </button>
                           <button type="button" className="ghost-btn detail-inline-primary-action" onClick={handleGenerateVolumePlans} disabled={outlineSaving}>
                             {outlineSaving ? '处理中...' : '自动拆分分卷'}
                           </button>
@@ -1788,6 +2407,7 @@ export default function BooksPage() {
                             .map((plan) => {
                               const volumeNumber = Number(plan.volume_number || 0) || 1;
                               const draft = volumePlanDrafts[String(volumeNumber)] || {
+                                ...buildEmptyVolumePlanDraft(),
                                 volume_name: plan.volume_name || '',
                                 stage_goal: plan.stage_goal || '',
                                 core_conflict: plan.core_conflict || '',
@@ -1796,10 +2416,18 @@ export default function BooksPage() {
                               };
                               const volumeKey = String(volumeNumber);
                               const isSavingCurrent = volumePlanSavingKey === volumeKey;
+                              const isDeletingCurrent = volumePlanSavingKey === `delete-${volumeNumber}`;
                               const isEditingCurrent = editingVolumeKey === volumeKey;
                               const volumeCoverImage = isEditingCurrent ? draft.cover_image : plan.cover_image;
                               return (
-                                <article key={plan.id || `${plan.book_id}-${plan.volume_number}`} className={`detail-outline-volume detail-volume-card${volumeCoverImage ? ' has-volume-cover' : ''}`}>
+                                <article
+                                  key={plan.id || `${plan.book_id}-${plan.volume_number}`}
+                                  className={`detail-outline-volume detail-volume-card${volumeCoverImage ? ' has-volume-cover' : ''}${draggingVolumeKey === volumeKey ? ' is-dragging' : ''}`}
+                                  draggable={!outlineSaving}
+                                  onDragStart={() => handleVolumeDragStart(volumeNumber)}
+                                  onDragOver={(event) => event.preventDefault()}
+                                  onDrop={() => handleVolumeDrop(volumeNumber)}
+                                >
                                   {volumeCoverImage ? (
                                     <aside className="detail-volume-cover-rail" aria-label={`第${volumeNumber}卷封面`}>
                                       <img src={volumeCoverImage} alt={`第${volumeNumber}卷封面`} className="detail-volume-cover-side" />
@@ -1808,6 +2436,7 @@ export default function BooksPage() {
                                   <div className="detail-volume-content">
                                     <div className="detail-section-head">
                                       <div className="detail-volume-title-line">
+                                        <span className="detail-volume-drag-handle" title="拖拽排序">⋮⋮</span>
                                         <span className="detail-volume-index">VOL.{String(volumeNumber).padStart(2, '0')}</span>
                                         <strong>第 {volumeNumber} 卷 · {draft.volume_name || plan.volume_name || '未命名分卷'}</strong>
                                       </div>
@@ -1820,11 +2449,19 @@ export default function BooksPage() {
                                             <button type="button" className="ghost-btn" onClick={() => handleSaveVolumePlan(volumeNumber)} disabled={isSavingCurrent || outlineSaving}>
                                               {isSavingCurrent ? '保存中...' : '保存本卷'}
                                             </button>
+                                            <button type="button" className="ghost-btn" onClick={() => handleDeleteVolumePlan(volumeNumber)} disabled={isSavingCurrent || isDeletingCurrent || outlineSaving}>
+                                              {isDeletingCurrent ? '删除中...' : '删除本卷'}
+                                            </button>
                                           </>
                                         ) : (
-                                          <button type="button" className="ghost-btn" onClick={() => setEditingVolumeKey(volumeKey)} disabled={outlineSaving}>
-                                            编辑
-                                          </button>
+                                          <>
+                                            <button type="button" className="ghost-btn" onClick={() => setEditingVolumeKey(volumeKey)} disabled={outlineSaving}>
+                                              编辑
+                                            </button>
+                                            <button type="button" className="ghost-btn" onClick={() => handleDeleteVolumePlan(volumeNumber)} disabled={isDeletingCurrent || outlineSaving}>
+                                              {isDeletingCurrent ? '删除中...' : '删除'}
+                                            </button>
+                                          </>
                                         )}
                                       </div>
                                     </div>
@@ -1880,14 +2517,8 @@ export default function BooksPage() {
                               );
                             })}
                         </div>
-                      ) : detailOutline?.volume_outline ? (
-                        <IndentedTextBlock
-                          text={detailOutline.volume_outline}
-                          className="detail-pre"
-                          paragraphClassName="detail-pre-paragraph"
-                        />
                       ) : (
-                        <p className="excerpt-text">暂无分卷大纲。</p>
+                        <p className="excerpt-text">暂无分卷卡片，请先自动拆分分卷。</p>
                       )}
                     </div>
                   </div>
@@ -1924,10 +2555,21 @@ export default function BooksPage() {
                 </div>
               </header>
 
-              {readerEntry.plan?.chapter_mission || readerEntry.plan?.summary ? (
+              {readerFeedback ? (
+                <details className="chapter-reader-audit">
+                  <summary>生成记录</summary>
+                  <div>
+                    {readerFeedback.chapter_summary ? <p><b>章节摘要：</b>{readerFeedback.chapter_summary}</p> : null}
+                    {readerFeedback.character_progress ? <p><b>人物推进：</b>{readerFeedback.character_progress}</p> : null}
+                    {readerFeedback.story_progress ? <p><b>剧情推进：</b>{readerFeedback.story_progress}</p> : null}
+                    {readerFeedback.next_chapter_focus ? <p><b>后续承接：</b>{readerFeedback.next_chapter_focus}</p> : null}
+                  </div>
+                </details>
+              ) : null}
+
+              {readerEntry.plan?.outline_text ? (
                 <aside className="chapter-reader-note">
-                  {readerEntry.plan?.chapter_mission ? <p><b>本章目标：</b>{readerEntry.plan.chapter_mission}</p> : null}
-                  {readerEntry.plan?.summary ? <p><b>章节摘要：</b>{readerEntry.plan.summary}</p> : null}
+                  <p><b>章节细纲：</b>{readerEntry.plan.outline_text}</p>
                 </aside>
               ) : null}
 
@@ -1970,8 +2612,36 @@ export default function BooksPage() {
                   <h2>{detailBook.title}</h2>
                   <p>按章节浏览资料，点击章节名称进入正文阅读。</p>
                 </div>
-                <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>去创作台继续写</button>
+                <div className="detail-inline-actions">
+                  <button type="button" className="ghost-btn nav-btn" onClick={handleClearLibraryChapters} disabled={chapterClearLoading || chapterEntries.length === 0}>{chapterClearLoading ? '清空中...' : '一键清空章节'}</button>
+                  <button type="button" className="ghost-btn nav-btn" onClick={() => openChapterPlanEditor(null)} disabled={chapterClearLoading}>新增章节细纲</button>
+                  <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>去创作台继续写</button>
+                </div>
               </div>
+
+              {chapterEditorOpen ? (
+                <section className="chapter-plan-full-editor">
+                  <div className="detail-panel-actions">
+                    <div>
+                      <span className="chapter-reader-kicker">CHAPTER PLAN</span>
+                      <h3>第 {chapterDraft.chapter_number} 章细纲设置</h3>
+                    </div>
+                    <div className="detail-inline-actions">
+                      <button type="button" className="ghost-btn" onClick={() => setChapterEditorOpen(false)} disabled={chapterPlanSaving || chapterPlanGenerating}>收起</button>
+                      <button type="button" className="ghost-btn" onClick={handleSaveLibraryChapterPlan} disabled={chapterPlanSaving || chapterPlanGenerating}>{chapterPlanSaving ? '保存中...' : '保存细纲'}</button>
+                      <button type="button" className="solid-btn" onClick={handleGenerateLibraryChapterPlan} disabled={chapterPlanSaving || chapterPlanGenerating}>{chapterPlanGenerating ? 'AI 生成中...' : 'AI 生成并保存细纲'}</button>
+                    </div>
+                  </div>
+                  {chapterPlanError ? <div className="global-banner is-error">{chapterPlanError}</div> : null}
+                  {chapterPlanNotice ? <div className="global-banner">{chapterPlanNotice}</div> : null}
+                  <div className="chapter-plan-editor-grid">
+                    <label className="detail-inline-field"><span>章节编号</span><input type="number" min="1" value={chapterDraft.chapter_number} onChange={(event) => updateChapterDraftField('chapter_number', Math.max(1, Number(event.target.value || 1)))} /></label>
+                    <label className="detail-inline-field"><span>分卷编号</span><input type="number" min="1" value={chapterDraft.volume_number} onChange={(event) => updateChapterDraftField('volume_number', Math.max(1, Number(event.target.value || 1)))} /></label>
+                    <label className="detail-inline-field is-wide"><span>章节名</span><input value={normalizeChapterName(chapterDraft.chapter_name)} onChange={(event) => updateChapterDraftField('chapter_name', event.target.value)} placeholder="输入章节名" /></label>
+                    <label className="detail-inline-field is-wide"><span>章节细纲</span><textarea rows={4} ref={resizeChapterOutlineTextarea} value={chapterDraft.outline_text || ''} onInput={(event) => resizeChapterOutlineTextarea(event.currentTarget)} onChange={(event) => updateChapterDraftField('outline_text', event.target.value)} placeholder="按剧情发生顺序概括本章：如何承接前文、发生哪些关键事件、人物如何行动、局面如何变化，以及本章最终停在哪里。" /></label>
+                  </div>
+                </section>
+              ) : null}
 
               {chapterEntries.length > 0 ? (
                 <div className="chapter-waterfall">
@@ -1990,7 +2660,24 @@ export default function BooksPage() {
                           {chapterWordCount ? `${formatWords(chapterWordCount)} · ` : ''}
                           {entry.chapter?.content ? '正文已保存' : '待生成正文'}
                         </span>
-                        {entry.plan?.chapter_mission ? <em>目标：{entry.plan.chapter_mission}</em> : null}
+                        {entry.plan?.outline_text ? (
+                          <p className="chapter-flow-outline">
+                            <b>章节细纲：</b>
+                            {String(entry.plan.outline_text).replace(/\s+/g, ' ').trim()}
+                          </p>
+                        ) : null}
+                        <div className="chapter-flow-actions">
+                          <button type="button" className="ghost-btn" onClick={() => openChapterPlanEditor(entry)}>编辑细纲</button>
+                          <button type="button" className="ghost-btn" onClick={() => openChapterReader(entry.chapterNumber)}>阅读正文</button>
+                          <button
+                            type="button"
+                            className="ghost-btn"
+                            onClick={() => handleDeleteLibraryChapter(entry)}
+                            disabled={chapterDeletingKey === String(entry.chapterNumber)}
+                          >
+                            {chapterDeletingKey === String(entry.chapterNumber) ? '删除中...' : '删除章节'}
+                          </button>
+                        </div>
                       </article>
                     );
                   })}
@@ -1998,8 +2685,8 @@ export default function BooksPage() {
               ) : (
                 <div className="chapter-reader-empty">
                   <strong>暂无章节细纲和正文记录</strong>
-                  <p>可以先进入创作台生成章节，再回到这里按目录阅读。</p>
-                  <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openWorkbench(detailBook.id)}>去创作台继续写</button>
+                  <p>可以在这里手动建立章节细纲，或让 AI 根据分卷、剧情线和角色资料生成。</p>
+                  <button type="button" className="solid-btn nav-btn nav-btn-primary" onClick={() => openChapterPlanEditor(null)}>建立第一章细纲</button>
                 </div>
               )}
             </div>
@@ -2060,7 +2747,7 @@ export default function BooksPage() {
                       </div>
                       <div className="summary-metric-card">
                         <strong>{detailStorylines.length}</strong>
-                        <span>剧情线</span>
+                        <span>叙事脉络</span>
                       </div>
                       <div className="summary-metric-card">
                         <strong>{detailCharacters.length}</strong>
@@ -2097,26 +2784,26 @@ export default function BooksPage() {
                   <button type="button" className="summary-nav-card summary-nav-button summary-nav-card-outline" onClick={() => openBooksOutlinePage(detailBook.id)}>
                     <span className="summary-nav-kicker">Story Structure</span>
                     <strong>大纲链页</strong>
-                    <span>全书大纲、分卷大纲、细节补充</span>
+                    <span>全书大纲、自动拆分分卷</span>
                     <em>进入结构规划</em>
                   </button>
                   <button type="button" className="summary-nav-card summary-nav-button summary-nav-card-storyline" onClick={() => openBooksStorylinePage(detailBook.id)}>
                     <span className="summary-nav-kicker">Storyline Board</span>
-                    <strong>剧情线页</strong>
-                    <span>按卷查看剧情线，后续承接 AI 剧情线管理</span>
-                    <em>进入剧情线管理</em>
+                    <strong>叙事脉络页</strong>
+                    <span>按卷查看主线、支线与阶段目标</span>
+                    <em>进入叙事脉络</em>
                   </button>
                   <button type="button" className="summary-nav-card summary-nav-button summary-nav-card-character" onClick={() => openBooksCharacterPage(detailBook.id)}>
                     <span className="summary-nav-kicker">Character Core</span>
                     <strong>角色页</strong>
-                    <span>角色档案、人物设定</span>
-                    <em>进入人物设定</em>
+                    <span>角色档案、关系与一致性</span>
+                    <em>进入人物档案</em>
                   </button>
                   <button type="button" className="summary-nav-card summary-nav-button summary-nav-card-chapter" onClick={() => openBooksChapterPage(detailBook.id)}>
                     <span className="summary-nav-kicker">Chapter Flow</span>
                     <strong>章节与正文页</strong>
                     <span>章节细纲、章节记录、正文预览</span>
-                    <em>进入执行区</em>
+                    <em>进入章节创作</em>
                   </button>
                 </div>
               </div>
@@ -2426,28 +3113,6 @@ export default function BooksPage() {
           line-height: 1;
           letter-spacing: -0.04em;
         }
-        .library-surface-entry.is-secondary strong {
-          color: color-mix(in srgb, var(--text) 82%, var(--muted));
-        }
-        .library-surface-entry strong em {
-          font-style: normal;
-          font-size: 0.72em;
-          color: var(--brand);
-          vertical-align: 0.08em;
-        }
-        .library-surface-state {
-          color: color-mix(in srgb, var(--muted) 88%, white);
-          font-size: 13px;
-          font-weight: 700;
-          letter-spacing: 0.04em;
-          line-height: 1;
-        }
-        .library-surface-entry.is-primary .library-surface-state {
-          color: color-mix(in srgb, var(--brand-deep) 72%, var(--muted));
-        }
-        .library-surface-entry.is-secondary .library-surface-state {
-          color: color-mix(in srgb, var(--brand) 78%, var(--muted));
-        }
         .library-surface-entry:hover strong {
           color: var(--brand-deep);
         }
@@ -2572,6 +3237,53 @@ export default function BooksPage() {
           border-radius: 999px;
           padding: 0;
           transform: translateX(4px);
+        }
+        @media (max-width: 720px) {
+          .library-app-shell,
+          .library-app-shell.is-sidebar-collapsed,
+          .library-app-shell.is-sidebar-collapsed.is-sidebar-peek {
+            grid-template-columns: minmax(0, 1fr) !important;
+            gap: 10px !important;
+          }
+          .library-app-shell.is-sidebar-collapsed .library-sidebar-hotzone {
+            display: none;
+          }
+          .library-sidebar,
+          .library-app-shell.is-sidebar-collapsed .library-sidebar {
+            position: static;
+            width: 100%;
+            min-height: 0;
+            overflow: visible;
+            transform: none;
+            border-right: 0;
+            border-bottom: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+            border-radius: 0;
+            box-shadow: none;
+            padding: 0 0 10px;
+          }
+          .library-app-shell.is-sidebar-collapsed .library-sidebar-head,
+          .library-app-shell.is-sidebar-collapsed .library-sidebar-nav {
+            display: grid !important;
+          }
+          .library-sidebar-head {
+            padding-bottom: 8px;
+          }
+          .library-sidebar-nav {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 6px;
+          }
+          .library-nav-item {
+            justify-content: center;
+            border-left: 0;
+            border-bottom: 2px solid transparent;
+            padding: 6px 4px;
+            text-align: center;
+          }
+          .library-nav-item:hover:not(:disabled),
+          .library-nav-item.is-active {
+            border-left-color: transparent;
+            border-bottom-color: var(--brand);
+          }
         }
         .library-list-filter {
           display: grid;
@@ -3013,7 +3725,8 @@ export default function BooksPage() {
           grid-template-columns: minmax(0, 1fr);
           align-content: start;
           gap: 0;
-          min-height: 360px;
+          min-height: 0;
+          height: auto;
           padding: 0;
           overflow: hidden;
           background: color-mix(in srgb, var(--panel) 94%, white);
@@ -3209,6 +3922,8 @@ export default function BooksPage() {
         .detail-inline-field textarea,
         .detail-inline-field select {
           width: 100%;
+          min-width: 0;
+          box-sizing: border-box;
           border: 1px solid var(--line);
           border-radius: 10px;
           padding: 10px 12px;
@@ -3222,17 +3937,31 @@ export default function BooksPage() {
         .detail-inline-editor { display: grid; gap: 10px; margin-top: 6px; }
         .detail-inline-display { display: grid; gap: 4px; }
         .detail-character-ai-box { margin-bottom: 14px; padding: 14px; border: 1px solid color-mix(in srgb, var(--brand) 14%, var(--line)); border-radius: 12px; background: color-mix(in srgb, var(--brand-soft) 42%, var(--panel)); }
-        .detail-character-role-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+        .detail-character-role-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
         .detail-role-count-field.is-warning input { border-color: color-mix(in srgb, var(--brand) 32%, var(--line)); background: color-mix(in srgb, var(--brand-soft) 46%, var(--panel)); }
         .detail-character-metric-strip { display: flex; flex-wrap: wrap; gap: 8px; }
         .detail-character-metric-strip span { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border-radius: 999px; background: color-mix(in srgb, var(--panel-strong) 90%, white); color: var(--brand); font-size: 12px; font-weight: 600; }
         .detail-character-metric-list { display: grid; gap: 6px; margin-top: 6px; }
-        .detail-volume-plan-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
+        .detail-volume-plan-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
         .detail-outline-volume { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel) 88%, var(--panel-note-bg)); }
         .detail-outline-volume.detail-volume-card {
           padding: 0;
+          height: auto;
+          min-height: 0;
+          align-self: start;
           border-radius: 18px;
           background: color-mix(in srgb, var(--panel) 94%, white);
+          cursor: grab;
+          transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+        }
+        .detail-outline-volume.detail-volume-card:hover {
+          transform: translateY(-1px);
+          border-color: color-mix(in srgb, var(--brand) 28%, var(--line));
+          box-shadow: 0 14px 30px color-mix(in srgb, var(--text) 8%, transparent);
+        }
+        .detail-outline-volume.detail-volume-card.is-dragging {
+          opacity: 0.62;
+          transform: scale(0.985);
         }
         .detail-outline-volume strong { display: block; margin-bottom: 6px; color: var(--brand); }
         .detail-storyline-list { display: grid; gap: 8px; }
@@ -3269,9 +3998,56 @@ export default function BooksPage() {
           font-size: 15px;
           line-height: 1.65;
         }
+        .chapter-plan-full-editor {
+          display: grid;
+          gap: 14px;
+          border-left: 3px solid color-mix(in srgb, var(--brand) 58%, var(--line));
+          background: color-mix(in srgb, var(--panel) 86%, white);
+          padding: 16px 18px;
+        }
+        .chapter-plan-full-editor h3 {
+          margin: 3px 0 0;
+          color: var(--text);
+          font-family: var(--font-serif);
+          font-size: 20px;
+        }
+        .chapter-plan-editor-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
+        .chapter-plan-editor-grid .detail-inline-field {
+          min-width: 0;
+        }
+        .chapter-plan-editor-grid .is-wide {
+          grid-column: 1 / -1;
+        }
+        .chapter-plan-editor-grid .is-wide textarea {
+          width: 100%;
+          max-width: none;
+          min-width: 0;
+          box-sizing: border-box;
+          display: block;
+          min-height: 120px;
+          max-height: 420px;
+          resize: none;
+        }
+        .chapter-plan-editor-grid .chapter-key-scenes-textarea {
+          width: 100%;
+          max-width: none;
+          min-width: 0;
+          box-sizing: border-box;
+          display: block;
+          white-space: pre-wrap;
+          word-break: break-word;
+          overflow-wrap: anywhere;
+          text-indent: 0;
+          line-height: 1.7;
+        }
         .chapter-waterfall {
-          column-count: 3;
-          column-gap: 14px;
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+          gap: 14px;
         }
         .library-app-shell.is-chapter-reader-page {
           grid-template-columns: minmax(0, 1fr);
@@ -3279,8 +4055,7 @@ export default function BooksPage() {
         }
         .chapter-flow-card {
           width: 100%;
-          break-inside: avoid;
-          margin: 0 0 14px;
+          margin: 0;
           border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
           border-radius: 16px;
           background: color-mix(in srgb, var(--panel-strong) 88%, white);
@@ -3343,6 +4118,22 @@ export default function BooksPage() {
           font-size: 15px;
           line-height: 1.8;
         }
+        .chapter-flow-outline {
+          display: -webkit-box;
+          overflow: hidden;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 3;
+        }
+        .chapter-flow-outline b {
+          color: color-mix(in srgb, var(--text) 84%, var(--muted));
+        }
+        .chapter-flow-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          padding-top: 4px;
+          border-top: 1px solid color-mix(in srgb, var(--line) 68%, transparent);
+        }
         .chapter-reader-shell {
           width: min(940px, 100%);
           margin: 0 auto;
@@ -3393,6 +4184,30 @@ export default function BooksPage() {
           border-radius: 999px;
           padding: 0 10px;
           background: color-mix(in srgb, var(--panel) 76%, transparent);
+        }
+        .chapter-reader-audit {
+          justify-self: center;
+          width: min(760px, 100%);
+          border-left: 2px solid color-mix(in srgb, var(--brand) 44%, var(--line));
+          padding-left: 12px;
+          color: var(--muted);
+          font-size: 13px;
+        }
+        .chapter-reader-audit summary {
+          width: fit-content;
+          cursor: pointer;
+          color: var(--brand-deep);
+          font-weight: 750;
+        }
+        .chapter-reader-audit > div {
+          display: grid;
+          gap: 6px;
+          margin-top: 10px;
+          padding: 10px 0;
+        }
+        .chapter-reader-audit p {
+          margin: 0;
+          line-height: 1.7;
         }
         .chapter-reader-note {
           border-left: 3px solid color-mix(in srgb, var(--brand) 58%, var(--line));
@@ -3448,6 +4263,7 @@ export default function BooksPage() {
         .detail-role-tier-badge { display: inline-flex; align-items: center; min-height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
         .detail-role-tier-badge-protagonist,
         .detail-role-tier-badge-supporting_major,
+        .detail-role-tier-badge-supporting_secondary,
         .detail-role-tier-badge-supporting_minor,
         .detail-role-tier-badge-antagonist_major,
         .detail-role-tier-badge-antagonist_minor {
@@ -3456,11 +4272,22 @@ export default function BooksPage() {
         }
         .detail-character-item-protagonist,
         .detail-character-item-supporting_major,
+        .detail-character-item-supporting_secondary,
         .detail-character-item-supporting_minor,
         .detail-character-item-antagonist_major,
         .detail-character-item-antagonist_minor {
           background: color-mix(in srgb, var(--panel) 82%, var(--panel-note-bg));
           border-color: color-mix(in srgb, var(--brand) 10%, var(--line));
+        }
+        .detail-volume-drag-handle {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 18px;
+          color: var(--muted);
+          font-size: 14px;
+          letter-spacing: -0.1em;
+          user-select: none;
         }
         .detail-character-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .detail-character-avatar {
@@ -3519,20 +4346,21 @@ export default function BooksPage() {
         .detail-chapter-item strong, .detail-character-item strong { display: block; margin-bottom: 4px; }
         .detail-chapter-meta { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; }
         .detail-entry-meta { font-size: 12px; color: var(--muted); white-space: nowrap; }
-        .modal-backdrop { position: fixed; inset: 0; z-index: 40; display: flex; align-items: flex-start; justify-content: center; padding: 40px; background: color-mix(in srgb, var(--text) 34%, transparent); overflow: auto; }
-        .book-editor-modal { width: min(580px, calc(100vw - 80px)); max-height: calc(100vh - 80px); margin: 0 auto; border-radius: var(--radius-panel-md); box-shadow: 0 18px 40px color-mix(in srgb, var(--text) 16%, transparent); overflow: hidden; display: flex; flex-direction: column; }
-        .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 0; padding: 18px 28px 14px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--panel-note-bg) 72%, var(--panel)); }
+        .modal-backdrop { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; padding: 32px; background: color-mix(in srgb, var(--text) 34%, transparent); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); overflow: auto; }
+        .book-editor-modal { width: min(580px, calc(100vw - 48px)); max-height: calc(100vh - 64px); margin: 0 auto; border: 1px solid color-mix(in srgb, var(--line) 84%, transparent); border-radius: 22px; background: linear-gradient(180deg, #fffaf2, #fdf7ee); box-shadow: 0 28px 70px color-mix(in srgb, var(--text) 24%, transparent), inset 0 1px 0 color-mix(in srgb, white 82%, transparent); overflow: hidden; display: flex; flex-direction: column; }
+        .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 0; padding: 18px 28px 14px; border-bottom: 1px solid color-mix(in srgb, var(--line) 76%, transparent); background: color-mix(in srgb, var(--panel-note-bg) 62%, var(--panel)); }
         .modal-head-text { display: grid; gap: 2px; }
-        .modal-head h3 { margin: 0; font-size: 16px; }
-        .modal-head p { margin: 0; color: var(--muted); line-height: 1.35; font-size: 12px; }
+        .modal-head h3 { margin: 0; color: var(--text); font-family: var(--font-serif); font-size: 19px; font-weight: 800; letter-spacing: -0.035em; }
+        .modal-head p { margin: 0; color: var(--muted); line-height: 1.5; font-size: 13px; }
         .book-editor-form { display: grid; gap: 10px; padding: 16px 28px 22px; background: color-mix(in srgb, var(--panel) 90%, white); overflow: auto; }
         .field { display: grid; gap: 6px; }
         .field-full { grid-column: 1 / -1; }
-        .field span { font-size: 13px; font-weight: 600; color: var(--text); }
-        .field input, .field select, .field textarea { width: 100%; border: 1px solid var(--line); border-radius: 11px; padding: 11px 13px; background: color-mix(in srgb, var(--panel-strong) 92%, white); color: var(--text); font: inherit; }
+        .field span { font-size: 13px; font-weight: 700; color: var(--brand); }
+        .field input, .field select, .field textarea { width: 100%; border: 1px solid color-mix(in srgb, var(--line) 88%, transparent); border-radius: 14px; padding: 11px 13px; background: rgba(251, 248, 241, 0.72); color: var(--text); font: inherit; outline: none; transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease; }
+        .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--brand); background: color-mix(in srgb, var(--surface) 92%, white); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 13%, transparent); }
         .field textarea { resize: vertical; min-height: 108px; }
         .form-grid-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; position: sticky; bottom: 0; background: color-mix(in srgb, var(--panel) 96%, white); }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 10px; position: sticky; bottom: 0; background: color-mix(in srgb, var(--panel) 96%, white); }
         @media (max-width: 900px) {
           .form-grid-two, .detail-grid, .detail-summary-row, .detail-summary-row-quad, .summary-nav-grid, .summary-metric-grid, .summary-bottom-grid, .summary-hub-top, .detail-character-role-grid { grid-template-columns: 1fr; }
           .detail-header, .modal-head, .summary-overview-head { align-items: stretch; flex-direction: column; }
@@ -3542,13 +4370,15 @@ export default function BooksPage() {
           .detail-volume-card.has-volume-cover .detail-volume-content { padding-right: 16px; }
           .detail-volume-cover-rail { min-height: 220px; border-right: 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 78%, transparent); }
           .detail-volume-cover-side { width: min(150px, 60%); }
-          .chapter-waterfall { column-count: 1; }
+          .chapter-waterfall { grid-template-columns: minmax(0, 1fr); }
           .chapter-flow-head { align-items: stretch; flex-direction: column; }
+          .chapter-plan-editor-grid { grid-template-columns: 1fr; }
           .chapter-reader-prose { font-size: 16px; line-height: 1.95; }
           .chapter-reader-footer { align-items: stretch; flex-direction: column; }
           .chapter-reader-footer .ghost-btn { width: 100%; justify-content: center; }
         }
       `}</style>
     </div>
+    </>
   );
 }

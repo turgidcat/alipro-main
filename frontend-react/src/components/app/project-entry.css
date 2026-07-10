@@ -46,6 +46,24 @@
   color: #c85f3e;
 }
 
+.project-entry-brand em {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  margin: 0 6px;
+  padding: 0 8px;
+  border: 1px solid rgba(224, 120, 86, 0.28);
+  border-radius: 999px;
+  background: rgba(224, 120, 86, 0.1);
+  color: #c85f3e;
+  font-family: "Noto Sans SC", "Inter", system-ui, sans-serif;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  vertical-align: 0.12em;
+}
+
 .project-entry-tagline,
 .project-list-head p {
   margin-top: 3px;
@@ -119,12 +137,52 @@
   line-height: 1.65;
 }
 
+.project-entry-feature-list {
+  display: flex;
+  flex-wrap: wrap;
+  max-width: 680px;
+  gap: 10px;
+}
+
+.project-entry-feature-list span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(168, 156, 142, 0.3);
+  border-radius: 999px;
+  background: rgba(254, 252, 247, 0.52);
+  color: #6b6157;
+  font-size: 13px;
+  line-height: 1;
+}
+
 .project-handdrawn {
+  position: relative;
+  display: inline-block;
+  max-width: max-content;
+  overflow: hidden;
   background-image: linear-gradient(transparent 62%, rgba(224, 120, 86, 0.32) 62% 88%, transparent 88%);
   background-repeat: no-repeat;
   background-size: 100% 100%;
   color: #c85f3e;
+  font-size: 0.72em;
+  letter-spacing: -0.02em;
   padding: 0 4px;
+  white-space: nowrap;
+  animation: project-typewriter-loop 5.6s steps(10, end) 0.2s infinite both;
+}
+
+.project-handdrawn::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 0.9em;
+  margin-left: 5px;
+  border-radius: 999px;
+  background: #c85f3e;
+  vertical-align: -0.08em;
+  animation: project-caret-blink 0.88s steps(1, end) infinite;
 }
 
 .project-entry-reveal {
@@ -153,6 +211,25 @@
   font-size: 13px;
   line-height: 1.7;
   text-align: center;
+}
+
+.project-entry-future {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(168, 156, 142, 0.24);
+  text-align: center;
+}
+
+.project-entry-future span {
+  color: #e07856;
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.project-entry-future p {
+  margin-top: 3px;
 }
 
 .project-create-panel {
@@ -209,6 +286,7 @@
 }
 
 .project-entry-field input,
+.project-entry-field select,
 .project-entry-field textarea {
   width: 100%;
   border: 1px solid rgba(168, 156, 142, 0.38);
@@ -221,7 +299,8 @@
   transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
 }
 
-.project-entry-field input {
+.project-entry-field input,
+.project-entry-field select {
   min-height: 42px;
   padding: 0 13px;
 }
@@ -234,6 +313,7 @@
 }
 
 .project-entry-field input:focus,
+.project-entry-field select:focus,
 .project-entry-field textarea:focus {
   border-color: #e07856;
   background: #fefcf7;
@@ -460,6 +540,27 @@
   }
 }
 
+@keyframes project-typewriter-loop {
+  0%,
+  12% {
+    width: 0;
+  }
+  45%,
+  72% {
+    width: 10em;
+  }
+  90%,
+  100% {
+    width: 0;
+  }
+}
+
+@keyframes project-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
 @keyframes project-float-soft {
   0%,
   100% {
@@ -477,7 +578,9 @@
   .project-secondary-action,
   .project-entry-toplink,
   .project-card,
-  .project-card-actions button {
+  .project-card-actions button,
+  .project-handdrawn,
+  .project-handdrawn::after {
     animation: none;
     transition: none;
   }

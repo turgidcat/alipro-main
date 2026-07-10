@@ -60,6 +60,51 @@ function normalizeText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function sanitizeGeneratedText(value) {
+  return String(value || '')
+    .replace(/\uFFFD+/g, '')
+    .replace(/�+/g, '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+    .trim();
+}
+
+function countPlatformEffectiveWords(value) {
+  const text = sanitizeGeneratedText(value)
+    .replace(/[\s\p{Punctuation}\p{Symbol}]/gu, '');
+  return Array.from(text).length;
+}
+
+function buildBookWordStatsMap(db, bookIds = []) {
+  const normalizedBookIds = [...new Set((Array.isArray(bookIds) ? bookIds : []).map((item) => String(item || '').trim()).filter(Boolean))];
+  if (normalizedBookIds.length === 0) return new Map();
+
+  const placeholders = normalizedBookIds.map(() => '?').join(', ');
+  const chapterRows = execQuery(
+    db,
+    `SELECT book_id, content FROM chapters WHERE book_id IN (${placeholders})`,
+    normalizedBookIds
+  );
+
+  const statsMap = new Map();
+  normalizedBookIds.forEach((bookId) => {
+    statsMap.set(bookId, { chapter_count: 0, word_count: 0 });
+  });
+
+  chapterRows.forEach((row) => {
+    const bookId = String(row.book_id || '').trim();
+    if (!bookId) return;
+    const current = statsMap.get(bookId) || { chapter_count: 0, word_count: 0 };
+    const effectiveWordCount = countPlatformEffectiveWords(row.content || '');
+    if (effectiveWordCount > 0) {
+      current.chapter_count += 1;
+    }
+    current.word_count += effectiveWordCount;
+    statsMap.set(bookId, current);
+  });
+
+  return statsMap;
+}
+
 function normalizeJsonArray(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value;
@@ -87,7 +132,11 @@ function normalizeRoleNames(value) {
 function normalizeRoleExecutionItem(item) {
   if (!item || typeof item !== 'object') return null;
   const role = normalizeText(item.role || '');
-  const baseline = normalizeText(item.baseline || '');
+  const personality = normalizeText(item.personality || item.baseline || '');
+  const background = normalizeText(item.background || '');
+  const appearance = normalizeText(item.appearance || item.appearance_marker || item.appearanceMarker || '');
+  const baseline = normalizeText(item.baseline || personality || background || '');
+  const appearanceMarker = appearance;
   const chapterFunction = normalizeText(item.chapter_function || item.chapterFunction || '');
   const allowedChange = normalizeText(item.allowed_change || item.allowedChange || '');
   const forbiddenChange = normalizeText(item.forbidden_change || item.forbiddenChange || '');
@@ -95,10 +144,14 @@ function normalizeRoleExecutionItem(item) {
   const direction = normalizeText(item.direction || item.change_direction || item.changeDirection || '') || 'hold';
   const scope = normalizeText(item.scope || item.change_scope || item.changeScope || '') || 'temporary';
   const confidence = normalizeText(item.confidence || '') || 'low';
-  if (!role && !baseline && !chapterFunction && !allowedChange && !forbiddenChange) return null;
+  if (!role && !personality && !background && !appearanceMarker && !chapterFunction && !allowedChange && !forbiddenChange) return null;
   return {
     role,
+    personality,
+    background,
+    appearance,
     baseline,
+    appearance_marker: appearanceMarker,
     chapter_function: chapterFunction,
     allowed_change: allowedChange,
     forbidden_change: forbiddenChange,
@@ -113,10 +166,38 @@ function normalizeRoleExecutionList(value) {
   return normalizeJsonArray(value).map(normalizeRoleExecutionItem).filter(Boolean);
 }
 
+function enrichRoleExecutionForGeneration(roleExecution = [], chapterMission = '', characterNotes = '') {
+  const mission = normalizeText(chapterMission);
+  const notes = normalizeText(characterNotes);
+  return roleExecution.map((item) => {
+    const personality = normalizeText(item.personality || item.baseline || '');
+    const background = normalizeText(item.background || '');
+    const appearance = normalizeText(item.appearance || item.appearance_marker || '');
+    return {
+      ...item,
+      personality,
+      background,
+      appearance,
+      baseline: normalizeText(item.baseline || personality || background || notes || '延续当前人物底色。'),
+      appearance_marker: normalizeText(item.appearance_marker || appearance),
+      chapter_function: normalizeText(item.chapter_function || '') || (
+        mission ? `围绕本章任务“${mission}”承担推进作用。` : '承担本章推进作用。'
+      ),
+      allowed_change: normalizeText(item.allowed_change || '') || '只允许推进一步，不允许跨阶段突变。',
+      forbidden_change: normalizeText(item.forbidden_change || '') || '不能直接完成长期关系翻转、立场逆转或真相彻底揭示。',
+      dimension: normalizeText(item.dimension || '') || 'story_function',
+      direction: normalizeText(item.direction || '') || 'hold',
+      scope: normalizeText(item.scope || '') || 'temporary',
+      confidence: normalizeText(item.confidence || '') || 'low'
+    };
+  });
+}
+
 function buildRoleExecutionFallback(appearingRoles = [], characterNotes = '', chapterMission = '') {
   return normalizeRoleNames(appearingRoles).map((role) => ({
     role,
     baseline: normalizeText(characterNotes) || '延续当前人物底色。',
+    appearance_marker: '本章生成前必须补足可识别外形标识。',
     chapter_function: chapterMission
       ? `围绕本章任务“${normalizeText(chapterMission)}”承担推进作用。`
       : '承担本章推进作用。',
@@ -169,15 +250,11 @@ function buildChapterPlanRepairPayload(plan = {}) {
 
 function collectFeedbackAnchorTerms(structuredContent = {}) {
   const chapterGoalSnapshot = parseJsonObject(structuredContent.chapter_goal_snapshot);
-  const chapterOutlineSnapshot = parseJsonObject(structuredContent.chapter_outline_snapshot);
   const storylineContext = parseJsonObject(structuredContent.storyline_context);
 
   const terms = [
     normalizeText(chapterGoalSnapshot.chapter_mission || ''),
-    normalizeText(chapterGoalSnapshot.previous_hook || ''),
-    normalizeText(chapterOutlineSnapshot.summary || ''),
-    normalizeText(chapterOutlineSnapshot.ending_hook || ''),
-    normalizeText(chapterOutlineSnapshot.character_notes || '')
+    normalizeText(chapterGoalSnapshot.previous_hook || '')
   ];
 
   normalizeJsonArray(chapterGoalSnapshot.appearing_roles).forEach((item) => {
@@ -299,10 +376,20 @@ function normalizeChapterOutlinePayload(payload = {}) {
 
 function buildChapterPlanStructuredContent(payload = {}, chapterGoal = {}, chapterOutline = {}) {
   const structuredContent = parseJsonObject(payload.structured_content || payload.structuredContent);
-  const roleExecution = normalizeRoleExecutionList(payload.role_execution || structuredContent.role_execution);
+  const {
+    chapter_outline_structure: _legacyStructure,
+    chapter_outline_snapshot: _legacySnapshot,
+    ...remainingStructuredContent
+  } = structuredContent;
+  const roleExecution = enrichRoleExecutionForGeneration(
+    normalizeRoleExecutionList(payload.role_execution || structuredContent.role_execution),
+    chapterGoal.chapter_mission,
+    chapterOutline.character_notes
+  );
   const outlineSource = normalizeText(payload.source || structuredContent.chapter_outline_source || 'manual') || 'manual';
   return {
-    ...structuredContent,
+    ...remainingStructuredContent,
+    plot_notes: normalizeText(payload.plot_notes || payload.plotNotes || structuredContent.plot_notes || ''),
     chapter_outline_mode: structuredContent.chapter_outline_mode || 'single_latest',
     chapter_outline_source: outlineSource,
     chapter_goal_snapshot: {
@@ -313,23 +400,117 @@ function buildChapterPlanStructuredContent(payload = {}, chapterGoal = {}, chapt
       target_storylines: chapterGoal.target_storylines || [],
       previous_hook: chapterGoal.previous_hook || ''
     },
-    chapter_outline_snapshot: {
-      summary: chapterOutline.summary || '',
-      outline_text: chapterOutline.outline_text || '',
-      scene_outline: chapterOutline.scene_outline || [],
-      ending_hook: chapterOutline.ending_hook || '',
-      character_notes: chapterOutline.character_notes || '',
-      source: outlineSource,
-      mode: 'single_latest'
-    },
     role_execution: roleExecution.length > 0
       ? roleExecution
       : buildRoleExecutionFallback(
           chapterGoal.appearing_roles,
           chapterOutline.character_notes,
           chapterGoal.chapter_mission
-        )
+      )
   };
+}
+
+function formatChapterRoleNote(role, chapterNumber, characterNotes = '') {
+  const marker = `【第${Number(chapterNumber || 0)}章角色速查】${role.role}`;
+  const lines = [
+    marker,
+    role.appearance || role.appearance_marker ? `外形标识：${role.appearance || role.appearance_marker}` : '',
+    role.personality || role.baseline ? `核心性格：${role.personality || role.baseline}` : '',
+    role.background || role.chapter_function ? `身份背景：${role.background || role.chapter_function}` : '',
+    characterNotes ? `人物备注：${normalizeText(characterNotes)}` : ''
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
+function syncChapterRolesToCharacterLibrary(db, {
+  bookId,
+  userId = '',
+  chapterNumber,
+  chapterOutline = {},
+  structuredContent = {}
+}) {
+  const roles = normalizeRoleExecutionList(structuredContent.role_execution)
+    .filter((role) => role.role);
+  if (roles.length === 0) return 0;
+
+  const uniqueRoles = [];
+  const seenNames = new Set();
+  roles.forEach((role) => {
+    const name = normalizeText(role.role);
+    if (!name || seenNames.has(name)) return;
+    seenNames.add(name);
+    uniqueRoles.push({ ...role, role: name });
+  });
+
+  let changedCount = 0;
+  uniqueRoles.forEach((role) => {
+    const existing = execQueryOne(
+      db,
+      'SELECT * FROM novel_characters WHERE book_id = ? AND user_id = ? AND name = ? LIMIT 1',
+      [bookId, userId, role.role]
+    );
+    const chapterNote = formatChapterRoleNote(role, chapterNumber, chapterOutline.character_notes || '');
+
+    if (!existing) {
+      db.run(
+        `INSERT INTO novel_characters (
+          id, book_id, user_id, name, appearance, personality, background, notes,
+          character_type, role_tier, avatar_image
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          generateId(),
+          bookId,
+          userId,
+          role.role,
+          role.appearance || role.appearance_marker || '',
+          role.personality || role.baseline || '',
+          role.background || role.chapter_function || '',
+          chapterNote,
+          'chapter_character',
+          'supporting_major',
+          ''
+        ]
+      );
+      changedCount += 1;
+      return;
+    }
+
+    const updates = {};
+    if (!normalizeText(existing.personality) && (role.personality || role.baseline)) {
+      updates.personality = role.personality || role.baseline;
+    }
+    if (!normalizeText(existing.appearance) && (role.appearance || role.appearance_marker)) {
+      updates.appearance = role.appearance || role.appearance_marker;
+    }
+    if (!normalizeText(existing.background) && (role.background || role.chapter_function)) {
+      updates.background = role.background || role.chapter_function;
+    }
+    if (!normalizeText(existing.character_type)) {
+      updates.character_type = 'chapter_character';
+    }
+    if (!normalizeText(existing.role_tier)) {
+      updates.role_tier = 'supporting_major';
+    }
+
+    const existingNotes = existing.notes || '';
+    const noteMarker = `【第${Number(chapterNumber || 0)}章角色速查】${role.role}`;
+    if (!existingNotes.includes(noteMarker)) {
+      updates.notes = existingNotes
+        ? `${existingNotes}\n\n${chapterNote}`
+        : chapterNote;
+    }
+
+    const fields = Object.keys(updates);
+    if (fields.length > 0) {
+      db.run(
+        `UPDATE novel_characters SET ${fields.map((field) => `${field} = ?`).join(', ')} WHERE id = ?`,
+        [...fields.map((field) => updates[field]), existing.id]
+      );
+      changedCount += 1;
+    }
+  });
+
+  return changedCount;
 }
 
 function syncStorylineProgressFromChapterPlan(db, {
@@ -519,7 +700,15 @@ class BookService {
     const results = userId
       ? execQuery(db, query, [userId])
       : execQuery(db, query);
-    return results;
+    const statsMap = buildBookWordStatsMap(db, results.map((item) => item.id));
+    return results.map((item) => {
+      const stats = statsMap.get(String(item.id || '').trim()) || { chapter_count: 0, word_count: 0 };
+      return {
+        ...item,
+        chapter_count: stats.chapter_count,
+        word_count: stats.word_count
+      };
+    });
   }
 
   /**
@@ -527,7 +716,15 @@ class BookService {
    */
   async getById(id) {
     const db = await dbPromise;
-    return execQueryOne(db, 'SELECT * FROM books WHERE id = ?', [id]);
+    const book = execQueryOne(db, 'SELECT * FROM books WHERE id = ?', [id]);
+    if (!book) return null;
+    const statsMap = buildBookWordStatsMap(db, [id]);
+    const stats = statsMap.get(String(id || '').trim()) || { chapter_count: 0, word_count: 0 };
+    return {
+      ...book,
+      chapter_count: stats.chapter_count,
+      word_count: stats.word_count
+    };
   }
 
   /**
@@ -571,8 +768,10 @@ class BookService {
     // 2. 删除角色
     db.run('DELETE FROM novel_characters WHERE book_id = ?', [id]);
 
-    // 3. 删除大纲
-    db.run('DELETE FROM novel_outlines WHERE book_id = ?', [id]);
+    // 3. 删除规划
+    db.run('DELETE FROM book_plans WHERE book_id = ?', [id]);
+    db.run('DELETE FROM volume_plans WHERE book_id = ?', [id]);
+    db.run('DELETE FROM chapter_plans WHERE book_id = ?', [id]);
 
     // 4. 删除伏笔
     db.run('DELETE FROM foreshadowing WHERE book_id = ?', [id]);
@@ -748,6 +947,27 @@ class ChapterService {
     }
 
     return false;
+  }
+
+  async deleteByBookAndChapterNumber(bookId, chapterNumber, userId = '') {
+    const existing = await this.getByBookAndChapterNumber(bookId, chapterNumber, userId);
+    if (!existing) return false;
+    return this.delete(existing.id);
+  }
+
+  async deleteByBookId(bookId, userId = '') {
+    const db = await dbPromise;
+    let sql = 'DELETE FROM chapters WHERE book_id = ?';
+    const params = [bookId];
+    if (userId) {
+      sql += ' AND user_id = ?';
+      params.push(userId);
+    }
+    db.run(sql, params);
+    const result = execQueryOne(db, 'SELECT changes() as changes');
+    db.run('UPDATE books SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [bookId]);
+    saveDatabase(db);
+    return result ? Number(result.changes || 0) : 0;
   }
 
   /**
@@ -1091,105 +1311,10 @@ class CharacterService {
   }
 }
 
-// ==================== 大纲管理 ====================
-
-class OutlineService {
-  /**
-   * 创建或更新大纲（关联用户）
-   */
-  async upsert(bookId, mainOutline = '', volumeOutline = '', detailedOutline = '', userId = '') {
-    const db = await dbPromise;
-
-    // 检查是否已存在
-    const existing = execQueryOne(db, 'SELECT id FROM novel_outlines WHERE book_id = ? AND user_id = ?', [bookId, userId]);
-
-    if (existing) {
-      db.run(`
-        UPDATE novel_outlines
-        SET main_outline = ?, volume_outline = ?, detailed_outline = ?
-        WHERE book_id = ? AND user_id = ?
-      `, [mainOutline, volumeOutline, detailedOutline, bookId, userId]);
-    } else {
-      const id = generateId();
-      db.run(`
-        INSERT INTO novel_outlines (id, book_id, user_id, main_outline, volume_outline, detailed_outline)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `, [id, bookId, userId, mainOutline, volumeOutline, detailedOutline]);
-    }
-
-    saveDatabase(db);
-    return this.getByBookId(bookId, userId);
-  }
-
-  /**
-   * 获取书籍的大纲（按用户筛选）
-   */
-  async getByBookId(bookId, userId = '') {
-    const db = await dbPromise;
-    const outline = execQueryOne(db, 'SELECT * FROM novel_outlines WHERE book_id = ? AND user_id = ?', [bookId, userId]);
-
-    if (!outline) {
-      return null;
-    }
-
-    const content = String(outline.content || '').trim();
-    const type = String(outline.type || 'book');
-
-    return {
-      ...outline,
-      main_outline: outline.main_outline || (type === 'book' ? content : ''),
-      volume_outline: outline.volume_outline || (type === 'volume' ? content : ''),
-      detailed_outline: outline.detailed_outline || (type === 'chapter' ? content : '')
-    };
-  }
-
-  /**
-   * 删除大纲
-   */
-  async delete(bookId) {
-    const db = await dbPromise;
-    db.run('DELETE FROM novel_outlines WHERE book_id = ?', [bookId]);
-    saveDatabase(db);
-    const result = execQueryOne(db, 'SELECT changes() as changes');
-    return result && result.changes > 0;
-  }
-
-  /**
-   * 清理旧数据：将全书大纲迁移到章节
-   */
-  async cleanupOldData(bookId, userId = '') {
-    const db = await dbPromise;
-
-    // 获取全书大纲
-    const outline = execQueryOne(db, 'SELECT * FROM novel_outlines WHERE book_id = ? AND user_id = ?', [bookId, userId]);
-
-    if (!outline || !outline.main_outline || outline.main_outline.trim() === '') {
-      return { migrated: 0 };
-    }
-
-    // 找到第一个章节
-    const chapter = execQueryOne(db, 'SELECT id, chapter_number FROM chapters WHERE book_id = ? ORDER BY chapter_number ASC LIMIT 1', [bookId]);
-
-    if (!chapter) {
-      return { migrated: 0 };
-    }
-
-    // 如果章节没有大纲，则迁移
-    if (!chapter.outline || chapter.outline.trim() === '') {
-      db.run('UPDATE chapters SET outline = ? WHERE id = ?', [outline.main_outline, chapter.id]);
-      db.run('UPDATE novel_outlines SET main_outline = "" WHERE book_id = ? AND user_id = ?', [bookId, userId]);
-      saveDatabase(db);
-      return { migrated: 1 };
-    }
-
-    return { migrated: 0 };
-  }
-}
-
 class BookPlanService {
   async getByBookId(bookId, userId = '') {
     const db = await dbPromise;
-    let plan = execQueryOne(
+    return execQueryOne(
       db,
       userId
         ? 'SELECT * FROM book_plans WHERE book_id = ? AND user_id = ? ORDER BY updated_at DESC LIMIT 1'
@@ -1197,39 +1322,6 @@ class BookPlanService {
       userId ? [bookId, userId] : [bookId]
     );
 
-    if (plan) {
-      return plan;
-    }
-
-    const legacy = execQueryOne(
-      db,
-      userId
-        ? 'SELECT * FROM novel_outlines WHERE book_id = ? AND user_id = ? ORDER BY updated_at DESC LIMIT 1'
-        : 'SELECT * FROM novel_outlines WHERE book_id = ? ORDER BY updated_at DESC LIMIT 1',
-      userId ? [bookId, userId] : [bookId]
-    );
-
-    if (!legacy) return null;
-
-    return {
-      id: '',
-      book_id: bookId,
-      user_id: userId,
-      premise: '',
-      main_goal: '',
-      core_conflict: '',
-      world_rules: '',
-      role_summary: '',
-      main_outline: legacy.main_outline || '',
-      volume_outline: legacy.volume_outline || '',
-      detailed_outline: legacy.detailed_outline || '',
-      structured_content: '',
-      source: 'imported',
-      status: 'draft',
-      version: 1,
-      created_at: legacy.created_at,
-      updated_at: legacy.updated_at
-    };
   }
 
   async upsert(bookId, payload = {}, userId = '') {
@@ -1305,15 +1397,6 @@ class BookPlanService {
       ]);
     }
 
-    // 兼容同步到旧全书大纲层
-    await new OutlineService().upsert(
-      bookId,
-      normalized.main_outline,
-      normalized.volume_outline,
-      normalized.detailed_outline,
-      userId
-    );
-
     // 兼容同步到旧“全书角色摘要”
     if (normalized.role_summary.trim()) {
       const existingSummary = execQueryOne(
@@ -1358,43 +1441,7 @@ class VolumePlanService {
       return rows;
     }
 
-    const legacySettings = execQuery(
-      db,
-      userId
-        ? 'SELECT * FROM volume_settings WHERE book_id = ? AND user_id = ? ORDER BY volume_number ASC'
-        : 'SELECT * FROM volume_settings WHERE book_id = ? ORDER BY volume_number ASC',
-      userId ? [bookId, userId] : [bookId]
-    );
-    const legacyOutlines = execQuery(
-      db,
-      'SELECT * FROM novel_outlines WHERE book_id = ? AND type = "volume" ORDER BY volume_number ASC',
-      [bookId]
-    );
-
-    return legacySettings.map((setting) => {
-      const outline = legacyOutlines.find((item) => Number(item.volume_number || 0) === Number(setting.volume_number || 0));
-      return {
-        id: '',
-        book_id: bookId,
-        user_id: userId,
-        volume_number: setting.volume_number,
-        volume_name: setting.volume_name || outline?.volume_title || '',
-        volume_theme: setting.volume_theme || '',
-        stage_goal: '',
-        core_conflict: '',
-        start_role_state: '',
-        end_role_state: '',
-        estimated_chapters: setting.estimated_chapters || 15,
-        storyline_quota: setting.storyline_count || 3,
-        structured_content: '',
-        notes: setting.notes || outline?.content || '',
-        source: 'imported',
-        status: setting.status || 'draft',
-        version: 1,
-        created_at: setting.created_at,
-        updated_at: setting.updated_at
-      };
-    });
+    return [];
   }
 
   async deleteByBookId(bookId, userId = '') {
@@ -1406,7 +1453,6 @@ class VolumePlanService {
       db.run("DELETE FROM volume_plans WHERE book_id = ? AND user_id = ''", [bookId]);
       db.run('DELETE FROM volume_settings WHERE book_id = ?', [bookId]);
     }
-    db.run('DELETE FROM novel_outlines WHERE book_id = ? AND type = "volume"', [bookId]);
     saveDatabase(db);
     return true;
   }
@@ -1536,25 +1582,6 @@ class VolumePlanService {
       );
     }
 
-    // 兼容同步 novel_outlines(type=volume)
-    const existingOutline = execQueryOne(
-      db,
-      'SELECT id FROM novel_outlines WHERE book_id = ? AND type = "volume" AND volume_number = ?',
-      [bookId, volumeNumber]
-    );
-    const legacyContent = normalized.notes || normalized.stage_goal || normalized.core_conflict || '';
-    if (existingOutline) {
-      db.run(
-        'UPDATE novel_outlines SET volume_title = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-        [normalized.volume_name, legacyContent, existingOutline.id]
-      );
-    } else {
-      db.run(
-        'INSERT INTO novel_outlines(id, book_id, user_id, type, volume_number, volume_title, content) VALUES(?,?,?,?,?,?,?)',
-        [generateId(), bookId, userId, 'volume', volumeNumber, normalized.volume_name, legacyContent]
-      );
-    }
-
     saveDatabase(db);
     return this.getByBookId(bookId, userId);
   }
@@ -1608,6 +1635,34 @@ class ChapterPlanService {
     }
     sql += ' ORDER BY updated_at DESC LIMIT 1';
     return execQueryOne(db, sql, params);
+  }
+
+  async deleteByBookAndChapterNumber(bookId, chapterNumber, userId = '') {
+    const db = await dbPromise;
+    let sql = 'DELETE FROM chapter_plans WHERE book_id = ? AND chapter_number = ?';
+    const params = [bookId, chapterNumber];
+    if (userId) {
+      sql += ' AND user_id = ?';
+      params.push(userId);
+    }
+    db.run(sql, params);
+    saveDatabase(db);
+    const result = execQueryOne(db, 'SELECT changes() as changes');
+    return result ? Number(result.changes || 0) : 0;
+  }
+
+  async deleteByBookId(bookId, userId = '') {
+    const db = await dbPromise;
+    let sql = 'DELETE FROM chapter_plans WHERE book_id = ?';
+    const params = [bookId];
+    if (userId) {
+      sql += ' AND user_id = ?';
+      params.push(userId);
+    }
+    db.run(sql, params);
+    saveDatabase(db);
+    const result = execQueryOne(db, 'SELECT changes() as changes');
+    return result ? Number(result.changes || 0) : 0;
   }
 
   async upsert(bookId, chapterNumber, payload = {}, userId = '') {
@@ -1677,6 +1732,13 @@ class ChapterPlanService {
       chapterGoal,
       structuredContent: normalizedStructuredContent
     });
+    syncChapterRolesToCharacterLibrary(db, {
+      bookId,
+      userId,
+      chapterNumber,
+      chapterOutline,
+      structuredContent: normalizedStructuredContent
+    });
 
     saveDatabase(db);
     return this.getByBookAndChapterNumber(bookId, chapterNumber, userId);
@@ -1705,6 +1767,15 @@ class ChapterPlanService {
       chapterGoal,
       structuredContent
     });
+    syncChapterRolesToCharacterLibrary(db, {
+      bookId,
+      userId,
+      chapterNumber,
+      chapterOutline: {
+        character_notes: existing.character_notes || ''
+      },
+      structuredContent
+    });
 
     saveDatabase(db);
     return this.getByBookAndChapterNumber(bookId, chapterNumber, userId);
@@ -1717,11 +1788,11 @@ module.exports = {
   TemplateService,
   ForeshadowingService,
   CharacterService,
-  OutlineService,
   BookPlanService,
   VolumePlanService,
   ChapterPlanService,
   syncStorylineProgressFromChapterPlan,
+  syncChapterRolesToCharacterLibrary,
   generateId,
   saveDatabase,
   execQuery,

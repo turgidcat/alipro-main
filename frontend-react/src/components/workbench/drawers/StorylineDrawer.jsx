@@ -1,12 +1,12 @@
 export default function StorylineDrawer({ storylines, mainStorylineId, targetStorylineIds, currentChapter }) {
   if (!storylines || storylines.length === 0) {
-    return <p className="context-drawer-empty">本书还没有剧情线。</p>;
+    return <p className="context-drawer-empty">本书还没有叙事脉络。</p>;
   }
 
   return (
     <div className="drawer-storyline">
       <p className="drawer-muted-copy">
-        写作速查 · 本章命中的剧情线高亮。完整编辑请在创作台左侧“剧情线挂载”操作。
+        写作速查 · 本章命中的叙事脉络高亮。完整编辑请在创作台左侧“叙事脉络挂载”操作。
       </p>
       <div className="drawer-detail-stack">
         {storylines.map((sl, index) => {
@@ -19,8 +19,8 @@ export default function StorylineDrawer({ storylines, mainStorylineId, targetSto
               key={sl.id || index}
               className={`drawer-list-item${highlight ? ' is-highlight' : ''}`}
             >
-              <strong>{sl.storyline_name || sl.name || '未命名剧情线'}</strong>
-              {isMain ? <span className="drawer-kicker">主推进</span> : null}
+              <strong>{sl.storyline_name || sl.name || '未命名叙事脉络'}</strong>
+              {isMain ? <span className="drawer-kicker">当前卷主线</span> : null}
               {isTarget && !isMain ? <span className="drawer-kicker">关联</span> : null}
               <div className="drawer-muted-copy">
                 {sl.description || sl.core_conflict || ''}

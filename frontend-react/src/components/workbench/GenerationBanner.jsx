@@ -121,8 +121,8 @@ export default function GenerationBanner(props) {
                 className={
                   'inline-flex min-h-8 items-center rounded-full px-3 text-[12px] font-semibold ' +
                   (hasText(item.value)
-                    ? 'bg-[color:rgba(219,240,224,0.8)] text-[color:#315e44]'
-                    : 'bg-[color:rgba(247,232,204,0.78)] text-[color:#8a5a1f]')
+                    ? 'bg-[color:rgba(220,235,227,0.88)] text-[color:#213f37]'
+                    : 'bg-[color:rgba(243,226,189,0.84)] text-[color:#5e3a1b]')
                 }
               >
                 {item.label}：{hasText(item.value) ? '已填' : '未填'}
@@ -139,7 +139,7 @@ export default function GenerationBanner(props) {
                 className={
                   'inline-flex min-h-8 items-center rounded-full px-3 text-[12px] font-semibold ' +
                   (hasText(item.value)
-                    ? 'bg-[color:rgba(219,240,224,0.8)] text-[color:#315e44]'
+                    ? 'bg-[color:rgba(220,235,227,0.88)] text-[color:#213f37]'
                     : 'bg-[color:rgba(243,237,225,0.76)] text-[color:var(--muted)]')
                 }
               >

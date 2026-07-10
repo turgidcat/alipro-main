@@ -375,7 +375,7 @@ export function buildLocalChapterFeedback({
   const storyProgress = [
     chapterStructure.chapter_goal ? `完成本章目标：${chapterStructure.chapter_goal}` : '',
     mainStorylineLabel && mainStorylineLabel !== '暂未指定' ? `主线推进：${mainStorylineLabel}` : '',
-    targetStorylineLabel && targetStorylineLabel !== '暂未挂接' ? `关联剧情线：${targetStorylineLabel}` : ''
+    targetStorylineLabel && targetStorylineLabel !== '暂未挂接' ? `关联脉络：${targetStorylineLabel}` : ''
   ].filter(Boolean);
   const rhythmText = Array.isArray(rhythmHints)
     ? rhythmHints.map((hint) => hint.text).filter(Boolean).join('\n')
