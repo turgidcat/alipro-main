@@ -713,6 +713,132 @@ body .books-admin-page .books-page-card-action-btn {
   color: #465365;
 }
 
+/* Chapter index and focused prose reader */
+body .books-admin-page .chapter-flow-card {
+  padding: 18px;
+  border: 1px solid var(--product-line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: none;
+}
+
+body .books-admin-page .chapter-flow-card:hover {
+  border-color: #bcc7d4;
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+body .books-admin-page .chapter-title-link {
+  color: var(--product-text);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 720;
+}
+
+body .books-admin-page.library-app-shell.is-chapter-reader-page {
+  display: block;
+  width: min(1120px, calc(100% - 32px)) !important;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body .books-admin-page.is-chapter-reader-page .library-main {
+  width: 100%;
+  padding: 36px 56px 72px;
+}
+
+body .books-admin-page.is-chapter-reader-page .books-page-header {
+  width: min(940px, 100%);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+body .books-admin-page .chapter-reader-shell {
+  display: grid;
+  width: min(900px, 100%);
+  margin: 0 auto;
+  gap: 24px;
+}
+
+body .books-admin-page .chapter-reader-toolbar,
+body .books-admin-page .chapter-reader-footer {
+  width: min(760px, 100%);
+  margin: 0 auto;
+}
+
+body .books-admin-page .chapter-reader-toolbar {
+  padding: 2px 0 18px;
+  border-bottom: 1px solid var(--product-line);
+}
+
+body .books-admin-page .chapter-reader-head {
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: 24px 0 28px;
+  border-bottom: 1px solid var(--product-line);
+  text-align: left;
+}
+
+body .books-admin-page .chapter-reader-head h2 {
+  margin: 10px 0 14px;
+  color: var(--product-text);
+  font-family: var(--font-serif);
+  font-size: clamp(34px, 4vw, 46px);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+}
+
+body .books-admin-page .chapter-reader-meta {
+  justify-content: flex-start;
+  color: var(--product-muted);
+}
+
+body .books-admin-page .chapter-reader-meta span {
+  border-color: var(--product-line);
+  background: var(--product-surface-subtle);
+}
+
+body .books-admin-page .chapter-reader-audit,
+body .books-admin-page .chapter-reader-note,
+body .books-admin-page .chapter-reader-prose {
+  width: min(720px, 100%);
+  box-sizing: border-box;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+body .books-admin-page .chapter-reader-audit {
+  border-left-color: #9cb0e8;
+  color: var(--product-muted);
+}
+
+body .books-admin-page .chapter-reader-note {
+  border: 1px solid #dbe3f5;
+  border-left: 3px solid #7893dc;
+  border-radius: 10px;
+  background: #f7f9fe;
+  color: #5e6a7d;
+}
+
+body .books-admin-page .chapter-reader-prose {
+  padding: 14px 0 24px;
+  color: #273140;
+  font-family: var(--font-serif);
+  font-size: 18px;
+  line-height: 2.08;
+  letter-spacing: 0.012em;
+}
+
+body .books-admin-page .chapter-reader-prose p {
+  margin: 0 0 1.15em;
+  text-indent: 2em;
+}
+
+body .books-admin-page .chapter-reader-footer {
+  padding-top: 22px;
+  border-top: 1px solid var(--product-line);
+}
+
 /* Workbench */
 body .workbench-stage {
   background: var(--product-canvas);
@@ -1024,6 +1150,31 @@ body .changelog-page {
   body .books-admin-page .books-page-header h1,
   body .books-admin-page .library-page-title h1 {
     font-size: 28px;
+  }
+
+  body .books-admin-page.library-app-shell.is-chapter-reader-page {
+    width: calc(100% - 20px) !important;
+  }
+
+  body .books-admin-page.is-chapter-reader-page .library-main {
+    padding: 26px 18px 48px;
+  }
+
+  body .books-admin-page .chapter-reader-shell {
+    gap: 18px;
+  }
+
+  body .books-admin-page .chapter-reader-head {
+    padding: 18px 0 22px;
+  }
+
+  body .books-admin-page .chapter-reader-head h2 {
+    font-size: 32px;
+  }
+
+  body .books-admin-page .chapter-reader-prose {
+    font-size: 17px;
+    line-height: 2;
   }
 
   body .workbench-app-shell {
