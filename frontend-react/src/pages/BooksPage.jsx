@@ -620,16 +620,16 @@ export default function BooksPage() {
   );
   const isBookDetailPage = Boolean(routeBookId) || (view === 'detail' && detailBook && !isSubPage);
   const pageName = isOutlinePage
-    ? '资料库 · 大纲链页'
+    ? '资料库 · 大纲链'
     : isCharacterPage
-      ? '资料库 · 角色资料页'
+      ? '资料库 · 角色资料'
       : isChapterReaderPage
-        ? '正文阅读页'
+        ? '正文阅读'
         : isChapterPage
-          ? '资料库 · 章节与正文页'
+          ? '资料库 · 章节与正文'
         : isBookDetailPage
-          ? '资料库 · 书籍详情页'
-          : '资料库 · 书籍列表页';
+          ? '资料库 · 书籍详情'
+          : '资料库 · 书籍列表';
   const pageDescription = isOutlinePage
     ? `当前大纲链：${detailBook?.title || currentBook?.title || '未命名书籍'}`
     : isCharacterPage
@@ -640,7 +640,7 @@ export default function BooksPage() {
           ? `当前章节与正文：${detailBook?.title || currentBook?.title || '未命名书籍'}`
         : isBookDetailPage
           ? `当前书籍详情：${detailBook?.title || currentBook?.title || '未命名书籍'}`
-          : '书籍列表页：选择一本书进入详情，或先筛选再批量管理。';
+          : '选择一本书进入详情，或使用筛选条件快速定位作品。';
   const shellBook = detailBook || currentBook;
   const shellBookId = shellBook?.id || currentBookId;
 
@@ -1818,7 +1818,7 @@ export default function BooksPage() {
       .books-page-card-action-btn:hover { border-color: var(--brand); color: var(--brand-deep); background: color-mix(in srgb, var(--brand-soft) 36%, transparent); }
       .books-page-card-current { display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px; border-radius: 999px; background: color-mix(in srgb, var(--brand-soft) 72%, var(--panel)); color: var(--brand-deep); font-size: 11px; font-weight: 700; white-space: nowrap; }
     `}</style>
-    <div className={joinClasses('books-admin-page library-app-shell mx-auto w-[min(var(--layout-max-width),calc(100%-1.5rem))] pb-[var(--page-shell-pad-bottom)] pt-8', sidebarCollapsed ? 'is-sidebar-collapsed' : '', sidebarCollapsed && sidebarPeek ? 'is-sidebar-peek' : '', isChapterReaderPage ? 'is-chapter-reader-page' : '')}>
+    <div className={joinClasses('books-admin-page library-app-shell', sidebarCollapsed ? 'is-sidebar-collapsed' : '', sidebarCollapsed && sidebarPeek ? 'is-sidebar-peek' : '', isChapterReaderPage ? 'is-chapter-reader-page' : '')}>
       {!isChapterReaderPage ? (
         <>
           <aside

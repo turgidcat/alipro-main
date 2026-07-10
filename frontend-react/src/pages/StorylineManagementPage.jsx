@@ -473,8 +473,11 @@ export default function StorylineManagementPage() {
       </aside>
 
       <main className="library-main">
-        <div className="library-page-title">
-          <h2>资料库 · 叙事脉络页</h2>
+        <div className="books-page-header">
+          <div>
+            <h1>资料库 · 叙事脉络</h1>
+            <p className="books-page-header-sub">按分卷维护剧情线、章节跨度与叙事进度。</p>
+          </div>
         </div>
       {!bookId ? (
         <section className="detail-panel">
