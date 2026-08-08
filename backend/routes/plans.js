@@ -299,7 +299,6 @@ router.post('/books/:bookId/volume-plans/generate', async (req, res) => {
     const prompt = buildVolumePlanGenerationPrompt(bookPlan, bookId, targetVolumeCount);
     const result = await deepseekService.generate({
       prompt,
-      model: 'deepseek-v4-pro',
       temperature: 0.35,
       maxTokens: 2200,
       responseFormat: { type: 'json_object' }
@@ -315,7 +314,6 @@ router.post('/books/:bookId/volume-plans/generate', async (req, res) => {
       const repairPrompt = buildVolumePlanCountRepairPrompt(volumeDrafts, targetVolumeCount);
       const repairResult = await deepseekService.generate({
         prompt: repairPrompt,
-        model: 'deepseek-v4-pro',
         temperature: 0.2,
         maxTokens: 2600,
         responseFormat: { type: 'json_object' }

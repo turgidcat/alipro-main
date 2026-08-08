@@ -156,6 +156,9 @@ function buildStatusMeta({
 }) {
   const qualityStatus = cycleResult?.qualityCheck?.status || '';
   const hasCompleteFeedback = !!cycleResult?.feedbackSaved && !!cycleResult?.qualityCheckSaved;
+  const needsHumanReview = Boolean(cycleResult?.qualityCheck?.needs_human_review);
+  const auditFailed = hasCompleteFeedback && qualityStatus === 'failed';
+  const auditWarning = hasCompleteFeedback && (qualityStatus === 'warning' || needsHumanReview);
   const isDegraded = hasCompleteFeedback
     && (
       !!cycleResult?.usedLocalFallback
@@ -163,6 +166,22 @@ function buildStatusMeta({
       || qualityStatus === 'degraded'
       || qualityStatus === 'not_run'
     );
+
+  if (cycleResult?.contentSaved && auditFailed) {
+    return {
+      statusKind: 'error',
+      statusTitle: `${successTitle}（审校未通过）`,
+      statusText: '正文已保存为待审草稿，但正式审校未通过；修复或人工确认前不应自动继续下一章。'
+    };
+  }
+
+  if (cycleResult?.contentSaved && auditWarning) {
+    return {
+      statusKind: 'warning',
+      statusTitle: `${successTitle}（需要复核）`,
+      statusText: '正文与正式反馈已保存，但审校要求人工复核；确认前不应自动继续下一章。'
+    };
+  }
 
   if (cycleResult?.contentSaved && hasCompleteFeedback && !isDegraded) {
     return {

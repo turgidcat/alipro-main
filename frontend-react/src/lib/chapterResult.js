@@ -37,7 +37,15 @@ function normalizeQualityCheck(value = {}) {
     }).filter(Boolean),
     risks: normalizeArray(normalized.risks).map((item) => normalizeText(item)).filter(Boolean),
     checked_at: checkedAt || new Date().toISOString(),
-    degraded_reason: degradedReason || null
+    degraded_reason: degradedReason || null,
+    audit_layers: normalized.audit_layers && typeof normalized.audit_layers === 'object' ? normalized.audit_layers : {},
+    model_audit_dimensions: normalizeArray(normalized.model_audit_dimensions),
+    plan_anchor_audit: normalized.plan_anchor_audit && typeof normalized.plan_anchor_audit === 'object' ? normalized.plan_anchor_audit : {},
+    storyline_audit: normalized.storyline_audit && typeof normalized.storyline_audit === 'object' ? normalized.storyline_audit : {},
+    word_count_audit: normalized.word_count_audit && typeof normalized.word_count_audit === 'object' ? normalized.word_count_audit : {},
+    needs_human_review: Boolean(normalized.needs_human_review),
+    human_confirmed: Boolean(normalized.human_confirmed),
+    human_confirmed_at: normalizeText(normalized.human_confirmed_at || normalized.humanConfirmedAt)
   };
 }
 

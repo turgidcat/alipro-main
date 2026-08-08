@@ -12,6 +12,7 @@ import {
   saveStoryline
 } from '../workbenchApi.js';
 import { formatStorylineTypeLabel } from '../lib/storylineLabel.js';
+import LibraryTopNav from '../components/library/LibraryTopNav.jsx';
 import '../styles.css';
 import '../app-shell.css';
 
@@ -226,9 +227,6 @@ export default function StorylineManagementPage() {
   const [completedStorylineId, setCompletedStorylineId] = useState('');
   const [nodeDetailStoryline, setNodeDetailStoryline] = useState(null);
   const editorRef = useRef(null);
-  const sidebarCollapsed = false;
-  const sidebarPeek = false;
-
   useEffect(() => {
     let cancelled = false;
     fetchBookList().then((list) => {
@@ -418,59 +416,22 @@ export default function StorylineManagementPage() {
   }
 
   return (
-    <div className={`books-admin-page library-page library-app-shell${sidebarCollapsed ? ' is-sidebar-collapsed' : ''}${sidebarCollapsed && sidebarPeek ? ' is-sidebar-peek' : ''}`}>
-      <aside
-        className="library-sidebar"
-        aria-label="资料库导航"
-      >
-        <div className="library-sidebar-head">
-          <div className="library-surface-switcher">
-            <button
-              type="button"
-              className="library-surface-entry is-primary"
-              onClick={() => openBooksSummaryPage('')}
-              title="返回资料库列表"
-              aria-current="page"
-            >
-              <span className="library-sidebar-kicker">书籍管理</span>
-              <strong>资料库</strong>
-            </button>
-            <button
-              type="button"
-              className="library-surface-entry is-secondary"
-              onClick={() => openWorkbench(bookId)}
-              disabled={!bookId}
-              title="切换到创作台"
-            >
-              <span className="library-sidebar-kicker">章节创作</span>
-              <strong>创作台</strong>
-            </button>
-          </div>
-        </div>
-        <nav className="library-sidebar-nav" aria-label="资料库页面">
-          <button type="button" data-short="列" className="library-nav-item" onClick={() => openBooksSummaryPage('')} title="书籍列表">书籍列表</button>
-          <button type="button" data-short="总" className="library-nav-item" onClick={() => openBooksSummaryPage(bookId)} disabled={!bookId} title="全书汇总">全书汇总</button>
-          <button type="button" data-short="纲" className="library-nav-item" onClick={() => openBooksOutlinePage(bookId)} disabled={!bookId} title="大纲链">大纲链</button>
-          <button type="button" data-short="脉" className="library-nav-item is-active" disabled={!bookId} title="叙事脉络">叙事脉络</button>
-          <button type="button" data-short="角" className="library-nav-item" onClick={() => openBooksCharacterPage(bookId)} disabled={!bookId} title="角色资料">角色资料</button>
-          <button type="button" data-short="章" className="library-nav-item" onClick={() => openBooksChapterPage(bookId)} disabled={!bookId} title="章节与正文">章节与正文</button>
-        </nav>
-        <div className="library-sidebar-section">
-          <div className="library-sidebar-context">
-            <span>当前操作书籍</span>
-            <strong>{book?.title || '请先选择书籍'}</strong>
-          </div>
-          {books.length > 1 ? (
-            <label className="library-book-switcher">
-              <span>切换书籍</span>
-              <select value={bookId} onChange={(event) => switchCurrentBook(event.target.value)}>
-                {books.map((item) => <option key={item.id} value={item.id}>{item.title || '未命名书籍'}</option>)}
-              </select>
-            </label>
-          ) : null}
-          {!bookId ? <p className="library-sidebar-note">先在书籍列表选择或新建一本书，才能管理叙事脉络。</p> : null}
-        </div>
-      </aside>
+    <div className="books-admin-page library-page library-app-shell">
+      <LibraryTopNav
+        active="storyline"
+        bookId={bookId || ''}
+        bookTitle={book?.title || '请先选择书籍'}
+        books={books}
+        currentBookId={bookId}
+        onSwitchBook={switchCurrentBook}
+        onNavigate={(key) => {
+          if (key === 'list') openBooksSummaryPage('');
+          else if (key === 'summary') openBooksSummaryPage(bookId);
+          else if (key === 'outline') openBooksOutlinePage(bookId);
+          else if (key === 'characters') openBooksCharacterPage(bookId);
+          else if (key === 'chapters') openBooksChapterPage(bookId);
+        }}
+      />
 
       <main className="library-main">
         <div className="books-page-header">
@@ -765,13 +726,12 @@ export default function StorylineManagementPage() {
           --books-admin-radius-sm: 12px;
           position: relative;
           display: grid;
-          grid-template-columns: 268px minmax(0, 1fr);
+          grid-template-columns: minmax(0, 1fr);
           align-items: start;
-          gap: 16px;
+          gap: 18px;
           width: min(1480px, calc(100% - 1rem));
           padding-top: 14px;
           padding-bottom: 36px;
-          transition: grid-template-columns 160ms ease;
         }
         .library-page .storyline-control-panel {
           display: grid;
@@ -1120,55 +1080,6 @@ export default function StorylineManagementPage() {
           line-height: 1.15;
           letter-spacing: -0.035em;
         }
-        .library-sidebar-head {
-          display: grid;
-          gap: 12px;
-          padding-bottom: 10px;
-          border-bottom: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
-        }
-        .library-surface-switcher {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 8px;
-          align-items: stretch;
-        }
-        .library-surface-entry {
-          appearance: none;
-          display: grid;
-          gap: 4px;
-          min-width: 0;
-          min-height: 58px;
-          border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
-          border-radius: 12px;
-          background: color-mix(in srgb, var(--surface) 74%, transparent);
-          padding: 10px 12px;
-          color: var(--text);
-          cursor: pointer;
-          text-align: left;
-          transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
-        }
-        .library-surface-entry:hover,
-        .library-surface-entry.is-primary {
-          border-color: color-mix(in srgb, var(--brand) 36%, var(--line));
-          background: color-mix(in srgb, var(--brand) 7%, var(--surface));
-        }
-        .library-surface-entry strong {
-          margin: 0;
-          color: var(--text);
-          font-family: var(--font-serif);
-          font-size: 22px;
-          font-weight: 900;
-          line-height: 1;
-          letter-spacing: -0.04em;
-        }
-        .library-surface-entry:hover strong {
-          color: var(--brand-deep);
-        }
-        .library-surface-entry:disabled {
-          cursor: not-allowed;
-          opacity: 0.42;
-        }
-        .library-sidebar-kicker,
         .library-sidebar-label {
           color: var(--brand);
           font-family: var(--font-mono);

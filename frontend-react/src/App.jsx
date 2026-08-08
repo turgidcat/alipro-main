@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   createBook,
+  confirmChapterReview,
   deleteChapterContentByNumber,
   fetchChapterSetupBundle,
   fetchPromptPreview,
@@ -35,6 +36,7 @@ import {
 import {
   buildRevisionDraftFromSuggestions,
   buildRevisionParagraphDiffRows,
+  buildRevisionDiffRows,
   normalizeParagraphs,
   summarizeRevisionSuggestions,
   splitRevisionParagraphs
@@ -46,6 +48,8 @@ import { genreOptions, getSubgenreOptions } from './lib/bookGenres.js';
 import { formatChapterLabel, normalizeChapterName } from './lib/chapterName.js';
 import Modal from './components/workbench/Modal.jsx';
 import './workbench-layout.css';
+import './cinematic-workbench.css';
+import './workbench-paper.css';
 import GlobalBar from './components/workbench/GlobalBar.jsx';
 import PromptManagerPage from './components/workbench/PromptManagerPage.jsx';
 import ChapterConfigPanel from './components/workbench/ChapterConfigPanel.jsx';
@@ -433,6 +437,8 @@ export default function App() {
     updatedAt: ''
   });
   const generationAbortRef = useRef(null);
+  const revisionSessionChapterRef = useRef(null);
+  const [reviewConfirming, setReviewConfirming] = useState(false);
 
   useEffect(() => () => {
     generationAbortRef.current?.abort();
@@ -651,6 +657,31 @@ export default function App() {
     setPlanningNotice({ kind, title, text });
   }
 
+  async function handleConfirmChapterReview() {
+    if (!selectedBookId || reviewConfirming) return;
+    setReviewConfirming(true);
+    try {
+      await confirmChapterReview(selectedBookId, chapterNumber);
+      setGenerationState((current) => ({
+        ...current,
+        qualityCheck: {
+          ...(current.qualityCheck || {}),
+          human_confirmed: true,
+          human_confirmed_at: new Date().toISOString()
+        }
+      }));
+      pushPlanningNotice(
+        'success',
+        '已确认放行',
+        `第 ${chapterNumber} 章的创作审校已人工确认，生成下一章时不再被上一章门禁阻塞。`
+      );
+    } catch (confirmError) {
+      pushPlanningNotice('error', '确认放行失败', confirmError.message);
+    } finally {
+      setReviewConfirming(false);
+    }
+  }
+
   async function persistCurrentChapterPlan({
     plan,
     successTitle,
@@ -774,7 +805,8 @@ export default function App() {
     successTitle,
     successText,
     generationAudit,
-    openResultModal = false
+    openResultModal = false,
+    keepRevisionOriginal = false
   }) {
     const cycleResult = await persistChapterResultCycle({
       bookId: selectedBookId,
@@ -814,10 +846,17 @@ export default function App() {
       setChapterView(refreshed.view);
       setChapterContext(refreshed.context);
     } catch (_) {}
-    setRevisionOriginal(String(content || ''));
-    setRevisionDraft(String(content || ''));
+    if (keepRevisionOriginal) {
+      // 校改保存：保留打开校改时的原文作为对比锚点，校改稿写入 draft
+      setRevisionDraft(String(content || ''));
+    } else {
+      // 生成等场景：原文与草稿都重置为最新内容
+      setRevisionOriginal(String(content || ''));
+      setRevisionDraft(String(content || ''));
+    }
     setRevisionSuggestions(null);
     setRevisionError('');
+    revisionSessionChapterRef.current = chapterNumber;
     if (openResultModal) {
       setResultModalOpen(true);
     }
@@ -866,13 +905,20 @@ export default function App() {
     const currentContent = generationState.content || '';
     revisionParagraphRefs.current = new Map();
     revisionChangeRefs.current = new Map();
-    setRevisionOriginal(currentContent);
-    setRevisionDraft(currentContent);
-    setRevisionSuggestions(null);
-    setRevisionError('');
-    setRevisionNotice('');
-    setRevisionFocusIndex(0);
-    setRevisionAppliedChangeKeys([]);
+    const sameChapter = revisionSessionChapterRef.current === chapterNumber;
+    const hasPendingRevision = sameChapter
+      && String(revisionOriginal || '').trim() !== ''
+      && String(revisionDraft || '').trim() !== String(revisionOriginal || '').trim();
+    if (!hasPendingRevision) {
+      setRevisionOriginal(currentContent);
+      setRevisionDraft(currentContent);
+      setRevisionSuggestions(null);
+      setRevisionError('');
+      setRevisionNotice('');
+      setRevisionFocusIndex(0);
+      setRevisionAppliedChangeKeys([]);
+      revisionSessionChapterRef.current = chapterNumber;
+    }
     setResultModalOpen(true);
   }
 
@@ -1049,7 +1095,8 @@ export default function App() {
         chapterTitle,
         targetWordCount: getPlanWordCount(normalizedPlan),
         successTitle: '正文已校改',
-        successText: '校改后的正文、摘要和创作审校都已写回。'
+        successText: '校改后的正文、摘要和创作审校都已写回。',
+        keepRevisionOriginal: true
       });
       pushPlanningNotice(
         cycleResult.nextGenerationState.statusKind,
@@ -1399,6 +1446,40 @@ export default function App() {
     });
 
     setSelectedLibraryCharacterName('');
+  }
+
+  function addRoleExecutionByName(roleName) {
+    const name = String(roleName || '').trim();
+    if (!name) return;
+    const libraryCharacters = Array.isArray(planningState?.bookPlanning?.characters)
+      ? planningState.bookPlanning.characters
+      : [];
+    const libraryCharacter = libraryCharacters.find(
+      (item) => createRoleNameKey(String(item?.name || '').trim()) === createRoleNameKey(name)
+    );
+    setDraftChapterPlan((prev) => {
+      const currentRoleExecution = Array.isArray(prev.role_execution) ? prev.role_execution : [];
+      const targetKey = createRoleNameKey(name);
+      if (currentRoleExecution.some((item) => createRoleNameKey(item?.role || '') === targetKey)) {
+        return prev;
+      }
+      const nextRoleExecution = [
+        ...currentRoleExecution,
+        libraryCharacter
+          ? buildRoleExecutionFromLibraryCharacter(libraryCharacter)
+          : { role: name, personality: '', background: '', appearance: '' }
+      ];
+      const currentAppearingRoles = Array.isArray(prev.appearing_roles) ? prev.appearing_roles : [];
+      const nextAppearingRoles = currentAppearingRoles.some((item) => createRoleNameKey(item) === targetKey)
+        ? currentAppearingRoles
+        : [...currentAppearingRoles, name];
+      return {
+        ...prev,
+        appearing_roles: nextAppearingRoles,
+        role_execution: nextRoleExecution
+      };
+    });
+    pushPlanningNotice('success', '角色已加入本章', `${name} 已加入人物速查，保存章节规划后生效。`);
   }
 
   function removeRoleExecutionItem(index) {
@@ -1795,7 +1876,9 @@ export default function App() {
   const currentChapterEntryModeItem = chapterEntryModeItems.find((item) => item.value === chapterEntryMode) || chapterEntryModeItems[0];
   const revisionOriginalParagraphs = normalizeParagraphs(revisionOriginal);
   const revisionSuggestionItems = Array.isArray(revisionSuggestions?.suggestions) ? revisionSuggestions.suggestions : [];
-  const revisionDiffRows = buildRevisionParagraphDiffRows(revisionOriginal, revisionSuggestionItems);
+  const revisionDiffRows = revisionSuggestionItems.length > 0
+    ? buildRevisionParagraphDiffRows(revisionOriginal, revisionSuggestionItems)
+    : buildRevisionDiffRows(revisionOriginal, revisionDraft);
   const revisionSummaryStats = summarizeRevisionSuggestions(revisionSuggestionItems);
   const revisionSummaryText = revisionSuggestionItems.length > 0
     ? `本次校改新增 ${revisionSummaryStats.added} 段，删除 ${revisionSummaryStats.removed} 段，修改 ${revisionSummaryStats.changed} 段。`
@@ -1945,6 +2028,14 @@ export default function App() {
     .map((item) => String(item?.name || '').trim())
     .filter(Boolean);
   const libraryCharacterNameSet = new Set(libraryCharacterNames.map(createRoleNameKey));
+  const addedRoleKeys = new Set([
+    ...(Array.isArray(draftChapterPlan.role_execution)
+      ? draftChapterPlan.role_execution.map((item) => createRoleNameKey(item?.role || ''))
+      : []),
+    ...(Array.isArray(draftChapterPlan.appearing_roles)
+      ? draftChapterPlan.appearing_roles.map((item) => createRoleNameKey(item))
+      : [])
+  ].filter(Boolean));
   const seenCharacterQuickReferenceKeys = new Set();
   const characterQuickReferenceEntries = [
     ...(Array.isArray(draftChapterPlan.appearing_roles) ? draftChapterPlan.appearing_roles : []),
@@ -1961,6 +2052,7 @@ export default function App() {
     })
     .map((roleName) => ({
       roleName,
+      isAdded: addedRoleKeys.has(createRoleNameKey(roleName)),
       isLibraryExisting: libraryCharacterNameSet.has(createRoleNameKey(roleName)),
       roleTier: libraryCharacterByKey.get(createRoleNameKey(roleName))?.role_tier || ''
     }));
@@ -2190,6 +2282,7 @@ export default function App() {
                 />
               }
               chapterNumber={chapterNumber}
+              bookId={selectedBookId}
               draftChapterPlan={draftChapterPlan}
               chapterContext={chapterContext}
               generationRiskReview={generationRiskReview}
@@ -2200,6 +2293,8 @@ export default function App() {
               canGenerate={canGenerate}
               generationState={generationState}
               isGenerating={isGenerating}
+              onConfirmReview={handleConfirmChapterReview}
+              reviewConfirming={reviewConfirming}
               loadingChapter={loadingChapter}
               onGenerateChapter={handleGenerateWithGuards}
               onStopGeneration={handleStopGeneration}
@@ -2248,6 +2343,15 @@ export default function App() {
                                 <span className={`workbench-role-tier-badge ${getRoleTierTone(item.roleTier)}`}>
                                   {getRoleTierShortLabel(item.roleTier)}
                                 </span>
+                              ) : null}
+                              {!item.isAdded ? (
+                                <button
+                                  type="button"
+                                  className="ghost-btn workbench-info-character-add"
+                                  onClick={() => addRoleExecutionByName(item.roleName)}
+                                >
+                                  加入本章
+                                </button>
                               ) : null}
                             </div>
                           </div>

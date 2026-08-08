@@ -1,3 +1,5 @@
+import { DEFAULT_WORD_COUNT } from './wordCountPolicy.js';
+
 export const emptyChapterStructure = {
   chapter_goal: '',
   key_scenes: '',
@@ -20,7 +22,7 @@ export const emptyChapterPlan = {
   structured_content: {},
   chapter_structure: emptyChapterStructure,
   generation_settings: {
-    word_count: 3000,
+    word_count: DEFAULT_WORD_COUNT,
     temperature: 0.7,
     emotionIntensity: 70,
     colloquialLevel: 80,

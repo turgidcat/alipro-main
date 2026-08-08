@@ -15,6 +15,7 @@
 - ✅ TXT 导出功能
 - ✅ 前端静态文件托管（支持 Nginx 反向代理）
 - ✅ 结构化日志（Winston）
+- ✅ Edge TTS 有声书生成（中文音色，长文本自动分片合并 MP3）
 
 ## 快速启动
 
@@ -24,6 +25,21 @@
 cd backend
 npm install
 ```
+
+### 1.5 准备 Edge TTS 运行环境（有声书功能需要）
+
+有声书通过 Python 版 [edge-tts](https://pypi.org/project/edge-tts/) 合成。
+首次使用前执行一次（仓库已 `.gitignore` 该目录）：
+
+```bash
+cd backend
+python -m venv tts-venv
+tts-venv\Scripts\python.exe -m pip install --upgrade edge-tts   # Windows
+# macOS / Linux：tts-venv/bin/python -m pip install --upgrade edge-tts
+```
+
+后端启动时会自动优先使用 `backend/tts-venv`；也可通过
+`ALIPRO_TTS_PYTHON` 指定 Python 可执行文件，通过 `ALIPRO_TTS_DIR` 指定音频输出目录。
 
 ### 2. 配置环境变量
 
@@ -36,6 +52,7 @@ cp .env.example .env
 ```env
 # DeepSeek API（必填）
 DEEPSEEK_API_KEY=YOUR_DEEPSEEK_API_KEY_HERE
+DEEPSEEK_MODEL=deepseek-v4-flash
 
 # 阿里云百炼 API（可选，用于创意命名等增强功能）
 ALIYUN_BAILIAN_API_KEY=YOUR_ALIYUN_BAILIAN_API_KEY_HERE
@@ -143,10 +160,12 @@ backend/
   "wordCount": 2000,
   "addCliffhanger": true,
   "avoidAIFeel": true,
-  "model": "deepseek-chat",
+  "model": "deepseek-v4-flash",
   "promptType": "content"
 }
 ```
+
+说明：上面的 `wordCount: 2000` 是显式覆盖示例；未传时默认 3000。所有目标值都按 [字数控制统一规范](../docs/字数控制统一规范.md) 的有效字口径和 ±15% 窗口执行。
 
 `promptType` 可选值：`content`（正文）、`book_title`（书名）、`outline`（大纲）。
 
@@ -228,6 +247,10 @@ backend/
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `DEEPSEEK_API_KEY` | DeepSeek API 密钥 | **必填** |
+| `DEEPSEEK_MODEL` | DeepSeek 默认模型，可被单次请求显式覆盖 | `deepseek-v4-flash` |
+| `DEEPSEEK_JUDGE_MODEL` | 可选的独立审计模型；留空时沿用正文模型 | 空 |
+| `DEEPSEEK_REPAIR_MODEL` | 可选的定点修稿模型；留空时沿用正文模型 | 空 |
+| `NOVEL_DB_PATH` | 数据库文件路径；主要供隔离测试使用 | `backend/database/novel.db` |
 | `ALIYUN_BAILIAN_API_KEY` | 阿里云百炼 API 密钥（可选） | — |
 | `PORT` | 服务端口 | `3000` |
 | `NODE_ENV` | 运行环境 | `development` |
@@ -236,6 +259,41 @@ backend/
 ## 数据库
 
 使用 **sql.js**（纯 JavaScript 的 SQLite 实现），无需安装外部数据库服务。
+
+### Harness 验证
+
+```bash
+# 离线缺陷集、假绿规则、账本与隔离数据库回归
+npm run test:harness
+
+# 在正式数据库的临时副本上执行连续三章在线生成验收
+npm run verify:batch:isolated -- --book-id <书籍ID> --chapters 1,2,3
+
+# 只重审已有正文，不重新生成或清空章节；章节号可以不连续
+npm run verify:batch:isolated -- --mode feedback --book-id <书籍ID> --chapters 2,4,9,10 --source-database <隔离数据库> --output-database <复测数据库> --report-path <复测报告>
+
+# 确认费用后执行 20 章 DeepSeek 长测（仍只写临时数据库副本）
+npm run verify:batch:isolated -- --book-id <书籍ID> --chapters 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20 --allow-paid-long-run
+
+# 从隔离长测数据库导出真实章节人工盲标集
+npm run calibration:prepare -- --database <隔离数据库> --book-id <书籍ID> --from 1 --to 50 --output harness-results/human-calibration.json
+
+# 可选的严格校准：人工标注后，在 development 集测试 DeepSeek Judge
+# 不配置 DEEPSEEK_JUDGE_MODEL 时，使用正文模型的独立裁判调用
+npm run calibration:judge -- --input harness-results/human-calibration.json --split development --output harness-results/judge-development.json
+
+# development 达标后才允许解锁一次 holdout 最终验收
+npm run calibration:judge -- --input harness-results/human-calibration.json --split holdout --unlock-holdout --output harness-results/judge-holdout.json
+
+# 两份预测一起评分；不加 --reveal-holdout 时仍只显示 development
+npm run calibration:score -- --input harness-results/human-calibration.json --predictions <development预测>,<holdout预测> --reveal-holdout --output harness-results/human-calibration-score.json
+```
+
+`verify:batch-generation.js --mode generate/feedback` 不允许直接写正式数据库；在线验收结束后会停止独立后端并删除临时副本。`feedback` 模式保留已有正文，只重新生成反馈并执行 Judge，适合低成本复测误判和漏判。
+
+人工标注文件与 Judge 预测严格分离，并用 `dataset_hash/sample_hash` 锁定题库。每个 Judge 缺陷都必须引用能在当前正文或上一章结尾逐字找到的证据，否则整条预测无效。严格人工校准作为可选增强项，不再是使用 Harness 的前置条件。只使用 DeepSeek 时，系统依靠确定性硬检查、独立裁判调用、定点修复和跨章门禁形成实用质量闭环。超过 3 章的付费长跑需要显式传入 `--allow-paid-long-run`，避免误操作消费，但不强制购买第二家 API 或完成 50 章人工标注。
+
+正文生成默认使用严格质量模式：规划不完整会在调用模型前返回 422；上一章没有质量放行时，下一章返回 409；审计未通过会自动定点修稿一次且仅在复检明确改善时采用。显式传入 `qualityGateMode=off` 可以保留风险草稿，但不能获得自动通过状态。
 
 - 数据库文件：`database/novel.db`（首次启动自动创建）
 - 支持自动迁移：新增字段时无需手动重建数据库

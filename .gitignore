@@ -2,6 +2,9 @@
 node_modules/
 backend/node_modules/
 frontend-react/node_modules/
+desktop-ide/node_modules/
+desktop-ide/backend-runtime/
+desktop-ide/release*/
 
 # 数据库文件
 backend/database/*.db
@@ -33,6 +36,7 @@ _project_review_for_chatgpt/
 
 # 日志
 backend/logs/
+backend/harness-results/
 *.log
 frontend-react/*dev*.log
 frontend-react/*live*.log
@@ -60,6 +64,10 @@ test-*.js
 
 # Python 缓存
 __pycache__/
+
+# Edge TTS 运行时与生成的有声书文件
+backend/tts-venv/
+backend/data/audio/
 
 # 可视化伴侣 mockup（brainstorming skill 临时产物）
 .superpowers/

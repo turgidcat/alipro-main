@@ -846,7 +846,6 @@ class StorylineGenerationService {
     const prompt = buildVolumeStorylineSetPrompt(context);
     const result = await deepseekService.generate({
       prompt,
-      model: 'deepseek-v4-pro',
       temperature: 0.65,
       maxTokens: 2600,
       responseFormat: { type: 'json_object' }
@@ -876,7 +875,6 @@ class StorylineGenerationService {
     const prompt = buildStorylinePrompt(context);
     const result = await deepseekService.generate({
       prompt,
-      model: 'deepseek-v4-pro',
       temperature: 0.7,
       maxTokens: 3200,
       responseFormat: { type: 'json_object' }
@@ -907,7 +905,6 @@ class StorylineGenerationService {
     const prompt = buildVolumeTimelinePrompt(context);
     const result = await deepseekService.generate({
       prompt,
-      model: 'deepseek-v4-pro',
       temperature: 0.65,
       maxTokens: 4500,
       responseFormat: { type: 'json_object' }

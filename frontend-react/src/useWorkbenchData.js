@@ -100,16 +100,13 @@ export function useWorkbenchData() {
         }
 
         const storedId = getStoredCurrentBookId();
-        if (storedId && list.some((book) => book.id === storedId)) {
-          setSelectedBookId(storedId);
-          return;
-        }
-
-        if (storedId) {
-          persistCurrentBookId('');
-        }
-        setSelectedBookId('');
-        setPlanningState(emptyPlanning);
+        // 创作台需要一个当前作品才能展示实际工作区。首次打开或本地选择失效时，
+        // 自动使用列表中的第一部作品；首页入口仍由路由本身负责展示入口页。
+        const nextBookId = storedId && list.some((book) => book.id === storedId)
+          ? storedId
+          : list[0].id;
+        persistCurrentBookId(nextBookId);
+        setSelectedBookId(nextBookId);
       } catch (loadError) {
         if (cancelled) return;
         setError(`书籍列表读取失败：${loadError.message}`);
@@ -142,17 +139,11 @@ export function useWorkbenchData() {
       }
 
       const storedId = preferredBookId || getStoredCurrentBookId();
-      if (storedId && list.some((book) => book.id === storedId)) {
-        persistCurrentBookId(storedId);
-        setSelectedBookId(storedId);
-        return;
-      }
-
-      if (storedId) {
-        persistCurrentBookId('');
-      }
-      setSelectedBookId('');
-      setPlanningState(emptyPlanning);
+      const nextBookId = storedId && list.some((book) => book.id === storedId)
+        ? storedId
+        : list[0].id;
+      persistCurrentBookId(nextBookId);
+      setSelectedBookId(nextBookId);
     } catch (loadError) {
       setError(`涔︾睄鍒楄〃璇诲彇澶辫触锛?{loadError.message}`);
     } finally {

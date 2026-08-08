@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { clampWordCount, MIN_WORD_COUNT, MAX_WORD_COUNT } from '../../lib/wordCountPolicy.js';
 
 const TEMPERATURE_OPTIONS = [
   { value: 0.3, label: '保守', desc: '严格遵照大纲，变化少' },
@@ -67,7 +68,7 @@ export default function GenerationSettingsPopover({ settings, onUpdate, onSave, 
   const [panelStyle, setPanelStyle] = useState({});
   const popoverRef = useRef(null);
   const current = {
-    word_count: Number(settings?.word_count || 3000),
+    word_count: clampWordCount(settings?.word_count),
     temperature: Number(settings?.temperature ?? 0.7),
     emotionIntensity: Number(settings?.emotionIntensity ?? 70),
     colloquialLevel: Number(settings?.colloquialLevel ?? 80),
@@ -118,7 +119,7 @@ export default function GenerationSettingsPopover({ settings, onUpdate, onSave, 
   }, [open]);
 
   function handleUpdate(field, value) {
-    onUpdate?.(field, value);
+    onUpdate?.(field, field === 'word_count' ? clampWordCount(value) : value);
   }
 
   function applyPreset(preset) {
@@ -149,13 +150,13 @@ export default function GenerationSettingsPopover({ settings, onUpdate, onSave, 
               <input
                 type="number"
                 className="gen-settings-input"
-                min={500}
-                max={20000}
+                min={MIN_WORD_COUNT}
+                max={MAX_WORD_COUNT}
                 step={500}
                 value={current.word_count}
                 onChange={(e) => handleUpdate('word_count', Number(e.target.value))}
               />
-              <span className="gen-settings-hint">500 – 20000</span>
+              <span className="gen-settings-hint">{MIN_WORD_COUNT} – {MAX_WORD_COUNT}</span>
             </div>
           </div>
           <div className="gen-settings-section">

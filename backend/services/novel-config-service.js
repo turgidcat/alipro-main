@@ -9,7 +9,9 @@ const { NOVEL_CATEGORIES, PLATFORM_FEATURES, SHUANG_POINTS, WRITING_STYLES } = r
 const TEMPLATES = require('../config/templates');
 
 // 数据文件路径
-const DATA_DIR = path.join(__dirname, '..', 'data');
+const DATA_DIR = process.env.ALIPRO_DATA_DIR
+  ? path.resolve(process.env.ALIPRO_DATA_DIR)
+  : path.join(__dirname, '..', 'data');
 const TEMPLATES_FILE = path.join(DATA_DIR, 'templates.json');
 
 // 确保数据目录存在

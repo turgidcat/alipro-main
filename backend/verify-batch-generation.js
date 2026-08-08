@@ -1,7 +1,21 @@
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
+const { DEFAULT_DATABASE_PATH, resolveDatabasePath } = require('./config/runtime');
+const { DEFAULT_WORD_COUNT } = require('./services/word-count-policy');
 
-const dbPromise = require('./database/init');
-const { execQuery, execQueryOne } = require('./services/database');
+let persistenceRuntime = null;
+
+function getPersistenceRuntime() {
+  if (!persistenceRuntime) {
+    persistenceRuntime = {
+      dbPromise: require('./database/init'),
+      ...require('./services/database')
+    };
+  }
+  return persistenceRuntime;
+}
 
 const DEFAULT_BASE_URL = process.env.BATCH_VERIFY_BASE_URL || 'http://localhost:3000';
 const DEFAULT_BOOK_ID = process.env.BATCH_VERIFY_BOOK_ID || 'b8bd76b6-170f-4666-9233-36e86b1f8b1d';
@@ -27,6 +41,9 @@ const MODE = getArgValue('--mode', DEFAULT_MODE) || 'inspect';
 const BASE_URL = getArgValue('--base-url', DEFAULT_BASE_URL) || DEFAULT_BASE_URL;
 const BOOK_ID = getArgValue('--book-id', DEFAULT_BOOK_ID) || DEFAULT_BOOK_ID;
 const CHAPTERS = parseChapters(getArgValue('--chapters', DEFAULT_CHAPTERS));
+const PROMPT_VERSION = getArgValue('--prompt-version', process.env.BATCH_VERIFY_PROMPT_VERSION || 'chapter.v2') || 'chapter.v2';
+const REPORT_PATH = getArgValue('--report-path', process.env.BATCH_VERIFY_REPORT_PATH || '');
+const CONTINUE_ON_FAILURE = process.argv.includes('--continue-on-failure') || process.env.BATCH_VERIFY_CONTINUE_ON_FAILURE === '1';
 
 function normalizeText(value) {
   return String(value || '').trim();
@@ -70,6 +87,7 @@ function normalizeQualityCheck(value = {}) {
   const qualityCheck = value && typeof value === 'object' ? value : {};
   const planAnchorAudit = parseJsonObject(qualityCheck.plan_anchor_audit || qualityCheck.planAnchorAudit);
   const storylineAudit = parseJsonObject(qualityCheck.storyline_audit || qualityCheck.storylineAudit);
+  const wordCountAudit = parseJsonObject(qualityCheck.word_count_audit || qualityCheck.wordCountAudit);
   return {
     status: normalizeText(qualityCheck.status || ''),
     source: normalizeText(qualityCheck.source || ''),
@@ -85,6 +103,11 @@ function normalizeQualityCheck(value = {}) {
       usedStorylineIds: parseJsonArray(storylineAudit.used_storyline_ids || storylineAudit.usedStorylineIds),
       usedBeatIds: parseJsonArray(storylineAudit.used_beat_ids || storylineAudit.usedBeatIds),
       requiresReview: Boolean(storylineAudit.requires_review || storylineAudit.requiresReview)
+    },
+    wordCountAudit: {
+      status: normalizeText(wordCountAudit.status || ''),
+      target: Number(wordCountAudit.target || 0) || 0,
+      actual: Number(wordCountAudit.actual || 0) || 0
     }
   };
 }
@@ -133,8 +156,11 @@ function evaluateChapterSnapshot(chapterNumber, snapshot, previousSnapshot = nul
   const hasQualityCheck = normalizeText(snapshot?.qualityCheck?.status || '').length > 0;
   const qualityStatus = normalizeText(snapshot?.qualityCheck?.status || '');
   const qualitySource = normalizeText(snapshot?.qualityCheck?.source || '');
+  const qualityVerdict = normalizeText(snapshot?.qualityCheck?.verdict || '');
+  const qualityRisks = parseJsonArray(snapshot?.qualityCheck?.risks).map((item) => normalizeText(item)).filter(Boolean);
   const planAnchorAuditStatus = normalizeText(snapshot?.qualityCheck?.planAnchorAudit?.status || '');
   const storylineAuditStatus = normalizeText(snapshot?.qualityCheck?.storylineAudit?.status || '');
+  const wordCountAuditStatus = normalizeText(snapshot?.qualityCheck?.wordCountAudit?.status || '');
   const targetStorylineIds = [
     normalizeText(snapshot?.plan?.main_storyline_id || ''),
     ...parseJsonArray(snapshot?.plan?.target_storylines).map((item) => normalizeText(item))
@@ -149,7 +175,7 @@ function evaluateChapterSnapshot(chapterNumber, snapshot, previousSnapshot = nul
     (Array.isArray(item.chapterProgressNumbers) && item.chapterProgressNumbers.includes(chapterNumber))
     || item.lastUpdatedChapterNumber === chapterNumber
   );
-  const storylineQualityOk = !hasStorylineTarget || ['advanced', 'needs_review', 'passed'].includes(storylineAuditStatus);
+  const storylineQualityOk = !hasStorylineTarget || ['advanced', 'passed'].includes(storylineAuditStatus);
   const needsHumanReview = !!snapshot?.qualityCheck?.needsHumanReview;
   const previousSummary = chapterNumber > 1
     ? normalizeText(previousSnapshot?.feedback?.chapter_summary || '')
@@ -170,10 +196,11 @@ function evaluateChapterSnapshot(chapterNumber, snapshot, previousSnapshot = nul
     && planAnchorAuditStatus !== 'not_run'
     && planAnchorAuditStatus !== 'none';
   const qualityGreen = qualityStatus === 'passed';
+  const wordCountAuditOk = ['passed', 'not_applicable'].includes(wordCountAuditStatus);
 
   const checks = chapterNumber === 1
-    ? [hasContent, formalFeedbackOk, hasSummary, formalQualityCheckOk]
-    : [!!canReadPreviousSummary, hasContent, formalFeedbackOk, hasSummary, formalQualityCheckOk];
+    ? [hasContent, formalFeedbackOk, hasSummary, formalQualityCheckOk, qualityGreen, planAnchorAuditOk, wordCountAuditOk, !needsHumanReview]
+    : [!!canReadPreviousSummary, hasContent, formalFeedbackOk, hasSummary, formalQualityCheckOk, qualityGreen, planAnchorAuditOk, wordCountAuditOk, !needsHumanReview];
   if (hasStorylineTarget) {
     checks.push(storylinePromptOk, storylineBeatOk, storylineFeedbackOk, storylineWritebackOk, storylineQualityOk);
   }
@@ -188,8 +215,11 @@ function evaluateChapterSnapshot(chapterNumber, snapshot, previousSnapshot = nul
     hasQualityCheck,
     qualityStatus,
     qualitySource,
+    qualityVerdict,
+    qualityRisks: qualityRisks.join(' | '),
     planAnchorAuditStatus,
     storylineAuditStatus,
+    wordCountAuditStatus,
     hasStorylineTarget,
     usedStorylineIds: usedStorylineIds.join(','),
     usedBeatIds: usedBeatIds.join(','),
@@ -197,10 +227,12 @@ function evaluateChapterSnapshot(chapterNumber, snapshot, previousSnapshot = nul
     storylineBeatOk,
     storylineFeedbackOk,
     storylineWritebackOk,
+    storylineQualityOk,
     formalFeedbackOk,
     formalQualityCheckOk,
     planAnchorAuditOk,
     qualityGreen,
+    wordCountAuditOk,
     needsHumanReview,
     canReadPreviousSummary,
     previousSummaryPreview: previousSummary.slice(0, 80),
@@ -209,26 +241,70 @@ function evaluateChapterSnapshot(chapterNumber, snapshot, previousSnapshot = nul
 }
 
 async function requestJson(path, options = {}) {
-  const response = await fetch(`${BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    ...options
-  });
-
-  const text = await response.text();
-  let json = {};
-  try {
-    json = JSON.parse(text);
-  } catch (_) {
-    json = { raw: text };
+  const requestTimeoutMs = Number(process.env.BATCH_VERIFY_REQUEST_TIMEOUT_MS || 1200000);
+  let requestData;
+  if (typeof options.body === 'string' && options.body.length > 0) {
+    try {
+      requestData = JSON.parse(options.body);
+    } catch (_) {
+      requestData = options.body;
+    }
   }
+  const response = await axios.request({
+    url: `${BASE_URL}${path}`,
+    method: options.method || 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    },
+    data: requestData,
+    timeout: Number.isFinite(requestTimeoutMs) && requestTimeoutMs > 0
+      ? requestTimeoutMs
+      : 1200000,
+    validateStatus: () => true
+  });
+  const json = response.data && typeof response.data === 'object'
+    ? response.data
+    : { raw: String(response.data || '') };
 
-  if (!response.ok || json.success === false) {
+  if (response.status < 200 || response.status >= 300 || json.success === false) {
     throw new Error(json.error || `HTTP ${response.status}`);
   }
 
   return json.data;
+}
+
+function writeReport(rows, book = {}) {
+  if (!REPORT_PATH) return;
+  const absolutePath = path.resolve(REPORT_PATH);
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+  const failed = rows.filter((item) => item.status !== 'ok');
+  const durations = rows.map((item) => Number(item.durationSeconds || 0)).filter((item) => item > 0);
+  const totalPromptTokens = rows.reduce((sum, item) => sum + Number(item.promptTokens || 0), 0);
+  const totalCompletionTokens = rows.reduce((sum, item) => sum + Number(item.completionTokens || 0), 0);
+  const promptLengths = rows.map((item) => Number(item.promptLength || 0)).filter((item) => item > 0);
+  fs.writeFileSync(absolutePath, JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    mode: MODE,
+    book: { id: BOOK_ID, title: normalizeText(book?.title || '') },
+    chapters: CHAPTERS,
+    promptVersion: PROMPT_VERSION,
+    summary: {
+      total: rows.length,
+      passed: rows.length - failed.length,
+      failed: failed.length,
+      passRate: rows.length ? Number(((rows.length - failed.length) / rows.length).toFixed(4)) : 0,
+      durationSeconds: Number(durations.reduce((sum, item) => sum + item, 0).toFixed(1)),
+      promptTokens: totalPromptTokens,
+      completionTokens: totalCompletionTokens,
+      averagePromptLength: promptLengths.length
+        ? Number((promptLengths.reduce((sum, item) => sum + item, 0) / promptLengths.length).toFixed(1))
+        : 0,
+      continuedAfterFailure: CONTINUE_ON_FAILURE
+    },
+    rows
+  }, null, 2), 'utf8');
+  console.log(`验收报告已写入：${absolutePath}`);
 }
 
 async function fetchApiSnapshot(bookId, chapterNumber) {
@@ -246,6 +322,7 @@ async function fetchApiSnapshot(bookId, chapterNumber) {
 }
 
 async function runInspectMode() {
+  const { dbPromise, execQuery, execQueryOne } = getPersistenceRuntime();
   const db = await dbPromise;
   const book = execQueryOne(db, 'SELECT id, title FROM books WHERE id = ? LIMIT 1', [BOOK_ID]);
 
@@ -253,7 +330,7 @@ async function runInspectMode() {
     throw new Error(`未找到书籍：${BOOK_ID}`);
   }
 
-  console.log(`连续 3 章闭环验收（inspect）：book=${BOOK_ID}《${book.title || '未命名作品'}》，chapters=${CHAPTERS.join(',')}`);
+  console.log(`连续 ${CHAPTERS.length} 章闭环验收（inspect）：book=${BOOK_ID}《${book.title || '未命名作品'}》，chapters=${CHAPTERS.join(',')}`);
 
   const rows = [];
   for (const chapterNumber of CHAPTERS) {
@@ -294,6 +371,7 @@ async function runInspectMode() {
   }
 
   console.table(rows);
+  writeReport(rows, book);
   const failed = rows.filter((item) => item.status !== 'ok');
   if (failed.length > 0) {
     process.exitCode = 1;
@@ -302,7 +380,7 @@ async function runInspectMode() {
 
 async function runGenerateMode() {
   const book = await requestJson(`/api/books/${BOOK_ID}`);
-  console.log(`连续 3 章闭环验收（generate）：book=${BOOK_ID}《${book.title || '未命名作品'}》，chapters=${CHAPTERS.join(',')}`);
+  console.log(`连续 ${CHAPTERS.length} 章闭环验收（generate）：book=${BOOK_ID}《${book.title || '未命名作品'}》，chapters=${CHAPTERS.join(',')}`);
 
   const rows = [];
   for (const chapterNumber of CHAPTERS) {
@@ -334,7 +412,7 @@ async function runGenerateMode() {
 
       const structuredContent = parseJsonObject(plan.structured_content);
       const hasStructuredOutline = hasMeaningfulOutlineStructure(structuredContent.chapter_outline_structure);
-      const targetWordCount = Number(structuredContent?.generation_settings?.word_count || 3000) || 3000;
+      const targetWordCount = Number(structuredContent?.generation_settings?.word_count || DEFAULT_WORD_COUNT) || DEFAULT_WORD_COUNT;
       const chapterTitle = plan.chapter_name
         ? `第 ${chapterNumber} 章 ${plan.chapter_name}`
         : `第 ${chapterNumber} 章`;
@@ -353,6 +431,7 @@ async function runGenerateMode() {
           chapterNumber,
           chapterTitle,
           chapterName: plan.chapter_name || '',
+          promptVersion: PROMPT_VERSION,
           outline: hasStructuredOutline ? '' : (plan.outline_text || ''),
           wordCount: targetWordCount
         })
@@ -392,15 +471,31 @@ async function runGenerateMode() {
 
       const afterSnapshot = await fetchApiSnapshot(BOOK_ID, chapterNumber);
       const evaluated = evaluateChapterSnapshot(chapterNumber, afterSnapshot, previousSnapshot);
+      const gateDecision = normalizeText(generateRes?.metadata?.generationRun?.gateDecision || '');
+      const generationGatePassed = gateDecision === 'passed';
+      const finalStatus = evaluated.status === 'ok' && generationGatePassed
+        ? 'ok'
+        : (evaluated.status !== 'ok' ? evaluated.status : `generation_gate_${gateDecision || 'missing'}`);
       rows.push({
         ...evaluated,
+        status: finalStatus,
         inputMode,
-        actualLength: content.length,
+        promptVersion: PROMPT_VERSION,
+        generationRunId: normalizeText(generateRes?.metadata?.generationRun?.id || ''),
+        gateDecision,
+        generationGatePassed,
+        promptLength: Number(generateRes?.metadata?.generationRun?.promptLength || 0),
+        contextSnapshotLength: Number(generateRes?.metadata?.generationRun?.contextSnapshotLength || 0),
+        promptTokens: Number(generateRes?.usage?.prompt_tokens || 0),
+        completionTokens: Number(generateRes?.usage?.completion_tokens || 0),
+        actualLength: Number(generateRes?.metadata?.actualLength || 0),
+        rawCharacterLength: Number(generateRes?.metadata?.rawCharacterLength || content.length),
         durationSeconds: Number(((Date.now() - startedAt) / 1000).toFixed(1)),
         feedbackGenerated: !!feedbackRes?.metadata?.feedbackGenerated,
         feedbackSaved: !!feedbackRes?.metadata?.feedbackSaved,
         usedLocalFallback: !!feedbackRes?.metadata?.usedLocalFallback
       });
+      if (finalStatus !== 'ok' && !CONTINUE_ON_FAILURE) break;
     } catch (error) {
       rows.push({
         chapterNumber,
@@ -411,31 +506,124 @@ async function runGenerateMode() {
   }
 
   console.table(rows);
+  writeReport(rows, book);
   const failed = rows.filter((item) => item.status !== 'ok');
   if (failed.length > 0) {
     process.exitCode = 1;
   }
 }
 
+async function runFeedbackMode() {
+  const book = await requestJson(`/api/books/${BOOK_ID}`);
+  console.log(`定点反馈复测（feedback）：book=${BOOK_ID}《${book.title || '未命名作品'}》，chapters=${CHAPTERS.join(',')}`);
+
+  const rows = [];
+  for (const chapterNumber of CHAPTERS) {
+    try {
+      const startedAt = Date.now();
+      const beforeSnapshot = await fetchApiSnapshot(BOOK_ID, chapterNumber);
+      const previousSnapshot = chapterNumber > 1
+        ? await fetchApiSnapshot(BOOK_ID, chapterNumber - 1)
+        : null;
+      const plan = beforeSnapshot.plan;
+      const content = normalizeText(beforeSnapshot?.chapter?.content || '');
+
+      if (!plan) {
+        rows.push({ chapterNumber, status: 'missing_plan', detail: '未找到章节任务表' });
+        continue;
+      }
+      if (!content) {
+        rows.push({ chapterNumber, status: 'missing_content', detail: '未找到已有正文' });
+        continue;
+      }
+
+      const chapterTitle = normalizeText(beforeSnapshot?.chapter?.title || '')
+        || (plan.chapter_name ? `第 ${chapterNumber} 章 ${plan.chapter_name}` : `第 ${chapterNumber} 章`);
+      const feedbackRes = await requestJson('/api/generate', {
+        method: 'POST',
+        body: JSON.stringify({
+          promptType: 'chapter_feedback',
+          bookId: BOOK_ID,
+          chapterNumber,
+          chapterTitle,
+          content,
+          outline: normalizeText(plan.outline_text || '')
+        })
+      });
+
+      const afterSnapshot = await fetchApiSnapshot(BOOK_ID, chapterNumber);
+      const evaluated = evaluateChapterSnapshot(chapterNumber, afterSnapshot, previousSnapshot);
+      rows.push({
+        ...evaluated,
+        durationSeconds: Number(((Date.now() - startedAt) / 1000).toFixed(1)),
+        feedbackGenerated: !!feedbackRes?.metadata?.feedbackGenerated,
+        feedbackSaved: !!feedbackRes?.metadata?.feedbackSaved,
+        usedLocalFallback: !!feedbackRes?.metadata?.usedLocalFallback
+      });
+      if (evaluated.status !== 'ok' && !CONTINUE_ON_FAILURE) break;
+    } catch (error) {
+      rows.push({ chapterNumber, status: 'error', detail: error.message });
+      if (!CONTINUE_ON_FAILURE) break;
+    }
+  }
+
+  console.table(rows);
+  writeReport(rows, book);
+  if (rows.some((item) => item.status !== 'ok')) process.exitCode = 1;
+}
+
 async function run() {
   if (!BOOK_ID) {
     throw new Error('请提供 --book-id 或 BATCH_VERIFY_BOOK_ID');
   }
-  if (CHAPTERS.length !== 3) {
-    throw new Error(`当前脚本只接受连续 3 章验收，收到 chapters=${CHAPTERS.join(',') || '(empty)'}`);
+  if (CHAPTERS.length < 1) {
+    throw new Error('至少需要提供 1 个章节号');
+  }
+  const isContinuous = CHAPTERS.every((chapterNumber, index) => index === 0 || chapterNumber === CHAPTERS[index - 1] + 1);
+  if (MODE !== 'feedback' && !isContinuous) {
+    throw new Error(`章节必须严格连续，收到 chapters=${CHAPTERS.join(',')}`);
   }
   if (MODE === 'inspect') {
     await runInspectMode();
     return;
   }
   if (MODE === 'generate') {
+    assertIsolatedGenerateMode();
     await runGenerateMode();
+    return;
+  }
+  if (MODE === 'feedback') {
+    assertIsolatedGenerateMode();
+    await runFeedbackMode();
     return;
   }
   throw new Error(`不支持的 mode：${MODE}`);
 }
 
-run().catch((error) => {
-  console.error('连续 3 章闭环验收失败：', error.message || error);
-  process.exit(1);
-});
+if (require.main === module) {
+  run().catch((error) => {
+    console.error('连续章节闭环验收失败：', error.message || error);
+    process.exit(1);
+  });
+}
+
+function assertIsolatedGenerateMode(env = process.env) {
+  const isolatedFlag = String(env.HARNESS_ISOLATED || '').trim();
+  const configuredPath = String(env.NOVEL_DB_PATH || '').trim();
+  const resolvedPath = configuredPath ? path.resolve(configuredPath) : resolveDatabasePath();
+  if (isolatedFlag !== '1' || !configuredPath) {
+    throw new Error('generate 模式只能由隔离 Harness 启动；请使用 npm run verify:batch:isolated');
+  }
+  if (resolvedPath === path.resolve(DEFAULT_DATABASE_PATH)) {
+    throw new Error('generate 模式拒绝写入正式数据库');
+  }
+}
+
+module.exports = {
+  assertIsolatedGenerateMode,
+  buildSnapshotFromRows,
+  evaluateChapterSnapshot,
+  normalizeQualityCheck,
+  parseJsonArray,
+  parseJsonObject
+};

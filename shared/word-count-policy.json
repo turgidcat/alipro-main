@@ -1,0 +1,26 @@
+{
+  "version": "1.0.0",
+  "unit": "effective_characters",
+  "default_target": 3000,
+  "min_target": 500,
+  "max_target": 10000,
+  "tolerance_ratio": 0.15,
+  "min_ratio": 0.85,
+  "max_ratio": 1.15,
+  "soft_target_ratio": 0.95,
+  "revision": {
+    "max_attempts": 3,
+    "token_budget_min": 350,
+    "token_budget_max": 6500,
+    "expansion_multiplier": 1.25,
+    "compression_multiplier": 0.9,
+    "low_draft_ratio": 0.82,
+    "high_draft_ratio": 0.92,
+    "compression_floor_ratio": 0.76,
+    "compression_target_ratio": 0.98,
+    "expansion_floor_ratio": 1.02,
+    "expansion_target_ratio": 1.06,
+    "repair_min_tokens": 1400,
+    "repair_max_tokens": 6500
+  }
+}

@@ -4,6 +4,7 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const logger = require('./utils/logger');
+const { resolveDatabasePath } = require('./config/runtime');
 
 // 导入路由
 const aiRoutes = require('./routes/ai');
@@ -13,6 +14,9 @@ const authRoutes = require('./routes/auth');
 const storylineRoutes = require('./routes/storylines');
 const planRoutes = require('./routes/plans');
 const analysisRoutes = require('./routes/analysis');
+const calibrationRoutes = require('./routes/calibration');
+const ttsRoutes = require('./routes/tts');
+const inspirationRoutes = require('./routes/inspiration');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -143,6 +147,9 @@ app.use('/api', dataRoutes);
 app.use('/api/storyline-workbench', storylineRoutes);
 app.use('/api', planRoutes);
 app.use('/api/analysis', analysisRoutes);
+app.use('/api/calibration', calibrationRoutes);
+app.use('/api/tts', ttsRoutes);
+app.use('/api/inspiration', inspirationRoutes);
 
 // React 工作台静态资源
 if (hasReactBuild) {
@@ -164,6 +171,14 @@ if (hasReactBuild) {
 
 // 健康检查
 app.get('/health', (req, res) => {
+  res.json({
+    success: true,
+    message: '服务运行正常',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/health', (req, res) => {
   res.json({
     success: true,
     message: '服务运行正常',
@@ -207,6 +222,7 @@ app.use('/projects/alipro/api', dataRoutes);
 app.use('/projects/alipro/api/storyline-workbench', storylineRoutes);
 app.use('/projects/alipro/api', planRoutes);
 app.use('/projects/alipro/api/analysis', analysisRoutes);
+app.use('/projects/alipro/api/calibration', calibrationRoutes);
 
 // ==================== 错误处理 ====================
 
@@ -289,8 +305,8 @@ app.listen(PORT, () => {
       styled: colorize('数据库路径', ANSI.bold, ANSI.white)
     },
     {
-      raw: `  ${path.join(__dirname, 'database', 'novel.db')}`,
-      styled: `  ${colorize(path.join(__dirname, 'database', 'novel.db'), ANSI.gray)}`
+      raw: `  ${resolveDatabasePath()}`,
+      styled: `  ${colorize(resolveDatabasePath(), ANSI.gray)}`
     },
     { raw: '' },
     {

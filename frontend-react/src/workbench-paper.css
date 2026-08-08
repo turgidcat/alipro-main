@@ -1,0 +1,438 @@
+/*
+ * 创作台纸感语言层 —— 与「有声书」页设计语言对齐
+ *
+ * 只调整视觉（面板头 / 卡片 / 框中框 / 控件 / 按钮），不改布局骨架。
+ * 全部使用 docs/paper-theme-spec.md 的 --paper-* token。
+ * 对与 product-ui「Final dark contrast layer」冲突的属性使用 !important，
+ * 与 desktop-ide 注入的 paper-theme.css 采用同一覆盖策略，浏览器与 IDE 表现一致。
+ */
+
+/* ==================== 画布与三栏底色 ==================== */
+
+html body .workbench-app-shell {
+  --wb-bg: var(--paper-bg);
+  --wb-panel: var(--paper-surface);
+  --wb-panel-strong: var(--paper-surface-deep);
+  --wb-line: var(--paper-border);
+  --wb-line-strong: var(--paper-border-strong);
+  --wb-text: var(--paper-text);
+  --wb-muted: var(--paper-text-muted);
+  --wb-signal: var(--paper-accent);
+  --wb-gold: var(--paper-gold);
+
+  --bg: var(--paper-bg);
+  --bg-subtle: var(--paper-surface-sunken);
+  --text: var(--paper-text);
+  --text-soft: var(--paper-text-soft);
+  --muted: var(--paper-text-muted);
+  --line: var(--paper-border);
+  --line-strong: var(--paper-border-strong);
+  --brand: var(--paper-accent);
+  --brand-deep: var(--paper-accent-deep);
+  --accent: var(--paper-accent);
+  --accent-deep: var(--paper-accent-deep);
+  --surface: var(--paper-surface);
+  --surface-raised: var(--paper-surface-raised);
+  --panel: var(--paper-surface);
+  --panel-strong: var(--paper-surface-deep);
+  --panel-note-bg: var(--paper-surface-sunken);
+
+  color: var(--paper-text) !important;
+  background: var(--paper-bg) !important;
+}
+
+html body .workbench-app-shell .workbench-worktop {
+  background: var(--paper-glass-strong) !important;
+  border-color: var(--paper-border) !important;
+  box-shadow: none !important;
+}
+
+html body .workbench-app-shell .workbench-triple-pane-left,
+html body .workbench-app-shell .workbench-triple-pane-right {
+  background: var(--paper-surface) !important;
+  border-color: var(--paper-border) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .workbench-app-shell .workbench-triple-pane-center {
+  background: var(--paper-bg) !important;
+}
+
+html body .workbench-app-shell .workbench-sidebar-shell {
+  background: var(--paper-surface) !important;
+  border-color: var(--paper-border) !important;
+}
+
+/* ==================== 面板头（对齐 audiobook-panel-head） ==================== */
+
+html body .workbench-app-shell .workbench-nav-section-head {
+  border-bottom: 1px solid var(--paper-border);
+  padding-bottom: 8px;
+}
+
+html body .workbench-app-shell .workbench-nav-section-head button,
+html body .workbench-app-shell .workbench-nav-section-head span {
+  color: var(--paper-text-muted) !important;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+html body .workbench-app-shell .workbench-nav-section-head button:hover {
+  color: var(--paper-accent-deep) !important;
+}
+
+html body .workbench-app-shell .workbench-info-card-title {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--paper-border) !important;
+  background: var(--paper-surface) !important;
+  color: var(--paper-accent-deep) !important;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+html body .workbench-app-shell .workbench-info-card-body {
+  padding: 14px 16px;
+}
+
+/* ==================== 卡片（外 16px 圆角 + 柔和阴影） ==================== */
+
+html body .workbench-app-shell .workbench-info-card,
+html body .workbench-app-shell .workbench-content-meta .workbench-section,
+html body .workbench-app-shell .workbench-generation-preview {
+  border: 1px solid var(--paper-border) !important;
+  border-radius: var(--paper-radius-lg);
+  background: var(--paper-surface-raised) !important;
+  box-shadow: var(--paper-shadow-card) !important;
+}
+
+html body .workbench-app-shell .workbench-info-card {
+  overflow: hidden;
+}
+
+/* 正文区：外层薄框，正文纸面作为主卡片（框中框） */
+html body .workbench-app-shell .workbench-prose-main .workbench-section {
+  border: 1px solid var(--paper-border-subtle) !important;
+  border-radius: var(--paper-radius-lg);
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html body .workbench-app-shell .workbench-prose-paper {
+  background: var(--paper-surface-raised) !important;
+  border-color: var(--paper-border) !important;
+  border-radius: var(--paper-radius-lg);
+  box-shadow: var(--paper-shadow-prose) !important;
+}
+
+html body .workbench-app-shell .workbench-prose-paper p,
+html body .workbench-app-shell .workbench-prose-paper textarea,
+html body .workbench-app-shell .workbench-prose-content {
+  color: var(--paper-text) !important;
+}
+
+/* ==================== 内层区块（框中框） ==================== */
+
+html body .workbench-app-shell .workbench-generation-prep-row,
+html body .workbench-app-shell .workbench-info-row,
+html body .workbench-app-shell .workbench-info-character {
+  border-color: var(--paper-border) !important;
+  background: var(--paper-surface-sunken) !important;
+}
+
+html body .workbench-app-shell .workbench-generation-prep-row:hover {
+  border-color: var(--paper-accent-border) !important;
+  background: var(--paper-accent-hover) !important;
+}
+
+/* ==================== 生成参数弹窗（对齐有声书卡片语言） ==================== */
+
+html body .workbench-app-shell .gen-settings-panel {
+  border: 1px solid var(--paper-border-strong) !important;
+  border-radius: var(--paper-radius-lg);
+  background: var(--paper-surface-raised) !important;
+  box-shadow: var(--paper-shadow-panel) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .workbench-app-shell .gen-settings-panel-head {
+  border-color: var(--paper-border) !important;
+  background: var(--paper-surface) !important;
+}
+
+html body .workbench-app-shell .gen-settings-panel-head strong,
+html body .workbench-app-shell .gen-settings-option strong,
+html body .workbench-app-shell .gen-settings-label {
+  color: var(--paper-text) !important;
+}
+
+html body .workbench-app-shell .gen-settings-panel-head small,
+html body .workbench-app-shell .gen-settings-option small,
+html body .workbench-app-shell .gen-settings-hint,
+html body .workbench-app-shell .gen-settings-range-ticks {
+  color: var(--paper-text-muted) !important;
+}
+
+html body .workbench-app-shell .gen-settings-panel-head button {
+  border-color: var(--paper-border-strong) !important;
+  border-radius: var(--paper-radius-sm);
+  background: var(--paper-surface-raised) !important;
+  color: var(--paper-text-soft) !important;
+}
+
+html body .workbench-app-shell .gen-settings-option,
+html body .workbench-app-shell .gen-settings-toggle {
+  border-color: var(--paper-border) !important;
+  border-radius: var(--paper-radius-md);
+  background: var(--paper-surface-raised) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .workbench-app-shell .gen-settings-option:hover,
+html body .workbench-app-shell .gen-settings-option.is-active,
+html body .workbench-app-shell .gen-settings-toggle:hover {
+  border-color: var(--paper-accent-border) !important;
+  background: var(--paper-accent-soft) !important;
+}
+
+html body .workbench-app-shell .gen-settings-toggle strong {
+  color: var(--paper-text) !important;
+}
+
+html body .workbench-app-shell .gen-settings-toggle small {
+  color: var(--paper-text-muted) !important;
+}
+
+/* ==================== 控件 ==================== */
+
+html body .workbench-app-shell .workbench-nav-select-trigger,
+html body .workbench-app-shell .workbench-entry-mode-trigger,
+html body .workbench-app-shell .workbench-nav-field select,
+html body .workbench-app-shell .workbench-nav-field input,
+html body .workbench-app-shell .gen-settings-input,
+html body .workbench-app-shell .gen-settings-textarea,
+html body .workbench-app-shell input,
+html body .workbench-app-shell select,
+html body .workbench-app-shell textarea {
+  border-color: var(--paper-border-strong) !important;
+  border-radius: var(--paper-radius-sm);
+  background: var(--paper-surface-raised) !important;
+  color: var(--paper-text) !important;
+}
+
+/* 生成参数滑块：明确轨道与滑块（覆盖通用 input 的白色背景） */
+html body .workbench-app-shell .gen-settings-range {
+  appearance: none;
+  height: 6px;
+  border: 1px solid var(--paper-border) !important;
+  border-radius: 999px;
+  background: var(--paper-surface-deep) !important;
+  outline: none;
+}
+
+html body .workbench-app-shell .gen-settings-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--paper-surface-deep) !important;
+}
+
+html body .workbench-app-shell .gen-settings-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border: 2px solid var(--paper-surface-raised) !important;
+  border-radius: 50%;
+  background: var(--paper-accent) !important;
+  box-shadow: 0 0 0 1px var(--paper-accent-deep), 0 1px 4px rgba(90, 75, 60, 0.25);
+  cursor: pointer;
+}
+
+html body .workbench-app-shell .gen-settings-range::-moz-range-track {
+  height: 6px;
+  border: 1px solid var(--paper-border) !important;
+  border-radius: 999px;
+  background: var(--paper-surface-deep) !important;
+}
+
+html body .workbench-app-shell .gen-settings-range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--paper-surface-raised) !important;
+  border-radius: 50%;
+  background: var(--paper-accent) !important;
+  box-shadow: 0 0 0 1px var(--paper-accent-deep);
+  cursor: pointer;
+}
+
+html body .workbench-app-shell .gen-settings-toggle input[type="checkbox"] {
+  accent-color: var(--paper-accent);
+}
+
+html body .workbench-app-shell .workbench-nav-select-trigger:hover,
+html body .workbench-app-shell .workbench-nav-select-trigger.is-open,
+html body .workbench-app-shell .workbench-entry-mode-trigger:hover,
+html body .workbench-app-shell .workbench-nav-field select:focus,
+html body .workbench-app-shell .workbench-nav-field input:focus,
+html body .workbench-app-shell input:focus,
+html body .workbench-app-shell select:focus,
+html body .workbench-app-shell textarea:focus {
+  border-color: var(--paper-accent-border) !important;
+  box-shadow: 0 0 0 3px var(--paper-accent-soft);
+}
+
+html body .workbench-app-shell .workbench-nav-select-option,
+html body .workbench-app-shell .workbench-entry-mode-menu button {
+  color: var(--paper-text-soft) !important;
+  border-radius: var(--paper-radius-sm);
+}
+
+html body .workbench-app-shell .workbench-nav-select-option:hover,
+html body .workbench-app-shell .workbench-nav-select-option.is-active,
+html body .workbench-app-shell .workbench-entry-mode-menu button:hover,
+html body .workbench-app-shell .workbench-entry-mode-menu button.is-active {
+  color: var(--paper-text) !important;
+  background: var(--paper-accent-soft) !important;
+}
+
+/* ==================== 按钮（对齐 .ide-btn 语言） ==================== */
+
+html body .workbench-app-shell .wpa-secondary,
+html body .workbench-app-shell .gen-settings-trigger,
+html body .workbench-app-shell .workbench-info-card-edit {
+  border-color: var(--paper-border-strong) !important;
+  border-radius: var(--paper-radius-sm);
+  background: var(--paper-surface-raised) !important;
+  color: var(--paper-text) !important;
+  box-shadow: none !important;
+}
+
+html body .workbench-app-shell .wpa-secondary:hover,
+html body .workbench-app-shell .gen-settings-trigger:hover,
+html body .workbench-app-shell .workbench-info-card-edit:hover {
+  border-color: var(--paper-accent-border) !important;
+  background: var(--paper-accent-hover) !important;
+  color: var(--paper-accent-deep) !important;
+}
+
+html body .workbench-app-shell .wpa-generate,
+html body .workbench-app-shell .workbench-prose-actions .primary-btn,
+html body .workbench-app-shell .workbench-meta-actions .primary-btn {
+  border-color: var(--paper-primary) !important;
+  border-radius: var(--paper-radius-sm);
+  background: var(--paper-primary) !important;
+  color: var(--paper-surface-raised) !important;
+  box-shadow: 0 8px 20px rgba(90, 75, 60, 0.2) !important;
+}
+
+html body .workbench-app-shell .wpa-generate:hover:not(:disabled),
+html body .workbench-app-shell .workbench-prose-actions .primary-btn:hover:not(:disabled),
+html body .workbench-app-shell .workbench-meta-actions .primary-btn:hover:not(:disabled) {
+  border-color: var(--paper-primary-hover) !important;
+  background: var(--paper-primary-hover) !important;
+  color: var(--paper-surface-raised) !important;
+}
+
+/* ==================== 顶部区域切换（segmented control） ==================== */
+
+html body .workbench-app-shell .workbench-surface-tabs {
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--paper-border) !important;
+  border-radius: var(--paper-radius-md);
+  background: var(--paper-surface-deep) !important;
+}
+
+html body .workbench-app-shell .workbench-surface-tab {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid transparent !important;
+  border-radius: var(--paper-radius-sm);
+  background: transparent !important;
+  color: var(--paper-text-muted) !important;
+}
+
+html body .workbench-app-shell .workbench-surface-tab:hover {
+  background: var(--paper-accent-hover) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .workbench-app-shell .workbench-surface-tab.is-active {
+  border-color: var(--paper-border-strong) !important;
+  background: var(--paper-surface-raised) !important;
+  color: var(--paper-text) !important;
+  box-shadow: var(--paper-shadow-card) !important;
+}
+
+html body .workbench-app-shell .workbench-surface-tab strong {
+  color: var(--paper-text) !important;
+}
+
+html body .workbench-app-shell .workbench-surface-tab span {
+  color: var(--paper-text-muted) !important;
+}
+
+/* ==================== 校改弹窗 / 上下文抽屉（cinematic 暗色残留 → 纸感） ==================== */
+
+html body .modal-backdrop {
+  background: var(--paper-overlay) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+html body .modal-panel,
+html body .modal-panel-revision,
+html body .context-drawer-panel {
+  color: var(--paper-text) !important;
+  background: var(--paper-surface-raised) !important;
+  border-color: var(--paper-border) !important;
+  box-shadow: 0 24px 70px rgba(90, 75, 60, 0.18) !important;
+}
+
+html body .modal-head,
+html body .modal-actions {
+  border-color: var(--paper-border) !important;
+  background: var(--paper-surface) !important;
+}
+
+html body .modal-head h2,
+html body .modal-head h3 {
+  color: var(--paper-text) !important;
+}
+
+html body .modal-head p {
+  color: var(--paper-text-muted) !important;
+}
+
+html body .modal-body {
+  background: var(--paper-bg) !important;
+}
+
+html body .modal-panel-revision .revision-review-side,
+html body .modal-panel-revision .revision-original-panel,
+html body .modal-panel-revision .revision-edit-box,
+html body .modal-panel-revision .revision-suggestion-panel,
+html body .context-drawer-panel .drawer-detail-stack > * {
+  color: var(--paper-text) !important;
+  background: var(--paper-surface-sunken) !important;
+  border-color: var(--paper-border) !important;
+  border-radius: var(--paper-radius-md);
+}
+
+html body .modal-panel-revision textarea,
+html body .context-drawer-panel input,
+html body .context-drawer-panel textarea,
+html body .context-drawer-panel select {
+  color: var(--paper-text) !important;
+  background: var(--paper-surface-raised) !important;
+  border-color: var(--paper-border-strong) !important;
+}
+
+html body .context-drawer-head {
+  color: var(--paper-text) !important;
+  background: var(--paper-glass-strong) !important;
+  border-color: var(--paper-border) !important;
+}

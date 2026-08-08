@@ -1,0 +1,79 @@
+{
+  "name": "longform-studio-ide",
+  "version": "0.1.0",
+  "author": "Longform Studio",
+  "private": true,
+  "description": "Longform Studio 本地独立 IDE（Electron）——AI 长篇小说创作工作台",
+  "main": "src/main.cjs",
+  "scripts": {
+    "build": "node scripts/build-desktop.mjs",
+    "start": "electron .",
+    "dev": "npm run build && electron .",
+    "package:mac": "npm run build && electron-builder --mac dmg zip",
+    "package:mac:dir": "npm run build && electron-builder --mac --dir",
+    "package:win": "npm run build && electron-builder --win nsis zip"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.alipro.longformstudio",
+    "productName": "Longform Studio",
+    "asar": true,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "electronDist": "node_modules/electron/dist",
+    "files": [
+      "src/**/*",
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "backend-runtime",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!harness-results",
+          "!harness-results/**/*",
+          "!logs",
+          "!logs/**",
+          "!tts-venv",
+          "!harness-results/**",
+          "!tts-venv/**",
+          "!database/*.backup-*",
+          "!database/novel.db.backup-*",
+          "!database/database.sqlite"
+        ]
+      },
+      {
+        "from": "backend-runtime/node_modules",
+        "to": "backend/node_modules",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../shared",
+        "to": "shared",
+        "filter": ["**/*"]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] },
+        { "target": "zip", "arch": ["x64", "arm64"] }
+      ]
+    },
+    "win": {
+      "target": ["nsis", "zip"]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
+    }
+  }
+}

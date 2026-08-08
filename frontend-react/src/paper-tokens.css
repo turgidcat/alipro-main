@@ -1,0 +1,226 @@
+/*
+ * 纸感主题设计 token（与 desktop-ide/src/paper-theme.css 同源）
+ * 规范文档：docs/paper-theme-spec.md
+ *
+ * 浏览器（Vite dev/build）下提供 --paper-* token 与纸感底色；
+ * Electron IDE 中由桌面壳注入同一份 token，两侧视觉一致。
+ */
+
+:root {
+  color-scheme: light;
+
+  /* ---- 基础（legacy token 映射到纸感，与 desktop-ide/src/paper-theme.css 同源） ---- */
+  --background: #FEFFFA;
+  --bg: #FEFFFA;
+  --bg-subtle: #F7F4ED;
+  --surface: #F5F2EB;
+  --surface-raised: #FFFFFF;
+  --foreground: #4A4038;
+  --text: #4A4038;
+  --text-soft: #6B5D55;
+  --text-muted: #7C6D67;
+  --muted-foreground: #7C6D67;
+  --muted: #7C6D67;
+  --muted-bg: #F0ECE3;
+  --border: #DCD7CF;
+  --line: #DCD7CF;
+  --line-strong: #C6BFB7;
+  --nav-surface: #F5F2EB;
+  --shadow: 0 18px 50px rgba(90, 75, 60, 0.12);
+
+  --ink-100: #F7F4ED;
+  --ink-200: #F0ECE3;
+  --ink-300: #E4DFD5;
+  --ink-400: #C6BFB7;
+  --ink-500: #998F86;
+  --ink-600: #7C6D67;
+  --ink-700: #4A4038;
+
+  --panel: #F5F2EB;
+  --panel-strong: #F0ECE3;
+  --panel-card-bg: #FFFFFF;
+  --panel-note-bg: #F7F4ED;
+
+  --primary: #6F6158;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F0ECE3;
+  --accent: #A98874;
+  --accent-deep: #7C5C4C;
+  --accent-rgb: 169, 136, 116;
+  --accent-soft: rgba(169, 136, 116, 0.14);
+  --accent-soft-strong: rgba(169, 136, 116, 0.24);
+  --active: #A98874;
+
+  --brand: #A98874;
+  --brand-deep: #7C5C4C;
+  --brand-rgb: 169, 136, 116;
+  --brand-soft: rgba(169, 136, 116, 0.14);
+  --brand-soft-strong: rgba(169, 136, 116, 0.24);
+  --badge-bg: rgba(169, 136, 116, 0.14);
+  --badge-border: rgba(169, 136, 116, 0.24);
+  --badge-text: #7C5C4C;
+
+  --btn-solid-bg: #6F6158;
+  --btn-solid-border: #6F6158;
+  --btn-solid-text: #FFFFFF;
+  --btn-solid-shadow: 0 8px 20px rgba(90, 75, 60, 0.22);
+  --btn-ghost-bg: rgba(111, 97, 88, 0.05);
+  --btn-ghost-border: #DCD7CF;
+  --btn-ghost-text: #4A4038;
+  --btn-ghost-shadow: none;
+  --btn-action-bg: rgba(254, 255, 250, 0.82);
+  --btn-action-border: #DCD7CF;
+  --btn-action-text: #4A4038;
+  --btn-action-shadow: none;
+  --btn-action-solid-bg: #6F6158;
+  --btn-action-solid-border: #6F6158;
+  --btn-action-solid-text: #FFFFFF;
+  --btn-action-solid-shadow: 0 10px 24px rgba(90, 75, 60, 0.22);
+  --btn-nav-bg: transparent;
+  --btn-nav-border: transparent;
+  --btn-nav-text: #4A4038;
+  --btn-nav-hover-bg: rgba(111, 97, 88, 0.08);
+  --btn-nav-hover-border: transparent;
+  --btn-nav-shadow: none;
+  --btn-nav-primary-bg: #6F6158;
+  --btn-nav-primary-hover-bg: #5F534B;
+  --btn-nav-primary-text: #FFFFFF;
+  --btn-nav-primary-shadow: 0 10px 24px rgba(90, 75, 60, 0.22);
+  --btn-danger-bg: rgba(168, 90, 77, 0.08);
+  --btn-danger-border: rgba(168, 90, 77, 0.2);
+  --btn-danger-text: #A85A4D;
+  --btn-danger-solid-bg: #A85A4D;
+  --btn-danger-solid-text: #FFFFFF;
+
+  --product-canvas: #FEFFFA;
+  --product-surface: #F5F2EB;
+  --product-surface-subtle: #F7F4ED;
+  --product-text: #4A4038;
+  --product-text-soft: #7C6D67;
+  --product-muted: #7C6D67;
+  --product-line: #DCD7CF;
+  --product-line-strong: #C6BFB7;
+  --product-primary: #6F6158;
+  --product-primary-hover: #5F534B;
+  --product-primary-soft: rgba(111, 97, 88, 0.12);
+  --product-success: #7C8B6F;
+  --product-warning: #B08A4F;
+  --product-danger: #A85A4D;
+  --product-radius: 14px;
+  --product-shadow: 0 18px 50px rgba(90, 75, 60, 0.12);
+
+  --wb-bg: #FEFFFA;
+  --wb-panel: #F5F2EB;
+  --wb-panel-strong: #F0ECE3;
+  --wb-line: #DCD7CF;
+  --wb-line-strong: #C6BFB7;
+  --wb-text: #4A4038;
+  --wb-muted: #7C6D67;
+  --wb-signal: #A98874;
+  --wb-gold: #B08A4F;
+  --workbench-sidebar-lift: rgba(90, 75, 60, 0.12);
+
+  --cinema-bg: #FEFFFA;
+  --cinema-bg-soft: #F7F4ED;
+  --cinema-panel: #F5F2EB;
+  --cinema-panel-strong: #F0ECE3;
+  --cinema-line: rgba(140, 125, 110, 0.16);
+  --cinema-line-strong: rgba(140, 125, 110, 0.32);
+  --cinema-text: #4A4038;
+  --cinema-muted: #7C6D67;
+  --cinema-signal: #A98874;
+  --cinema-signal-soft: rgba(169, 136, 116, 0.12);
+  --cinema-gold: #B08A4F;
+  --cinema-danger: #A85A4D;
+  --cinema-shadow: 0 18px 50px rgba(90, 75, 60, 0.12);
+
+  --status-success-bg: rgba(124, 139, 111, 0.14);
+  --status-success-border: rgba(124, 139, 111, 0.32);
+  --status-warning-bg: rgba(176, 138, 79, 0.14);
+  --status-warning-border: rgba(176, 138, 79, 0.32);
+  --status-error-bg: rgba(168, 90, 77, 0.12);
+  --status-error-border: rgba(168, 90, 77, 0.3);
+  --status-error-text: #A85A4D;
+
+  /* 背景与面板 */
+  --paper-bg: #FEFFFA;
+  --paper-surface: #F5F2EB;
+  --paper-surface-raised: #FFFFFF;
+  --paper-surface-sunken: #F7F4ED;
+  --paper-surface-deep: #F0ECE3;
+  --paper-tint: #FDF6F4;
+  --paper-tint-warm: #E9D5CF;
+  --paper-overlay: rgba(90, 75, 60, 0.32);
+  --paper-glass: rgba(254, 255, 250, 0.92);
+  --paper-glass-strong: rgba(254, 255, 250, 0.96);
+
+  /* 边框 */
+  --paper-border: #DCD7CF;
+  --paper-border-subtle: #E4DFD5;
+  --paper-border-strong: #C6BFB7;
+  --paper-border-line: rgba(140, 125, 110, 0.28);
+
+  /* 文字 */
+  --paper-text: #4A4038;
+  --paper-text-soft: #6B5D55;
+  --paper-text-muted: #7C6D67;
+  --paper-text-tertiary: #998F86;
+
+  /* 操作与强调 */
+  --paper-primary: #6F6158;
+  --paper-primary-hover: #5F534B;
+  --paper-accent: #A98874;
+  --paper-accent-deep: #7C5C4C;
+  --paper-accent-soft: rgba(169, 136, 116, 0.12);
+  --paper-accent-soft-strong: rgba(169, 136, 116, 0.24);
+  --paper-accent-hover: rgba(169, 136, 116, 0.1);
+  --paper-accent-border: rgba(169, 136, 116, 0.5);
+  --paper-primary-soft: rgba(111, 97, 88, 0.06);
+  --paper-gold: #B08A4F;
+
+  /* 语义色 */
+  --paper-danger: #A85A4D;
+  --paper-danger-soft: rgba(168, 90, 77, 0.08);
+  --paper-danger-line: rgba(168, 90, 77, 0.3);
+  --paper-danger-hover-line: rgba(168, 90, 77, 0.4);
+  --paper-success: #7C8B6F;
+  --paper-success-soft: rgba(124, 139, 111, 0.12);
+  --paper-success-line: rgba(124, 139, 111, 0.34);
+
+  /* 阴影 */
+  --paper-shadow-card: 0 8px 20px rgba(90, 75, 60, 0.06);
+  --paper-shadow-panel: 0 10px 26px rgba(90, 75, 60, 0.08);
+  --paper-shadow-nav: 0 10px 30px rgba(90, 75, 60, 0.08);
+  --paper-shadow-prose: 0 12px 34px rgba(90, 75, 60, 0.08);
+
+  /* 圆角 */
+  --paper-radius-sm: 8px;
+  --paper-radius-md: 12px;
+  --paper-radius-lg: 16px;
+
+  /* 间距 */
+  --paper-pad-card: 18px;
+  --paper-pad-section: 16px 18px;
+  --paper-pad-editor: 14px;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background: var(--paper-bg);
+}
+
+body {
+  color: var(--paper-text);
+  background: var(--paper-bg);
+}
+
+body::before {
+  display: none;
+}
+
+::selection {
+  color: var(--paper-text);
+  background: rgba(169, 136, 116, 0.28);
+}

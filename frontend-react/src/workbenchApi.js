@@ -2,6 +2,8 @@ import { formatStorylineTypeLabel } from './lib/storylineLabel.js';
 import { normalizeNarrativeOutlineText } from './lib/chapterPlan.js';
 import { compareRoleTier } from './lib/roleTiers.js';
 import { normalizeChapterName } from './lib/chapterName.js';
+import { DEFAULT_WORD_COUNT } from './lib/wordCountPolicy.js';
+import { playGenerationCompleteSound } from './lib/generationSound.js';
 
 const APP_BASE_PATH = String(import.meta.env.BASE_URL || '/');
 const API_BASE = import.meta.env.VITE_API_BASE || `${APP_BASE_PATH.replace(/\/+$/, '')}/api`;
@@ -36,7 +38,18 @@ async function request(path, options = {}) {
     throw new Error(data.error || `HTTP ${response.status}`);
   }
 
+  if (isGenerationRequest(path, options)) playGenerationCompleteSound();
+
   return data.data;
+}
+
+function isGenerationRequest(path = '', options = {}) {
+  const method = String(options.method || 'GET').toUpperCase();
+  if (method === 'GET') return false;
+  const normalizedPath = String(path || '').toLowerCase();
+  if (normalizedPath.includes('prompt-preview')) return false;
+  return /(?:^|\/)(?:generate|synthesize|polish)(?:\/|$)/.test(normalizedPath)
+    || /\/generate-/.test(normalizedPath);
 }
 
 function normalizeBook(book) {
@@ -316,6 +329,132 @@ export async function fetchBookList() {
   return Array.isArray(books) ? books.map(normalizeBook) : [];
 }
 
+export async function fetchBookChapters(bookId) {
+  return request(`/books/${bookId}/chapters`);
+}
+
+export async function fetchBookVolumePlans(bookId) {
+  const plans = await request(`/books/${bookId}/volume-plans`).catch(() => []);
+  return Array.isArray(plans) ? plans : [];
+}
+
+export async function fetchBookChapterPlans(bookId) {
+  const plans = await request(`/books/${bookId}/chapter-plans`).catch(() => []);
+  return Array.isArray(plans) ? plans : [];
+}
+
+export async function saveVolumePlan(bookId, volumeNumber, planData = {}) {
+  const existingPlans = await fetchBookVolumePlans(bookId);
+  const existing = existingPlans.find((item) => Number(item.volume_number || item.volumeNumber || 0) === Number(volumeNumber));
+  return request(`/books/${bookId}/volume-plans/${Number(volumeNumber)}`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...(existing || {}),
+      ...planData,
+      volume_number: Number(volumeNumber),
+      source: planData.source || existing?.source || 'ai'
+    })
+  });
+}
+
+export async function generateInspiration(payload = {}) {
+  return request('/inspiration/generate', {
+    method: 'POST',
+    body: JSON.stringify({
+      mode: payload.mode === 'latest_chapter' ? 'latest_chapter' : 'general',
+      scope: ['book', 'volume', 'chapter'].includes(payload.scope) ? payload.scope : 'volume',
+      prompt: payload.prompt || '',
+      creativeFocus: payload.creativeFocus || '',
+      constraints: payload.constraints || '',
+      bookId: payload.bookId || '',
+      volumeNumber: Number(payload.volumeNumber || 0) || 0,
+      chapterNumber: Number(payload.chapterNumber || payload.targetChapterNumber || 0) || 0,
+      targetChapterNumber: Number(payload.targetChapterNumber || payload.chapterNumber || 0) || 0,
+      contextMode: payload.contextMode || ''
+    })
+  });
+}
+
+export async function saveBookPlan(bookId, planData = {}) {
+  const current = await request(`/books/${bookId}/book-plan`).catch(() => null);
+  return request(`/books/${bookId}/book-plan`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...(current || {}),
+      ...planData,
+      source: planData.source || current?.source || 'inspiration'
+    })
+  });
+}
+
+export async function createCharacterCard(bookId, payload = {}) {
+  return request(`/books/${bookId}/characters`, {
+    method: 'POST',
+    body: JSON.stringify({
+      name: payload.name || '未命名角色',
+      appearance: payload.appearance || '',
+      personality: payload.personality || '',
+      background: payload.background || '',
+      notes: payload.notes || '',
+      character_type: payload.character_type || 'main_character',
+      role_tier: payload.role_tier || 'supporting_major'
+    })
+  });
+}
+
+export async function fetchBookCharacters(bookId) {
+  const characters = await request(`/books/${bookId}/characters`).catch(() => []);
+  return Array.isArray(characters) ? characters : [];
+}
+
+export async function fetchTtsVoices() {
+  return request('/tts/voices');
+}
+
+export async function synthesizeTtsChapter(payload) {
+  return request('/tts/synthesize', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function previewTts(payload) {
+  return request('/tts/preview', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function fetchBookTtsAudio(bookId) {
+  return request(`/tts/books/${bookId}/audio`);
+}
+
+export async function deleteTtsAudio(id) {
+  return request(`/tts/audio/${id}`, { method: 'DELETE' });
+}
+
+export async function fetchCalibrationSamples(bookId, reviewer = 'reviewer_a') {
+  const params = new URLSearchParams({ bookId: String(bookId || ''), reviewer });
+  return request(`/calibration/samples?${params.toString()}`);
+}
+
+export async function saveCalibrationReview(payload) {
+  return request('/calibration/reviews', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function fetchCalibrationMetrics(bookId, reveal = false) {
+  const params = new URLSearchParams({ bookId: String(bookId || ''), reveal: reveal ? 'true' : 'false' });
+  return request(`/calibration/metrics?${params.toString()}`);
+}
+
+export async function exportCalibrationPacket(bookId) {
+  const params = new URLSearchParams({ bookId: String(bookId || '') });
+  return request(`/calibration/export?${params.toString()}`);
+}
+
 export async function createBook(payload) {
   return request('/books', {
     method: 'POST',
@@ -374,7 +513,7 @@ export async function fetchBookPlanningBundle(bookId) {
     : [];
   const visibleCharacters = Array.isArray(characters)
     ? characters
-      .filter((item) => item && item.name !== '全书角色设定')
+      .filter((item) => item && !['全书角色设定', '本章新增角色'].includes(String(item.name || '').trim()))
       .map((item) => ({
         id: item.id,
         name: item.name || '未命名角色',
@@ -985,6 +1124,13 @@ export async function saveChapterPlan(bookId, chapterNumber, planData) {
   });
 }
 
+export async function confirmChapterReview(bookId, chapterNumber) {
+  return request(`/books/${bookId}/chapter-plans/${chapterNumber}/review-confirm`, {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+}
+
 export async function generateChapterOutline(payload) {
   return request('/generate', {
     method: 'POST',
@@ -1129,6 +1275,7 @@ export async function streamChapterContent(payload, {
         usage: eventPayload.usage || latestUsage,
         audit: latestAudit
       };
+      playGenerationCompleteSound();
       onDone?.(donePayload);
       return true;
     }
@@ -1318,7 +1465,7 @@ async function seedDemoWorkspace(book) {
     appearing_roles: ['沈破雾', '陆听澜', '白照夜', '雾门守卒'],
     main_storyline_id: bloodMoonLine.id || '',
     target_storylines: [bloodMoonLine.id, pursuitLine.id].filter(Boolean),
-    structured_content: { generation_settings: { word_count: 3000 } }
+    structured_content: { generation_settings: { word_count: DEFAULT_WORD_COUNT } }
   });
 
   await saveChapterPlan(bookId, 3, {
@@ -1339,7 +1486,7 @@ async function seedDemoWorkspace(book) {
     appearing_roles: ['沈破雾', '陆听澜', '白照夜', '雾门守卒'],
     main_storyline_id: bloodMoonLine.id || '',
     target_storylines: [bloodMoonLine.id, pursuitLine.id].filter(Boolean),
-    structured_content: { generation_settings: { word_count: 3000 } }
+    structured_content: { generation_settings: { word_count: DEFAULT_WORD_COUNT } }
   });
 
   await saveChapterPlan(bookId, 4, {
@@ -1360,7 +1507,7 @@ async function seedDemoWorkspace(book) {
     appearing_roles: ['沈破雾', '陆听澜', '白照夜', '雾门守卒'],
     main_storyline_id: bloodMoonLine.id || '',
     target_storylines: [bloodMoonLine.id, pursuitLine.id].filter(Boolean),
-    structured_content: { generation_settings: { word_count: 3000 } }
+    structured_content: { generation_settings: { word_count: DEFAULT_WORD_COUNT } }
   });
 
   await saveChapterPlan(bookId, 5, {
@@ -1382,7 +1529,7 @@ async function seedDemoWorkspace(book) {
     main_storyline_id: bloodMoonLine.id || '',
     target_storylines: [bloodMoonLine.id].filter(Boolean),
     structured_content: {
-      generation_settings: { word_count: 3000 }
+      generation_settings: { word_count: DEFAULT_WORD_COUNT }
     }
   });
 
@@ -1405,7 +1552,7 @@ async function seedDemoWorkspace(book) {
     main_storyline_id: bloodMoonLine.id || '',
     target_storylines: [bloodMoonLine.id].filter(Boolean),
     structured_content: {
-      generation_settings: { word_count: 3000 }
+      generation_settings: { word_count: DEFAULT_WORD_COUNT }
     }
   });
 

@@ -2,7 +2,12 @@ const winston = require('winston');
 const path = require('path');
 
 // 创建日志目录
-const logDir = path.join(__dirname, '..', 'logs');
+const logDir = process.env.ALIPRO_LOG_DIR
+  ? path.resolve(process.env.ALIPRO_LOG_DIR)
+  : path.join(__dirname, '..', 'logs');
+
+// 打包版后端位于应用 resources 目录中（只读），日志必须落到用户数据目录。
+require('fs').mkdirSync(logDir, { recursive: true });
 
 // 配置日志格式
 const logFormat = winston.format.combine(

@@ -7,6 +7,14 @@ import {
   formatExactWordCount,
   formatWordCountProgress
 } from '../src/lib/textMetrics.js';
+import {
+  WORD_COUNT_POLICY,
+  DEFAULT_WORD_COUNT,
+  MIN_WORD_COUNT,
+  MAX_WORD_COUNT,
+  WORD_COUNT_TOLERANCE,
+  getWordCountBounds
+} from '../src/lib/wordCountPolicy.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const srcRoot = join(root, 'src');
@@ -22,6 +30,12 @@ assert.equal(countPlatformEffectiveWords('你好，世界！\nA-1'), 6);
 assert.equal(countPlatformEffectiveWords('  林烬\n推门。  '), 4);
 assert.equal(formatExactWordCount(11516), '11,516字');
 assert.equal(formatWordCountProgress(2110, 3000), '有效字数 2,110字 / 目标 3,000字');
+assert.equal(WORD_COUNT_POLICY.version, '1.0.0');
+assert.equal(DEFAULT_WORD_COUNT, 3000);
+assert.equal(MIN_WORD_COUNT, 500);
+assert.equal(MAX_WORD_COUNT, 10000);
+assert.equal(WORD_COUNT_TOLERANCE, 0.15);
+assert.deepEqual(getWordCountBounds(DEFAULT_WORD_COUNT), { target: 3000, min: 2550, max: 3450 });
 
 const sourceFiles = listFiles(srcRoot).filter((path) => /\.(js|jsx)$/.test(path));
 const duplicateCounters = sourceFiles

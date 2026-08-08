@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { resolveDeepSeekModel } = require('../config/runtime');
 
 class AIService {
   constructor() {
@@ -28,7 +29,7 @@ class AIService {
 
     // 根据任务类型选择模型
     let provider = this.defaultProvider;
-    let model = 'deepseek-v4-pro';
+    let model = resolveDeepSeekModel(options.model);
 
     // 对于创意命名任务，优先使用阿里云百炼的Qwen-Max模型（如果可用）
     if (task === 'naming' && this.aliyunApiKey) {
@@ -50,7 +51,7 @@ class AIService {
       // 如果阿里云失败，降级到DeepSeek
       if (provider === 'aliyun' && this.deepseekApiKey) {
         console.log('⚠️ [AI服务] 降级到 DeepSeek');
-        return await this.callDeepSeek('deepseek-v4-pro', prompt, temperature, maxTokens);
+        return await this.callDeepSeek(resolveDeepSeekModel(options.model), prompt, temperature, maxTokens);
       }
 
       throw error;

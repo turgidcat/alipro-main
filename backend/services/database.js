@@ -1,4 +1,5 @@
 const initDatabase = require('../database/init');
+const { countPlatformEffectiveWords } = require('./word-count-policy');
 
 // UUID生成函数（不依赖uuid包）
 function generateId() {
@@ -14,11 +15,11 @@ let dbPromise = initDatabase.then(db => db);
 
 // 保存数据库到文件
 function saveDatabase(db) {
-  const path = require('path');
   const fs = require('fs');
+  const { resolveDatabasePath } = require('../config/runtime');
   const data = db.export();
   const buffer = Buffer.from(data);
-  const dbPath = path.join(__dirname, '..', 'database', 'novel.db');
+  const dbPath = resolveDatabasePath();
   fs.writeFileSync(dbPath, buffer);
 }
 
@@ -68,10 +69,103 @@ function sanitizeGeneratedText(value) {
     .trim();
 }
 
-function countPlatformEffectiveWords(value) {
-  const text = sanitizeGeneratedText(value)
-    .replace(/[\s\p{Punctuation}\p{Symbol}]/gu, '');
-  return Array.from(text).length;
+const LEGACY_CHARACTER_SUMMARY_NAMES = new Set(['全书角色设定', '本章新增角色']);
+
+const LEGACY_CHARACTER_ROLE_HEADERS = [
+  ['重要配角', 'supporting_major'],
+  ['主要配角', 'supporting_major'],
+  ['次要配角', 'supporting_secondary'],
+  ['普通配角', 'supporting_minor'],
+  ['其他配角', 'supporting_minor'],
+  ['普通反派', 'antagonist_minor'],
+  ['大反派', 'antagonist_major'],
+  ['主角', 'protagonist'],
+  ['男主', 'protagonist'],
+  ['女主', 'protagonist'],
+  ['反派', 'antagonist_major'],
+  ['配角', 'supporting_secondary']
+];
+
+const LEGACY_CHARACTER_FIELD_MAP = {
+  性格: 'personality',
+  个性: 'personality',
+  外貌: 'appearance',
+  外形: 'appearance',
+  身份背景: 'background',
+  背景: 'background',
+  作用: 'notes',
+  定位: 'notes',
+  阵营: 'notes',
+  关系: 'notes',
+  备注: 'notes',
+  说明: 'notes'
+};
+
+function appendCharacterField(target, field, value) {
+  const text = String(value || '').trim();
+  if (!text) return;
+  target[field] = target[field] ? `${target[field]}\n${text}` : text;
+}
+
+/**
+ * 将旧版“全书角色设定/本章新增角色”摘要拆成可单独编辑的角色卡。
+ * 旧摘要仍保留在数据库中，供大纲与生成链路读取；这里只生成缺失的单角色镜像。
+ */
+function parseLegacyCharacterSummary(summary, characterType = 'main_character') {
+  const lines = String(summary || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const roleHeaderPattern = new RegExp(`^(${LEGACY_CHARACTER_ROLE_HEADERS.map(([label]) => label).join('|')})\\s*[：:]\\s*(.*)$`);
+  const fieldPattern = /^(性格|个性|外貌|外形|身份背景|背景|作用|定位|阵营|关系|备注|说明)\s*[：:]\s*(.*)$/;
+  const parsed = [];
+  let current = null;
+  let pendingRole = '';
+
+  const flush = () => {
+    if (!current || !current.name) return;
+    parsed.push({
+      ...current,
+      name: current.name.replace(/^[•·\-*\d.、]+\s*/, '').replace(/[：:]$/, '').trim(),
+      character_type: characterType
+    });
+    current = null;
+  };
+
+  lines.forEach((line) => {
+    const roleMatch = line.match(roleHeaderPattern);
+    if (roleMatch) {
+      flush();
+      const roleTier = LEGACY_CHARACTER_ROLE_HEADERS.find(([label]) => label === roleMatch[1])?.[1] || 'supporting_minor';
+      const remainder = String(roleMatch[2] || '').trim();
+      const nameMatch = remainder.match(/^([^，,；;。\s]+)(?:[，,；;。\s]+(.*))?$/);
+      current = {
+        name: nameMatch?.[1] || remainder,
+        role_tier: roleTier,
+        personality: '',
+        background: nameMatch?.[2] || '',
+        appearance: '',
+        notes: ''
+      };
+      pendingRole = remainder ? '' : roleTier;
+      return;
+    }
+
+    const fieldMatch = line.match(fieldPattern);
+    if (fieldMatch && current) {
+      appendCharacterField(current, LEGACY_CHARACTER_FIELD_MAP[fieldMatch[1]], fieldMatch[2]);
+      return;
+    }
+
+    if (current) {
+      if (!current.name && pendingRole) {
+        current.name = line;
+        pendingRole = '';
+      } else {
+        appendCharacterField(current, 'notes', line);
+      }
+    }
+  });
+
+  flush();
+  return parsed.filter((item) => item.name && item.name.length <= 100);
 }
 
 function buildBookWordStatsMap(db, bookIds = []) {
@@ -371,6 +465,50 @@ function normalizeChapterOutlinePayload(payload = {}) {
       : (Array.isArray(payload.sceneOutline) ? payload.sceneOutline : []),
     ending_hook: payload.ending_hook || payload.endingHook || '',
     character_notes: payload.character_notes || payload.characterNotes || ''
+  };
+}
+
+function parseExistingJsonArray(value, fallback = []) {
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(String(value || ''));
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+/**
+ * 已有章节规划时，把请求 payload 与当前行合并：调用方只传部分字段时，
+ * 未提供的字段沿用当前行的值，避免全量覆盖把 chapter_name / chapter_mission /
+ * summary / structured_content 等清空。
+ */
+function mergeChapterPlanPayloadWithExisting(payload = {}, existing = {}) {
+  return {
+    ...payload,
+    chapter_id: payload.chapter_id || payload.chapterId || existing.chapter_id || '',
+    volume_number: payload.volume_number ?? payload.volumeNumber ?? existing.volume_number ?? 1,
+    chapter_name: payload.chapter_name || payload.chapterName || existing.chapter_name || '',
+    summary: payload.summary || existing.summary || '',
+    chapter_mission: payload.chapter_mission || payload.chapterMission || existing.chapter_mission || '',
+    emotion_target: payload.emotion_target || payload.emotionTarget || existing.emotion_target || '',
+    outline_text: payload.outline_text || payload.outlineText || existing.outline_text || '',
+    scene_outline: Array.isArray(payload.scene_outline)
+      ? payload.scene_outline
+      : (Array.isArray(payload.sceneOutline) ? payload.sceneOutline : parseExistingJsonArray(existing.scene_outline)),
+    character_notes: payload.character_notes || payload.characterNotes || existing.character_notes || '',
+    appearing_roles: Array.isArray(payload.appearing_roles)
+      ? payload.appearing_roles
+      : (Array.isArray(payload.appearingRoles) ? payload.appearingRoles : parseExistingJsonArray(existing.appearing_roles)),
+    previous_hook: payload.previous_hook || payload.previousHook || existing.previous_hook || '',
+    ending_hook: payload.ending_hook || payload.endingHook || existing.ending_hook || '',
+    main_storyline_id: payload.main_storyline_id || payload.mainStorylineId || existing.main_storyline_id || '',
+    target_storylines: Array.isArray(payload.target_storylines)
+      ? payload.target_storylines
+      : (Array.isArray(payload.targetStorylines) ? payload.targetStorylines : parseExistingJsonArray(existing.target_storylines)),
+    structured_content: payload.structured_content || payload.structuredContent || existing.structured_content || '{}',
+    source: payload.source || existing.source || 'manual',
+    status: payload.status || existing.status || 'draft'
   };
 }
 
@@ -807,7 +945,7 @@ class ChapterService {
       }
     }
 
-    const wordCount = content ? content.replace(/\s/g, '').length : 0;
+    const wordCount = countPlatformEffectiveWords(content);
 
     db.run(`
       INSERT INTO chapters (id, book_id, user_id, chapter_number, chapter_name, title, content, word_count, outline)
@@ -906,7 +1044,7 @@ class ChapterService {
         // 如果更新了内容，重新计算字数
         if (key === 'content') {
           fields.push('word_count = ?');
-          values.push(value ? value.replace(/\s/g, '').length : 0);
+          values.push(countPlatformEffectiveWords(value));
         }
       }
     }
@@ -1230,6 +1368,63 @@ class CharacterService {
   }
 
   /**
+   * 把旧版聚合角色摘要惰性迁移为独立角色卡，避免历史作品一直把多人显示成一张卡。
+   */
+  async ensureLegacySummarySplit(bookId, userId = '') {
+    const db = await dbPromise;
+    const rows = execQuery(
+      db,
+      'SELECT * FROM novel_characters WHERE book_id = ? AND user_id = ? ORDER BY created_at ASC',
+      [bookId, userId]
+    );
+    const legacyRows = rows.filter((row) => LEGACY_CHARACTER_SUMMARY_NAMES.has(String(row.name || '').trim()));
+    if (legacyRows.length === 0) return 0;
+
+    const existingNames = new Set(
+      rows
+        .filter((row) => !LEGACY_CHARACTER_SUMMARY_NAMES.has(String(row.name || '').trim()))
+        .map((row) => String(row.name || '').trim())
+        .filter(Boolean)
+    );
+    const pendingNames = new Set(existingNames);
+    let inserted = 0;
+
+    legacyRows.forEach((row) => {
+      const characterType = String(row.name || '').trim() === '本章新增角色'
+        ? 'chapter_character'
+        : 'main_character';
+      const parsed = parseLegacyCharacterSummary(row.background, characterType);
+
+      parsed.forEach((item) => {
+        const name = String(item.name || '').trim();
+        if (!name || pendingNames.has(name)) return;
+        db.run(`
+          INSERT INTO novel_characters (
+            id, book_id, user_id, name, appearance, personality, background, notes, character_type, role_tier, avatar_image
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          generateId(),
+          bookId,
+          userId,
+          name,
+          item.appearance || '',
+          item.personality || '',
+          item.background || '',
+          item.notes || '',
+          item.character_type || characterType,
+          item.role_tier || 'supporting_minor',
+          ''
+        ]);
+        pendingNames.add(name);
+        inserted += 1;
+      });
+    });
+
+    if (inserted > 0) saveDatabase(db);
+    return inserted;
+  }
+
+  /**
    * 获取书籍的所有角色（按用户和类型筛选）
    */
   async getByBookId(bookId, userId = '', characterType = null) {
@@ -1481,7 +1676,9 @@ class VolumePlanService {
         : JSON.stringify(payload.structured_content || payload.structuredContent || {}),
       notes: payload.notes || '',
       cover_image: payload.cover_image || payload.coverImage || '',
-      source: payload.source || 'manual',
+      source: ['manual', 'ai', 'imported', 'mixed'].includes(String(payload.source || '').trim())
+        ? String(payload.source).trim()
+        : 'ai',
       status: payload.status || 'draft'
     };
 
@@ -1668,32 +1865,33 @@ class ChapterPlanService {
   async upsert(bookId, chapterNumber, payload = {}, userId = '') {
     const db = await dbPromise;
     const existing = await this.getByBookAndChapterNumber(bookId, chapterNumber, userId);
-    const chapterGoal = normalizeChapterGoalPayload(payload);
-    const chapterOutline = normalizeChapterOutlinePayload(payload);
-    const normalizedStructuredContent = buildChapterPlanStructuredContent(payload, chapterGoal, chapterOutline);
-    const chapterId = payload.chapter_id || payload.chapterId || '';
-    const volumeNumber = Number.parseInt(payload.volume_number ?? payload.volumeNumber ?? 1, 10) || 1;
-    const chapterName = payload.chapter_name || payload.chapterName || '';
-    const summary = chapterOutline.summary || payload.summary || '';
-    const chapterMission = chapterGoal.chapter_mission;
-    const emotionTarget = chapterGoal.emotion_target;
-    const outlineText = chapterOutline.outline_text;
-    const sceneOutline = typeof payload.scene_outline === 'string'
-      ? payload.scene_outline
+    const mergedPayload = existing
+      ? mergeChapterPlanPayloadWithExisting(payload, existing)
+      : payload;
+    const chapterGoal = normalizeChapterGoalPayload(mergedPayload);
+    const chapterOutline = normalizeChapterOutlinePayload(mergedPayload);
+    const normalizedStructuredContent = buildChapterPlanStructuredContent(mergedPayload, chapterGoal, chapterOutline);
+    const chapterId = mergedPayload.chapter_id || mergedPayload.chapterId || existing?.chapter_id || '';
+    const volumeNumber = Number.parseInt(mergedPayload.volume_number ?? mergedPayload.volumeNumber ?? existing?.volume_number ?? 1, 10) || 1;
+    const chapterName = mergedPayload.chapter_name || mergedPayload.chapterName || existing?.chapter_name || '';
+    const summary = chapterOutline.summary || mergedPayload.summary || existing?.summary || '';
+    const chapterMission = chapterGoal.chapter_mission || existing?.chapter_mission || '';
+    const emotionTarget = chapterGoal.emotion_target || existing?.emotion_target || '';
+    const outlineText = chapterOutline.outline_text || existing?.outline_text || '';
+    const sceneOutline = typeof mergedPayload.scene_outline === 'string'
+      ? mergedPayload.scene_outline
       : JSON.stringify(chapterOutline.scene_outline || []);
-    const characterNotes = chapterOutline.character_notes;
-    const appearingRoles = typeof payload.appearing_roles === 'string'
-      ? payload.appearing_roles
+    const characterNotes = chapterOutline.character_notes || existing?.character_notes || '';
+    const appearingRoles = typeof mergedPayload.appearing_roles === 'string'
+      ? mergedPayload.appearing_roles
       : JSON.stringify(chapterGoal.appearing_roles || []);
-    const previousHook = chapterGoal.previous_hook;
-    const endingHook = chapterOutline.ending_hook;
-    const mainStorylineId = chapterGoal.main_storyline_id;
+    const previousHook = chapterGoal.previous_hook || existing?.previous_hook || '';
+    const endingHook = chapterOutline.ending_hook || existing?.ending_hook || '';
+    const mainStorylineId = chapterGoal.main_storyline_id || existing?.main_storyline_id || '';
     const targetStorylines = JSON.stringify(chapterGoal.target_storylines || []);
-    const structuredContent = typeof payload.structured_content === 'string'
-      ? payload.structured_content
-      : JSON.stringify(normalizedStructuredContent);
-    const source = payload.source || 'manual';
-    const status = payload.status || 'draft';
+    const structuredContent = JSON.stringify(normalizedStructuredContent);
+    const source = mergedPayload.source || existing?.source || 'manual';
+    const status = mergedPayload.status || existing?.status || 'draft';
 
     if (existing) {
       db.run(`
@@ -1797,5 +1995,6 @@ module.exports = {
   saveDatabase,
   execQuery,
   execQueryOne,
+  parseLegacyCharacterSummary,
   inferCharacterType // 导出智能推断函数
 };

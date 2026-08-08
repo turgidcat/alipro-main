@@ -1251,3 +1251,256 @@ body .changelog-page {
     flex-direction: column;
   }
 }
+
+/* Final dark contrast layer. This file is imported by main.jsx after the
+   legacy workbench styles, so these rules are the last visual authority. */
+body .workbench-app-shell {
+  --bg: var(--cinema-bg);
+  --bg-subtle: var(--cinema-bg-soft);
+  --text: var(--cinema-text);
+  --text-soft: #c9d8d5;
+  --muted: var(--cinema-muted);
+  --brand: var(--cinema-signal);
+  --brand-deep: #8be9dd;
+  --brand-soft: var(--cinema-signal-soft);
+  --brand-soft-strong: rgba(39, 199, 183, 0.24);
+  --accent: var(--cinema-gold);
+  --accent-deep: #f0cf75;
+  --accent-soft: rgba(213, 169, 79, 0.14);
+  --surface: var(--cinema-panel);
+  --panel: var(--cinema-panel);
+  --panel-strong: var(--cinema-panel-strong);
+  --panel-note-bg: #0a171c;
+  --line: var(--cinema-line);
+  --line-strong: var(--cinema-line-strong);
+  color: var(--cinema-text);
+  background: var(--cinema-bg) !important;
+}
+
+body .workbench-stage.workbench-app-shell,
+body .workbench-app-shell .workbench-worktop,
+body .workbench-app-shell .workbench-triple-pane {
+  border-color: var(--cinema-line) !important;
+  background: #08161b !important;
+}
+
+body .workbench-app-shell .workbench-worktop {
+  background: rgba(8, 20, 24, 0.96) !important;
+}
+
+body .workbench-app-shell .workbench-worktop .wgb-title,
+body .workbench-app-shell .workbench-worktop .workbench-global-title {
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .workbench-triple-pane-left {
+  border-color: var(--cinema-line) !important;
+  background: #0a171c !important;
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .workbench-triple-pane-center {
+  background: #09171c !important;
+}
+
+body .workbench-app-shell .workbench-triple-pane-right {
+  border-color: var(--cinema-line) !important;
+  background: #0b1a20 !important;
+}
+
+body .workbench-app-shell .workbench-nav-section-head,
+body .workbench-app-shell .workbench-nav-select-label,
+body .workbench-app-shell .workbench-nav-field > span,
+body .workbench-app-shell .workbench-nav-volume-title {
+  color: #a9c0bd !important;
+}
+
+body .workbench-app-shell .workbench-nav-link {
+  color: #b6c9c6 !important;
+  background: transparent !important;
+}
+
+body .workbench-app-shell .workbench-nav-link:hover:not(:disabled),
+body .workbench-app-shell .workbench-nav-link.is-active {
+  color: var(--cinema-text) !important;
+  background: rgba(39, 199, 183, 0.12) !important;
+}
+
+body .workbench-app-shell .workbench-entry-mode-trigger,
+body .workbench-app-shell .workbench-nav-select-trigger,
+body .workbench-app-shell .workbench-nav-chapter-switch button,
+body .workbench-app-shell .workbench-nav-field select,
+body .workbench-app-shell .workbench-nav-field input {
+  border-color: var(--cinema-line-strong) !important;
+  background: #10232a !important;
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .workbench-entry-mode-trigger:hover,
+body .workbench-app-shell .workbench-nav-select-trigger:hover,
+body .workbench-app-shell .workbench-nav-select-trigger.is-open {
+  border-color: rgba(39, 199, 183, 0.56) !important;
+  background: #15343b !important;
+}
+
+body .workbench-app-shell .workbench-entry-mode-trigger span,
+body .workbench-app-shell .workbench-nav-select-trigger em {
+  color: #9bb5b2 !important;
+}
+
+body .workbench-app-shell .workbench-entry-mode-trigger strong,
+body .workbench-app-shell .workbench-nav-select-trigger strong {
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .workbench-nav-select-menu,
+body .workbench-app-shell .workbench-entry-mode-menu {
+  border-color: var(--cinema-line-strong) !important;
+  background: #0b1a20 !important;
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.52);
+}
+
+body .workbench-app-shell .workbench-nav-select-option,
+body .workbench-app-shell .workbench-entry-mode-menu button {
+  color: #b6c9c6 !important;
+}
+
+body .workbench-app-shell .workbench-nav-select-option:hover,
+body .workbench-app-shell .workbench-nav-select-option.is-active,
+body .workbench-app-shell .workbench-entry-mode-menu button:hover,
+body .workbench-app-shell .workbench-entry-mode-menu button.is-active {
+  background: #176c78 !important;
+  color: #f2fbf8 !important;
+}
+
+body .workbench-app-shell .workbench-prose-main .workbench-section,
+body .workbench-app-shell .workbench-content-meta .workbench-section,
+body .workbench-app-shell .workbench-generation-preview,
+body .workbench-app-shell .workbench-prose-paper {
+  border-color: var(--cinema-line) !important;
+  background: #0d1d23 !important;
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.28);
+}
+
+body .workbench-app-shell .workbench-command-head h3,
+body .workbench-app-shell .workbench-section h2,
+body .workbench-app-shell .workbench-section h3,
+body .workbench-app-shell .workbench-generation-preview h3,
+body .workbench-app-shell .workbench-prose-paper h1,
+body .workbench-app-shell .workbench-prose-paper h2 {
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .workbench-task-row,
+body .workbench-app-shell .workbench-meta-block,
+body .workbench-app-shell .workbench-generation-prep-row {
+  border-color: var(--cinema-line) !important;
+  background: #10232a !important;
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .workbench-task-row:hover,
+body .workbench-app-shell .workbench-generation-prep-row:hover {
+  border-color: rgba(39, 199, 183, 0.46) !important;
+  background: #15343b !important;
+}
+
+body .workbench-app-shell .workbench-generation-prep-row.is-warning {
+  border-color: rgba(230, 107, 103, 0.48) !important;
+  background: rgba(86, 38, 39, 0.72) !important;
+}
+
+body .workbench-app-shell .workbench-generation-prep-row.is-ready {
+  border-color: rgba(39, 199, 183, 0.38) !important;
+  background: rgba(19, 62, 64, 0.72) !important;
+}
+
+body .workbench-app-shell .wpa-secondary,
+body .workbench-app-shell .gen-settings-trigger,
+body .workbench-app-shell .workbench-info-card-edit {
+  border-color: var(--cinema-line-strong) !important;
+  background: rgba(255, 255, 255, 0.035) !important;
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .wpa-secondary:hover,
+body .workbench-app-shell .gen-settings-trigger:hover,
+body .workbench-app-shell .workbench-info-card-edit:hover {
+  border-color: rgba(39, 199, 183, 0.56) !important;
+  background: rgba(39, 199, 183, 0.12) !important;
+  color: #8be9dd !important;
+}
+
+body .workbench-app-shell .wpa-generate,
+body .workbench-app-shell .workbench-prose-actions .primary-btn,
+body .workbench-app-shell .workbench-meta-actions .primary-btn,
+body .workbench-app-shell .workbench-generation-preview > button {
+  border-color: var(--cinema-signal) !important;
+  background: var(--cinema-signal) !important;
+  color: #041512 !important;
+}
+
+body .workbench-app-shell .workbench-info-card {
+  border-color: var(--cinema-line) !important;
+  background: #0d1d23 !important;
+}
+
+body .workbench-app-shell .workbench-info-card-title {
+  border-color: var(--cinema-line) !important;
+  background: #11262d !important;
+  color: #8be9dd !important;
+}
+
+body .workbench-app-shell .workbench-info-row,
+body .workbench-app-shell .workbench-info-character {
+  border-color: var(--cinema-line) !important;
+  background: rgba(17, 38, 45, 0.72) !important;
+}
+
+body .workbench-app-shell .workbench-info-row span,
+body .workbench-app-shell .workbench-info-note,
+body .workbench-app-shell .workbench-info-empty,
+body .workbench-app-shell .workbench-info-character p {
+  color: var(--cinema-muted) !important;
+}
+
+body .workbench-app-shell .workbench-info-row strong,
+body .workbench-app-shell .workbench-info-character strong {
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .gen-settings-panel {
+  border-color: var(--cinema-line-strong) !important;
+  background: #0b1a20 !important;
+  color: var(--cinema-text) !important;
+  box-shadow: 0 28px 72px rgba(0, 0, 0, 0.55);
+}
+
+body .workbench-app-shell .gen-settings-panel-head,
+body .workbench-app-shell .gen-settings-option,
+body .workbench-app-shell .gen-settings-toggle,
+body .workbench-app-shell .gen-settings-input,
+body .workbench-app-shell .gen-settings-textarea {
+  border-color: var(--cinema-line) !important;
+  background: #10232a !important;
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .gen-settings-panel-head strong,
+body .workbench-app-shell .gen-settings-option strong,
+body .workbench-app-shell .gen-settings-label {
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .gen-settings-panel-head small,
+body .workbench-app-shell .gen-settings-option small,
+body .workbench-app-shell .gen-settings-hint,
+body .workbench-app-shell .gen-settings-range-ticks {
+  color: var(--cinema-muted) !important;
+}
+
+body .workbench-app-shell .gen-settings-option:hover,
+body .workbench-app-shell .gen-settings-option.is-active {
+  border-color: rgba(39, 199, 183, 0.52) !important;
+  background: rgba(39, 199, 183, 0.14) !important;
+}

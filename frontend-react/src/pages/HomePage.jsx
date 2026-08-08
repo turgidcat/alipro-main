@@ -2,8 +2,8 @@ import { useNavigate } from 'react-router-dom';
 import { brand } from '../config/brand.js';
 
 const FEATURE_COLORS = [
-  '#FE2C55', '#E61E45', '#FF6485',
-  '#25F4EE', '#14D6D0', '#7CF8F4', '#FFA0B5',
+  '#13B8A6', '#0E8F86', '#D7A84B',
+  '#176C78', '#21C7B7', '#8EDBD2', '#B78132',
 ];
 
 export default function HomePage() {
@@ -371,8 +371,227 @@ export default function HomePage() {
             max-width: 320px;
           }
 
-          .hp-hero-actions > * {
+        .hp-hero-actions > * {
             width: 100%;
+          }
+        }
+
+        /* ── Story graph visual ──────────────────────────────────────── */
+
+        .hp-hero-visual {
+          position: absolute !important;
+          top: 82px !important;
+          right: max(6vw, calc((100vw - 1440px) / 2 + 20px)) !important;
+          width: min(42vw, 560px);
+          aspect-ratio: 1.08;
+          overflow: hidden;
+          border: 1px solid rgba(39, 199, 183, 0.28);
+          border-radius: 18px;
+          background:
+            linear-gradient(135deg, rgba(39, 199, 183, 0.07), transparent 42%),
+            linear-gradient(315deg, rgba(213, 169, 79, 0.08), transparent 38%),
+            rgba(4, 15, 18, 0.68);
+          box-shadow:
+            inset 0 0 0 1px rgba(255,255,255,.025),
+            inset 0 0 90px rgba(39,199,183,.07),
+            0 24px 80px rgba(0,0,0,.24);
+          pointer-events: none;
+          z-index: 0;
+        }
+
+        .hp-hero-visual::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          opacity: .42;
+          background-image:
+            linear-gradient(rgba(126,194,194,.13) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(126,194,194,.13) 1px, transparent 1px);
+          background-size: 42px 42px;
+          mask-image: radial-gradient(circle at 52% 48%, #000 0 45%, transparent 84%);
+        }
+
+        .hp-hero-visual-topline,
+        .hp-hero-visual-footer {
+          position: absolute;
+          right: 22px;
+          left: 22px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          color: rgba(184, 219, 215, .72);
+          font: 700 9px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
+          letter-spacing: .16em;
+          text-transform: uppercase;
+        }
+
+        .hp-hero-visual-topline { top: 18px; }
+        .hp-hero-visual-footer { bottom: 18px; color: rgba(142,165,166,.7); }
+
+        .hp-hero-visual-live {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          color: var(--cinema-signal);
+        }
+
+        .hp-hero-visual-live::before {
+          content: '';
+          width: 5px;
+          height: 5px;
+          border-radius: 50%;
+          background: var(--cinema-signal);
+          box-shadow: 0 0 0 4px rgba(39,199,183,.12), 0 0 12px rgba(39,199,183,.8);
+        }
+
+        .hp-hero-visual-lines {
+          position: absolute;
+          inset: 44px 28px 42px;
+          width: calc(100% - 56px);
+          height: calc(100% - 86px);
+          overflow: visible;
+        }
+
+        .hp-hero-visual-lines path {
+          fill: none;
+          stroke: rgba(39,199,183,.42);
+          stroke-width: 1.2;
+          stroke-dasharray: 5 8;
+          animation: hp-story-line-flow 9s linear infinite;
+        }
+
+        .hp-hero-visual-lines path:nth-child(3n) {
+          stroke: rgba(213,169,79,.5);
+          animation-duration: 12s;
+        }
+
+        .hp-hero-visual-lines circle {
+          fill: #071014;
+          stroke: var(--cinema-signal);
+          stroke-width: 1.5;
+        }
+
+        .hp-hero-visual-lines circle:nth-of-type(2n) {
+          stroke: var(--cinema-gold);
+        }
+
+        .hp-hero-visual-core {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          display: grid;
+          width: 164px;
+          height: 122px;
+          place-content: center;
+          gap: 8px;
+          transform: translate(-50%, -50%);
+          border: 1px solid rgba(39,199,183,.58);
+          border-radius: 16px;
+          background: linear-gradient(145deg, rgba(17,51,55,.96), rgba(5,19,23,.96));
+          box-shadow: 0 0 0 8px rgba(39,199,183,.035), 0 0 46px rgba(39,199,183,.18);
+          text-align: center;
+        }
+
+        .hp-hero-visual-core::before,
+        .hp-hero-visual-core::after {
+          content: '';
+          position: absolute;
+          width: 8px;
+          height: 8px;
+          border-color: var(--cinema-gold);
+          border-style: solid;
+        }
+
+        .hp-hero-visual-core::before {
+          top: -5px;
+          left: -5px;
+          border-width: 1px 0 0 1px;
+        }
+
+        .hp-hero-visual-core::after {
+          right: -5px;
+          bottom: -5px;
+          border-width: 0 1px 1px 0;
+        }
+
+        .hp-hero-visual-core-label {
+          color: var(--cinema-signal);
+          font: 700 9px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
+          letter-spacing: .14em;
+        }
+
+        .hp-hero-visual-core strong {
+          color: var(--cinema-text);
+          font: 700 22px/1 var(--font-display);
+          letter-spacing: .04em;
+        }
+
+        .hp-hero-visual-core small {
+          color: var(--cinema-muted);
+          font: 600 10px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
+          letter-spacing: .08em;
+        }
+
+        .hp-story-node {
+          position: absolute;
+          display: grid;
+          gap: 4px;
+          min-width: 64px;
+          padding: 8px 10px;
+          border: 1px solid rgba(126,194,194,.25);
+          border-radius: 9px;
+          background: rgba(5,20,24,.84);
+          box-shadow: 0 10px 28px rgba(0,0,0,.16);
+          color: var(--cinema-text);
+          font: 700 13px/1.1 var(--font-display);
+          text-align: center;
+        }
+
+        .hp-story-node small {
+          color: var(--cinema-muted);
+          font: 700 8px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
+          letter-spacing: .09em;
+        }
+
+        .hp-story-node::before {
+          content: '';
+          position: absolute;
+          width: 7px;
+          height: 7px;
+          border: 1px solid var(--cinema-signal);
+          border-radius: 50%;
+          background: #071014;
+          box-shadow: 0 0 0 4px rgba(39,199,183,.1), 0 0 16px rgba(39,199,183,.5);
+        }
+
+        .hp-story-node-setting { top: 25%; left: 12%; }
+        .hp-story-node-character { top: 23%; right: 12%; }
+        .hp-story-node-plot { bottom: 22%; left: 13%; }
+        .hp-story-node-chapter { right: 12%; bottom: 19%; }
+        .hp-story-node-setting::before,
+        .hp-story-node-plot::before { right: -5px; top: 50%; transform: translateY(-50%); }
+        .hp-story-node-character::before,
+        .hp-story-node-chapter::before { left: -5px; top: 50%; transform: translateY(-50%); }
+
+        .hp-story-node-character::before,
+        .hp-story-node-chapter::before { border-color: var(--cinema-gold); box-shadow: 0 0 0 4px rgba(213,169,79,.1), 0 0 16px rgba(213,169,79,.46); }
+
+        @keyframes hp-story-line-flow {
+          to { stroke-dashoffset: -120; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .hp-hero-visual-lines path { animation: none; }
+        }
+
+        @media (max-width: 900px) {
+          .hp-hero-visual {
+            position: relative !important;
+            top: auto !important;
+            right: auto !important;
+            align-self: center;
+            width: min(100%, 560px);
+            margin-top: 56px;
           }
         }
 
@@ -440,6 +659,40 @@ export default function HomePage() {
           >
             浏览资料库
           </button>
+        </div>
+
+        <div className="hp-hero-visual" aria-hidden="true">
+          <div className="hp-hero-visual-topline">
+            <span>STORY GRAPH / 001</span>
+            <span className="hp-hero-visual-live">LIVE ENGINE</span>
+          </div>
+          <svg className="hp-hero-visual-lines" viewBox="0 0 560 430" preserveAspectRatio="none">
+            <path d="M118 112 C175 108 198 150 256 184" />
+            <path d="M442 106 C390 111 362 151 304 184" />
+            <path d="M124 328 C178 321 202 285 258 246" />
+            <path d="M438 324 C386 319 360 284 302 246" />
+            <path d="M280 62 C280 114 280 138 280 176" />
+            <path d="M280 254 C280 288 280 313 280 368" />
+            <circle cx="118" cy="112" r="4" />
+            <circle cx="442" cy="106" r="4" />
+            <circle cx="124" cy="328" r="4" />
+            <circle cx="438" cy="324" r="4" />
+            <circle cx="280" cy="62" r="3" />
+            <circle cx="280" cy="368" r="3" />
+          </svg>
+          <div className="hp-hero-visual-core">
+            <span className="hp-hero-visual-core-label">LONGFORM ENGINE</span>
+            <strong>叙境灵创</strong>
+            <small>从设定到成稿</small>
+          </div>
+          <div className="hp-story-node hp-story-node-setting">设定<small>FOUNDATION</small></div>
+          <div className="hp-story-node hp-story-node-character">人物<small>CHARACTERS</small></div>
+          <div className="hp-story-node hp-story-node-plot">剧情<small>STORYLINES</small></div>
+          <div className="hp-story-node hp-story-node-chapter">章节<small>CHAPTERS</small></div>
+          <div className="hp-hero-visual-footer">
+            <span>BUILD / STORY SYSTEM</span>
+            <span>4 NODES · 1 THREAD</span>
+          </div>
         </div>
       </section>
 

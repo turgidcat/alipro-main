@@ -28,6 +28,20 @@ function persistChapterEntryMode(mode) {
   }
 }
 
+function getPendingChapterSelection(bookId = '') {
+  try {
+    const raw = window.localStorage.getItem('alipro-workbench-pending-chapter');
+    if (!raw) return 0;
+    const parsed = JSON.parse(raw);
+    const chapterNumber = Number(parsed?.chapterNumber || 0);
+    if (!bookId || parsed?.bookId !== bookId || !Number.isFinite(chapterNumber) || chapterNumber < 1) return 0;
+    window.localStorage.removeItem('alipro-workbench-pending-chapter');
+    return chapterNumber;
+  } catch (_) {
+    return 0;
+  }
+}
+
 function resolveEntryChapterNumber(mode, context = {}) {
   const suggested = Math.max(1, Number(context.suggestedChapterNumber || 1));
   const existingCount = Math.max(0, Number(context.existingChapterCount || 0));
@@ -98,7 +112,8 @@ export function useWorkbench() {
         if (cancelled) return;
         const normalized = normalizeChapterBundle(bundle, chapterNumber);
         const entryKey = `${selectedBookId}:${chapterEntryMode}`;
-        const entryChapterNumber = resolveEntryChapterNumber(chapterEntryMode, normalized.context);
+        const pendingChapterNumber = getPendingChapterSelection(selectedBookId);
+        const entryChapterNumber = pendingChapterNumber || resolveEntryChapterNumber(chapterEntryMode, normalized.context);
         if (appliedChapterEntryKeyRef.current !== entryKey) {
           appliedChapterEntryKeyRef.current = entryKey;
           if (entryChapterNumber !== Number(chapterNumber || 1)) {

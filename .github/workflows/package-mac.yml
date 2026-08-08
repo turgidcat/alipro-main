@@ -1,0 +1,58 @@
+name: Package macOS app
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/package-macos
+
+permissions:
+  contents: read
+
+jobs:
+  build-mac:
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          npm ci --prefix frontend-react
+          npm ci --prefix backend
+          npm ci --prefix desktop-ide
+
+      - name: Prepare private runtime configuration
+        shell: bash
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          ALIYUN_BAILIAN_API_KEY: ${{ secrets.ALIYUN_BAILIAN_API_KEY }}
+        run: |
+          cat > backend/.env <<EOF
+          DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+          DEEPSEEK_MODEL=deepseek-v4-flash
+          ALIYUN_BAILIAN_API_KEY=${ALIYUN_BAILIAN_API_KEY}
+          PORT=3000
+          NODE_ENV=production
+          EOF
+
+      - name: Build macOS DMG and ZIP
+        shell: bash
+        run: npm run package:mac --prefix desktop-ide
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: longform-studio-macos
+          path: |
+            desktop-ide/release/*.dmg
+            desktop-ide/release/*.zip
+          if-no-files-found: error

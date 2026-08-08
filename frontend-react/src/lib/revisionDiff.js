@@ -283,6 +283,72 @@ export function buildRevisionDiff(original, draft) {
   });
 }
 
+/**
+ * 基于原文与校改稿的段落对比生成 diff 行（兼容 RevisionEditor 行结构）。
+ * 用于没有建议数据、但校改稿与原文不同的场景（如保存校改后再次打开）。
+ */
+export function buildRevisionDiffRows(original, draft) {
+  const originalParagraphs = normalizeParagraphs(original);
+  const draftParagraphs = normalizeParagraphs(draft);
+  const maxLength = Math.max(originalParagraphs.length, draftParagraphs.length);
+  const rows = [];
+
+  for (let index = 0; index < maxLength; index += 1) {
+    const before = originalParagraphs[index] || '';
+    const after = draftParagraphs[index] || '';
+    const paragraphNumber = index + 1;
+
+    if (before && after && before === after) {
+      rows.push({
+        key: `same-${paragraphNumber}`,
+        type: 'same',
+        label: '未改',
+        beforeNumber: paragraphNumber,
+        afterNumber: paragraphNumber,
+        before,
+        after,
+        reason: ''
+      });
+    } else if (!before && after) {
+      rows.push({
+        key: `insert-${paragraphNumber}`,
+        type: 'insert',
+        label: '新增',
+        beforeNumber: '',
+        afterNumber: '+',
+        before: '',
+        after,
+        reason: ''
+      });
+    } else if (before && !after) {
+      rows.push({
+        key: `delete-${paragraphNumber}`,
+        type: 'delete',
+        label: '删除',
+        beforeNumber: paragraphNumber,
+        afterNumber: '',
+        before,
+        after: '',
+        reason: ''
+      });
+    } else {
+      const score = similarityScore(before, after);
+      rows.push({
+        key: `replace-${paragraphNumber}`,
+        type: 'replace',
+        label: score > 0.45 ? '改写' : '重写',
+        beforeNumber: paragraphNumber,
+        afterNumber: paragraphNumber,
+        before,
+        after,
+        reason: ''
+      });
+    }
+  }
+
+  return rows;
+}
+
 export function buildRevisionSentenceDiff(original, draft) {
   const originalSentences = normalizeSentences(original);
   const draftSentences = normalizeSentences(draft);

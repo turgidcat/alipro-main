@@ -3474,15 +3474,18 @@
 }
 
 .modal-panel-revision .revision-diff-row-main.is-replace .revision-diff-cell-main {
-  background: color-mix(in srgb, var(--status-warning-bg) 48%, transparent);
+  background: rgba(77, 129, 192, 0.22);
+  box-shadow: inset 3px 0 0 rgba(77, 129, 192, 0.72);
 }
 
 .modal-panel-revision .revision-diff-row-main.is-insert .revision-diff-cell-main:last-child {
-  background: color-mix(in srgb, var(--status-success-bg) 62%, transparent);
+  background: rgba(74, 153, 96, 0.24);
+  box-shadow: inset 3px 0 0 rgba(74, 153, 96, 0.72);
 }
 
 .modal-panel-revision .revision-diff-row-main.is-delete .revision-diff-cell-main {
-  background: color-mix(in srgb, var(--status-danger-bg) 54%, transparent);
+  background: rgba(198, 86, 74, 0.2);
+  box-shadow: inset 3px 0 0 rgba(198, 86, 74, 0.72);
 }
 
 .modal-panel-revision .revision-diff-row-main.is-delete .revision-diff-cell-main:last-child p {

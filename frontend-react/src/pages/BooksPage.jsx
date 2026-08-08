@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import '../books-paper.css';
 import {
   createBook,
   fetchBookList,
@@ -6,21 +7,28 @@ import {
   generateChapterOutline,
   generateFullOutlineDraft,
   generateVolumePlansFromBookPlan,
+  fetchBookTtsAudio,
+  fetchTtsVoices,
   getStoredCurrentBookId,
   persistCurrentBookId,
   saveChapterPlan,
   saveOutlineSummary,
+  synthesizeTtsChapter,
   updateBook
 } from '../workbenchApi.js';
 import IndentedTextBlock from '../components/IndentedTextBlock.jsx';
+import LibraryTopNav from '../components/library/LibraryTopNav.jsx';
 import { getRoleTierShortLabel, roleTierOptions } from '../lib/roleTiers.js';
 import { formatChapterLabel, normalizeChapterName } from '../lib/chapterName.js';
 import { countPlatformEffectiveWords, formatExactWordCount } from '../lib/textMetrics.js';
+import { DEFAULT_WORD_COUNT } from '../lib/wordCountPolicy.js';
+import { playGenerationCompleteSound } from '../lib/generationSound.js';
 import '../styles.css';
 import '../app-shell.css';
 
 const APP_BASE_PATH = String(import.meta.env.BASE_URL || '/');
 const API_BASE = import.meta.env.VITE_API_BASE || `${APP_BASE_PATH.replace(/\/+$/, '')}/api`;
+const LEGACY_CHARACTER_SUMMARY_NAMES = new Set(['全书角色设定', '本章新增角色']);
 
 function buildAppPath(pathname = '/') {
   const cleanPath = pathname.startsWith('/') ? pathname.slice(1) : pathname;
@@ -314,7 +322,7 @@ function buildChapterLibraryDraft(entry = null, chapterNumber = 1) {
     chapter_structure: {},
     generation_settings: {
       ...generationSettings,
-      word_count: Number(generationSettings.word_count || 3000)
+      word_count: Number(generationSettings.word_count || DEFAULT_WORD_COUNT)
     }
   };
 }
@@ -331,6 +339,9 @@ function requestJson(path, options = {}) {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || payload.success === false) {
       throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    if (/(?:^|\/)(?:generate|synthesize|polish)(?:\/|$)/i.test(String(path || '')) || /\/generate-/i.test(String(path || ''))) {
+      playGenerationCompleteSound();
     }
     return payload.data;
   });
@@ -371,6 +382,32 @@ function getPlatformLabel(value) {
 
 function buildDefaultRoleCounts() {
   return Object.fromEntries(roleTierOptions.map((item) => [item.value, item.defaultCount]));
+}
+
+function buildReaderSegments(paragraphs = []) {
+  const segments = [];
+  (Array.isArray(paragraphs) ? paragraphs : []).forEach((paragraph, paragraphIndex) => {
+    const source = String(paragraph || '').trim();
+    if (!source) return;
+    const matches = source.match(/[^。！？!?；;…]+(?:[。！？!?；;…]+|$)/g) || [source];
+    matches.forEach((text, segmentIndex) => {
+      const clean = String(text || '').trim();
+      if (!clean) return;
+      segments.push({
+        id: `reader-segment-${paragraphIndex}-${segmentIndex}`,
+        paragraphIndex,
+        text: clean,
+        weight: Math.max(1, Array.from(clean).length)
+      });
+    });
+  });
+  const totalWeight = segments.reduce((sum, item) => sum + item.weight, 0) || 1;
+  let cursor = 0;
+  return segments.map((segment) => {
+    const startRatio = cursor / totalWeight;
+    cursor += segment.weight;
+    return { ...segment, startRatio, endRatio: cursor / totalWeight };
+  });
 }
 
 function buildEmptyVolumePlanDraft() {
@@ -600,9 +637,23 @@ export default function BooksPage() {
   const [chapterPlanError, setChapterPlanError] = useState('');
   const [pendingRouteAction, setPendingRouteAction] = useState(initialRouteAction);
   const [pendingRouteBookId, setPendingRouteBookId] = useState(initialRouteBookId);
-  const sidebarCollapsed = false;
-  const sidebarPeek = false;
-
+  const readerAudioRef = useRef(null);
+  const [readerAudioEntry, setReaderAudioEntry] = useState(null);
+  const [readerAudioVoices, setReaderAudioVoices] = useState([]);
+  const [readerAudioVoice, setReaderAudioVoice] = useState('zh-CN-XiaoxiaoNeural');
+  const [readerAudioLoading, setReaderAudioLoading] = useState(false);
+  const [readerAudioGenerating, setReaderAudioGenerating] = useState(false);
+  const [readerAudioError, setReaderAudioError] = useState('');
+  const [readerAudioTime, setReaderAudioTime] = useState(0);
+  const [readerAudioDuration, setReaderAudioDuration] = useState(0);
+  // 细纲编辑器渲染在章节列表上方，打开后自动滚动到面板，避免看起来“点了没反应”。
+  useEffect(() => {
+    if (!chapterEditorOpen) return;
+    const frame = requestAnimationFrame(() => {
+      document.querySelector('.chapter-plan-full-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [chapterEditorOpen]);
   const currentBook = useMemo(
     () => books.find((book) => book.id === currentBookId) || null,
     [books, currentBookId]
@@ -632,6 +683,25 @@ export default function BooksPage() {
           : '选择一本书进入详情，或使用筛选条件快速定位作品。';
   const shellBook = detailBook || currentBook;
   const shellBookId = shellBook?.id || currentBookId;
+
+  const activeNavKey = isOutlinePage
+    ? 'outline'
+    : isCharacterPage
+      ? 'characters'
+      : isChapterSectionPage
+        ? 'chapters'
+        : isBookDetailPage
+          ? 'summary'
+          : 'list';
+
+  function handleLibraryNavigate(key) {
+    if (key === 'list') goBackToList();
+    else if (key === 'summary') openBooksSummaryPage(shellBookId);
+    else if (key === 'outline') openBooksOutlinePage(shellBookId);
+    else if (key === 'storyline') openBooksStorylinePage(shellBookId);
+    else if (key === 'characters') openBooksCharacterPage(shellBookId);
+    else if (key === 'chapters') openBooksChapterPage(shellBookId);
+  }
 
   useEffect(() => {
     if (pendingRouteBookId) {
@@ -847,7 +917,11 @@ export default function BooksPage() {
       setDetailOutline(mergedPlan);
       setDetailVolumePlans(Array.isArray(volumePlans) ? volumePlans : []);
       setDetailStorylines(Array.isArray(storylines) ? storylines : []);
-      setDetailCharacters(Array.isArray(characterData) ? characterData : []);
+      setDetailCharacters(
+        Array.isArray(characterData)
+          ? characterData.filter((item) => !LEGACY_CHARACTER_SUMMARY_NAMES.has(String(item?.name || '').trim()))
+          : []
+      );
       setDetailChapters(Array.isArray(chapterData) ? chapterData : []);
       setDetailChapterPlans(Array.isArray(chapterPlanData) ? chapterPlanData : []);
     } catch (detailError) {
@@ -1275,6 +1349,16 @@ export default function BooksPage() {
     }
   }
 
+  function downloadBookExport(bookId) {
+    const url = `${API_BASE}/books/${bookId}/export`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
   async function batchDelete() {
     if (selectedIds.size === 0) return;
     if (!window.confirm(`确定删除已选的 ${selectedIds.size} 本书吗？`)) return;
@@ -1343,7 +1427,7 @@ export default function BooksPage() {
     setOutlineNotice('');
     try {
       const characters = detailCharacters
-        .filter((item) => String(item.name || '').trim() && String(item.name || '').trim() !== '全书角色设定')
+        .filter((item) => String(item.name || '').trim() && !LEGACY_CHARACTER_SUMMARY_NAMES.has(String(item.name || '').trim()))
         .map((item) => [
           `角色：${item.name || ''}`,
           item.role_tier ? `定位：${getRoleTierShortLabel(item.role_tier)}` : '',
@@ -1655,7 +1739,11 @@ export default function BooksPage() {
         subgenre: detailBook.subgenre || '',
         bookTitle: detailBook.title || '',
         chapterTitle: formatLibraryChapterTitle(sourceDraft.chapter_number, sourceDraft.chapter_name),
-        characters: detailCharacters.map((item) => item.name).filter(Boolean).join(' / ')
+        characters: detailCharacters
+          .filter((item) => !LEGACY_CHARACTER_SUMMARY_NAMES.has(String(item?.name || '').trim()))
+          .map((item) => item.name)
+          .filter(Boolean)
+          .join(' / ')
       });
       const generatedText = String(generated?.content || generated || '').trim();
       if (!generatedText) throw new Error('AI 没有返回可用章节细纲');
@@ -1750,9 +1838,102 @@ export default function BooksPage() {
   const readerTitle = getChapterTitle(readerEntry);
   const readerContent = readerEntry?.chapter?.content || '';
   const readerParagraphs = splitReadableParagraphs(readerContent);
+  const readerSegments = useMemo(() => buildReaderSegments(readerParagraphs), [readerContent]);
   const readerWordCount = countPlatformEffectiveWords(readerContent);
   const readerStructuredContent = parseJsonObject(readerEntry?.plan?.structured_content);
   const readerFeedback = readerStructuredContent.chapter_feedback || null;
+  const readerActiveSegmentId = useMemo(() => {
+    if (!readerAudioDuration || readerSegments.length === 0) return '';
+    const ratio = Math.min(0.999999, Math.max(0, readerAudioTime / readerAudioDuration));
+    return (readerSegments.find((item) => ratio >= item.startRatio && ratio < item.endRatio) || readerSegments[readerSegments.length - 1])?.id || '';
+  }, [readerAudioDuration, readerAudioTime, readerSegments]);
+  const readerAudioUrl = readerAudioEntry
+    ? (readerAudioEntry.audioUrl?.startsWith('http')
+      ? readerAudioEntry.audioUrl
+      : `${API_BASE.replace(/\/api\/?$/, '')}${readerAudioEntry.audioUrl || `/api/tts/audio/${readerAudioEntry.id}`}`)
+    : '';
+
+  useEffect(() => {
+    if (!isChapterReaderPage || !detailBook?.id) {
+      setReaderAudioVoices([]);
+      return undefined;
+    }
+    let alive = true;
+    fetchTtsVoices()
+      .then((data) => {
+        if (!alive) return;
+        const nextVoices = Array.isArray(data?.voices) ? data.voices : [];
+        setReaderAudioVoices(nextVoices);
+        if (nextVoices.length > 0 && !nextVoices.some((item) => item.shortName === readerAudioVoice)) {
+          setReaderAudioVoice(nextVoices[0].shortName);
+        }
+      })
+      .catch(() => alive && setReaderAudioVoices([]));
+    return () => { alive = false; };
+  }, [isChapterReaderPage, detailBook?.id]);
+
+  useEffect(() => {
+    if (!isChapterReaderPage || !detailBook?.id || !readerChapterNumber) {
+      setReaderAudioEntry(null);
+      setReaderAudioLoading(false);
+      return undefined;
+    }
+    let alive = true;
+    setReaderAudioLoading(true);
+    setReaderAudioError('');
+    setReaderAudioEntry(null);
+    setReaderAudioTime(0);
+    setReaderAudioDuration(0);
+    readerAudioRef.current?.pause();
+    fetchBookTtsAudio(detailBook.id)
+      .then((entries) => {
+        if (!alive) return;
+        const match = (Array.isArray(entries) ? entries : []).find((entry) => Number(entry.chapterNumber) === Number(readerChapterNumber));
+        setReaderAudioEntry(match || null);
+      })
+      .catch((loadError) => alive && setReaderAudioError(loadError.message || '读取有声书状态失败'))
+      .finally(() => alive && setReaderAudioLoading(false));
+    return () => { alive = false; };
+  }, [isChapterReaderPage, detailBook?.id, readerChapterNumber]);
+
+  useEffect(() => {
+    if (!readerActiveSegmentId) return;
+    const element = document.querySelector(`[data-reader-segment-id="${readerActiveSegmentId}"]`);
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    if (rect.top < 100 || rect.bottom > window.innerHeight - 100) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [readerActiveSegmentId]);
+
+  async function generateReaderAudio() {
+    if (!detailBook?.id || !readerChapterNumber || !readerContent.trim() || readerAudioGenerating) return;
+    setReaderAudioGenerating(true);
+    setReaderAudioError('');
+    try {
+      const entry = await synthesizeTtsChapter({
+        bookId: detailBook.id,
+        chapterNumber: readerChapterNumber,
+        voice: readerAudioVoice || readerAudioVoices[0]?.shortName || 'zh-CN-XiaoxiaoNeural',
+        rate: 0,
+        volume: 0,
+        pitch: 0
+      });
+      setReaderAudioEntry(entry || null);
+      setReaderAudioTime(0);
+      setReaderAudioDuration(0);
+    } catch (generateError) {
+      setReaderAudioError(generateError.message || '有声书生成失败');
+    } finally {
+      setReaderAudioGenerating(false);
+    }
+  }
+
+  function seekReaderSegment(segment) {
+    if (!readerAudioRef.current || !readerAudioDuration || !segment) return;
+    readerAudioRef.current.currentTime = readerAudioDuration * segment.startRatio;
+    readerAudioRef.current.play().catch(() => {});
+  }
 
   return (
     <>
@@ -1807,76 +1988,16 @@ export default function BooksPage() {
       .books-page-card-action-btn:hover { border-color: var(--brand); color: var(--brand-deep); background: color-mix(in srgb, var(--brand-soft) 36%, transparent); }
       .books-page-card-current { display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px; border-radius: 999px; background: color-mix(in srgb, var(--brand-soft) 72%, var(--panel)); color: var(--brand-deep); font-size: 11px; font-weight: 700; white-space: nowrap; }
     `}</style>
-    <div className={joinClasses('books-admin-page library-app-shell', sidebarCollapsed ? 'is-sidebar-collapsed' : '', sidebarCollapsed && sidebarPeek ? 'is-sidebar-peek' : '', isChapterReaderPage ? 'is-chapter-reader-page' : '')}>
-      {!isChapterReaderPage ? (
-        <>
-          <aside
-            className="library-sidebar"
-            aria-label="资料库导航"
-          >
-        <div className="library-sidebar-head">
-          <div className="library-surface-switcher">
-            <button
-              type="button"
-              className="library-surface-entry is-primary"
-              onClick={goBackToList}
-              title="返回资料库列表"
-              aria-current="page"
-            >
-              <span className="library-sidebar-kicker">书籍管理</span>
-              <strong>资料库</strong>
-            </button>
-            <button
-              type="button"
-              className="library-surface-entry is-secondary"
-              onClick={() => openWorkbench(shellBookId)}
-              title="切换到创作台"
-            >
-              <span className="library-sidebar-kicker">章节创作</span>
-              <strong>创作台</strong>
-            </button>
-          </div>
-        </div>
-
-        <nav className="library-sidebar-nav" aria-label="资料库页面">
-          <button type="button" data-short="列" className={joinClasses('library-nav-item', view === 'list' && !isSubPage ? 'is-active' : '')} onClick={goBackToList} title="书籍列表">
-            书籍列表
-          </button>
-          <button type="button" data-short="总" className={joinClasses('library-nav-item', isBookDetailPage && !isSubPage ? 'is-active' : '')} onClick={() => openBooksSummaryPage(shellBookId)} disabled={!shellBookId} title="全书汇总">
-            全书汇总
-          </button>
-          <button type="button" data-short="纲" className={joinClasses('library-nav-item', isOutlinePage ? 'is-active' : '')} onClick={() => openBooksOutlinePage(shellBookId)} disabled={!shellBookId} title="大纲链">
-            大纲链
-          </button>
-          <button type="button" data-short="脉" className="library-nav-item" onClick={() => openBooksStorylinePage(shellBookId)} disabled={!shellBookId} title="叙事脉络">
-            叙事脉络
-          </button>
-          <button type="button" data-short="角" className={joinClasses('library-nav-item', isCharacterPage ? 'is-active' : '')} onClick={() => openBooksCharacterPage(shellBookId)} disabled={!shellBookId} title="角色资料">
-            角色资料
-          </button>
-          <button type="button" data-short="章" className={joinClasses('library-nav-item', isChapterPage ? 'is-active' : '')} onClick={() => openBooksChapterPage(shellBookId)} disabled={!shellBookId} title="章节与正文">
-            章节与正文
-          </button>
-        </nav>
-        <div className="library-sidebar-section">
-          <div className="library-sidebar-context">
-            <span>当前操作书籍</span>
-            <strong>{shellBook?.title || '请先选择书籍'}</strong>
-          </div>
-          {books.length > 1 ? (
-            <label className="library-book-switcher">
-              <span>切换书籍</span>
-              <select value={currentBookId} onChange={(event) => switchCurrentBook(event.target.value)}>
-                {books.map((book) => <option key={book.id} value={book.id}>{book.title || '未命名书籍'}</option>)}
-              </select>
-            </label>
-          ) : null}
-          {!shellBookId ? <p className="library-sidebar-note">先在书籍列表选择或新建一本书，才能进入资料库分页面。</p> : null}
-        </div>
-
-          </aside>
-        </>
-      ) : null}
+    <div className={joinClasses('books-admin-page library-app-shell', isChapterReaderPage ? 'is-chapter-reader-page' : '')}>
+      <LibraryTopNav
+        active={activeNavKey}
+        bookId={shellBookId || ''}
+        bookTitle={shellBook?.title || '请先选择书籍'}
+        books={books}
+        currentBookId={currentBookId}
+        onSwitchBook={switchCurrentBook}
+        onNavigate={handleLibraryNavigate}
+      />
 
       <main className="library-main">
         <div className="books-page-header">
@@ -2028,6 +2149,17 @@ export default function BooksPage() {
                         ) : (
                           <span className="books-page-card-current">当前使用中</span>
                         )}
+                        <button
+                          type="button"
+                          className="books-page-card-action-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            downloadBookExport(book.id);
+                          }}
+                          title="导出全书正文（txt）"
+                        >
+                          导出正文
+                        </button>
                         <button
                           type="button"
                           className="books-page-card-action-btn"
@@ -2600,12 +2732,72 @@ export default function BooksPage() {
                 </aside>
               ) : null}
 
+              {readerContent.trim() ? (
+                <section className="chapter-reader-audio-panel" aria-label="有声书播放">
+                  <div className="chapter-reader-audio-head">
+                    <div>
+                      <span className="chapter-reader-audio-kicker">AUDIO READING</span>
+                      <h3>有声阅读</h3>
+                      <p>播放时会按音频时长与正文句子长度同步高亮，点击句子也可以跳转。</p>
+                    </div>
+                    <div className="chapter-reader-audio-controls">
+                      <label htmlFor="chapter-reader-voice">音色</label>
+                      <select id="chapter-reader-voice" value={readerAudioVoice} onChange={(event) => setReaderAudioVoice(event.target.value)} disabled={readerAudioVoices.length === 0 || Boolean(readerAudioGenerating)}>
+                        {readerAudioVoices.length > 0 ? readerAudioVoices.map((voice) => <option key={voice.shortName} value={voice.shortName}>{voice.displayName || voice.shortName}</option>) : <option value="zh-CN-XiaoxiaoNeural">晓晓（默认）</option>}
+                      </select>
+                    </div>
+                  </div>
+                  {readerAudioUrl ? (
+                    <audio
+                      ref={readerAudioRef}
+                      className="chapter-reader-audio"
+                      controls
+                      preload="metadata"
+                      src={readerAudioUrl}
+                      onLoadedMetadata={(event) => setReaderAudioDuration(Number(event.currentTarget.duration) || 0)}
+                      onTimeUpdate={(event) => setReaderAudioTime(Number(event.currentTarget.currentTime) || 0)}
+                      onEnded={() => setReaderAudioTime(readerAudioDuration)}
+                    />
+                  ) : (
+                    <button type="button" className="solid-btn chapter-reader-audio-generate" onClick={generateReaderAudio} disabled={readerAudioLoading || readerAudioGenerating}>
+                      {readerAudioLoading ? '正在检查音频…' : readerAudioGenerating ? '正在生成有声书…' : '生成并播放本章'}
+                    </button>
+                  )}
+                  {readerAudioUrl ? <button type="button" className="ghost-btn chapter-reader-audio-regenerate" onClick={generateReaderAudio} disabled={readerAudioGenerating}>{readerAudioGenerating ? '重新生成中…' : '重新生成'}</button> : null}
+                  {readerAudioError ? <div className="chapter-reader-audio-error" role="alert">{readerAudioError}</div> : null}
+                  <div className="chapter-reader-audio-hint">{readerAudioEntry ? '音频已就绪 · 高亮采用正文句子与实际音频总时长的比例估算。' : '首次播放需要先生成本章音频，生成后会保存在有声书资料中。'}</div>
+                </section>
+              ) : null}
+
               {readerParagraphs.length > 0 ? (
                 <>
                   <div className="chapter-reader-prose">
-                    {readerParagraphs.map((paragraph, index) => (
-                      <p key={`reader-paragraph-${readerEntry.chapterNumber}-${index}`}>{paragraph}</p>
-                    ))}
+                    {readerParagraphs.map((paragraph, index) => {
+                      const paragraphSegments = readerSegments.filter((segment) => segment.paragraphIndex === index);
+                      return (
+                        <p key={`reader-paragraph-${readerEntry.chapterNumber}-${index}`}>
+                          {paragraphSegments.length > 0 ? paragraphSegments.map((segment) => (
+                            <span
+                              role="button"
+                              tabIndex={readerAudioDuration > 0 ? 0 : -1}
+                              key={segment.id}
+                              data-reader-segment-id={segment.id}
+                              className={joinClasses('chapter-reader-segment', readerActiveSegmentId === segment.id ? 'is-speaking' : '')}
+                              onClick={() => seekReaderSegment(segment)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  seekReaderSegment(segment);
+                                }
+                              }}
+                              title="点击跳转到这句话"
+                            >
+                              {segment.text}
+                            </span>
+                          )) : paragraph}
+                        </p>
+                      );
+                    })}
                   </div>
                   <div className="chapter-reader-end-marker">
                     已显示全部已保存正文 · {formatExactWordCount(readerWordCount)}
@@ -2994,47 +3186,9 @@ export default function BooksPage() {
         .library-app-shell {
           position: relative;
           display: grid;
-          grid-template-columns: 268px minmax(0, 1fr);
+          grid-template-columns: minmax(0, 1fr);
           align-items: start;
-          gap: 16px;
-          transition: grid-template-columns 160ms ease;
-        }
-        .library-app-shell.is-sidebar-collapsed {
-          grid-template-columns: 12px minmax(0, 1fr);
-          gap: 10px;
-        }
-        .library-app-shell.is-sidebar-collapsed.is-sidebar-peek,
-        .library-app-shell.is-sidebar-collapsed:has(.library-sidebar-hotzone:hover),
-        .library-app-shell.is-sidebar-collapsed:has(.library-sidebar:hover),
-        .library-app-shell.is-sidebar-collapsed:has(.library-sidebar:focus-within) {
-          grid-template-columns: 268px minmax(0, 1fr);
-          gap: 16px;
-        }
-        .library-sidebar-hotzone {
-          display: none;
-        }
-        .library-app-shell.is-sidebar-collapsed .library-sidebar-hotzone {
-          position: absolute;
-          top: 14px;
-          left: 0;
-          z-index: 21;
-          display: block;
-          width: 24px;
-          height: min(520px, calc(100vh - 120px));
-          cursor: pointer;
-        }
-        .library-app-shell.is-sidebar-collapsed .library-sidebar-hotzone::after {
-          content: '';
-          position: absolute;
-          top: 34px;
-          left: 5px;
-          width: 3px;
-          height: 64px;
-          border-radius: 999px;
-          background: color-mix(in srgb, var(--brand) 72%, transparent);
-        }
-        .library-app-shell.is-sidebar-peek .library-sidebar-hotzone {
-          display: none;
+          gap: 18px;
         }
         .library-sidebar {
           position: sticky;
@@ -3104,55 +3258,6 @@ export default function BooksPage() {
             grid-template-columns: 1fr;
           }
         }
-        .library-sidebar-head {
-          display: grid;
-          gap: 12px;
-          padding-bottom: 10px;
-          border-bottom: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
-        }
-        .library-surface-switcher {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 8px;
-          align-items: stretch;
-        }
-        .library-surface-entry {
-          appearance: none;
-          display: grid;
-          gap: 4px;
-          min-width: 0;
-          min-height: 58px;
-          border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
-          border-radius: 12px;
-          background: color-mix(in srgb, var(--surface) 74%, transparent);
-          padding: 10px 12px;
-          color: var(--text);
-          cursor: pointer;
-          text-align: left;
-          transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
-        }
-        .library-surface-entry:hover,
-        .library-surface-entry.is-primary {
-          border-color: color-mix(in srgb, var(--brand) 36%, var(--line));
-          background: color-mix(in srgb, var(--brand) 7%, var(--surface));
-        }
-        .library-surface-entry strong {
-          margin: 0;
-          color: var(--text);
-          font-family: var(--font-serif);
-          font-size: 22px;
-          font-weight: 900;
-          line-height: 1;
-          letter-spacing: -0.04em;
-        }
-        .library-surface-entry:hover strong {
-          color: var(--brand-deep);
-        }
-        .library-surface-entry:disabled {
-          cursor: not-allowed;
-          opacity: 0.42;
-        }
-        .library-sidebar-kicker,
         .library-sidebar-label {
           color: var(--brand);
           font-family: var(--font-mono);

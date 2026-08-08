@@ -9,6 +9,7 @@ import {
   ROLE_SCOPE_LABELS,
   ROLE_CONFIDENCE_LABELS
 } from './constants.js';
+import { DEFAULT_WORD_COUNT, MIN_WORD_COUNT, MAX_WORD_COUNT } from './wordCountPolicy.js';
 
 export function normalizeLines(text) {
   return String(text || '')
@@ -249,9 +250,9 @@ export function getPlanWordCount(plan) {
     plan?.structured_content?.generation_settings?.word_count
     || plan?.structuredContent?.generation_settings?.word_count
     || plan?.generation_settings?.word_count
-    || 3000
+    || DEFAULT_WORD_COUNT
   );
-  return Number.isFinite(saved) ? Math.min(10000, Math.max(500, saved)) : 3000;
+  return Number.isFinite(saved) ? Math.min(MAX_WORD_COUNT, Math.max(MIN_WORD_COUNT, saved)) : DEFAULT_WORD_COUNT;
 }
 
 export function prepareOutlineModalPlan(plan) {

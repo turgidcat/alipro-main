@@ -1,4 +1,6 @@
 const axios = require('axios');
+const { resolveDeepSeekModel } = require('../config/runtime');
+const { DEFAULT_WORD_COUNT, WORD_COUNT_POLICY, getWordCountBounds } = require('./word-count-policy');
 
 const GENRE_LABELS = {
   urban: '都市异能',
@@ -205,6 +207,33 @@ class DeepSeekService {
     });
   }
 
+  async postWithTransientRetry(path, payload, config = {}, validateResponse = null) {
+    const delays = [2000, 5000];
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const response = await this.client.post(path, payload, config);
+        if (typeof validateResponse === 'function' && !validateResponse(response)) {
+          const malformedError = new Error('DeepSeek 返回缺少有效 choices 或正文');
+          malformedError.response = {
+            status: 502,
+            data: { error: { message: malformedError.message } }
+          };
+          throw malformedError;
+        }
+        return response;
+      } catch (error) {
+        const status = Number(error?.response?.status || 0);
+        const retryable = [502, 503, 504].includes(status)
+          && attempt < delays.length
+          && !config.signal?.aborted;
+        if (!retryable) throw error;
+        const delayMs = delays[attempt];
+        console.warn(`DeepSeek API 暂时不可用（${status}），${delayMs / 1000} 秒后重试 ${attempt + 1}/${delays.length}`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+
   async generate(options) {
     const {
       prompt,
@@ -212,12 +241,12 @@ class DeepSeekService {
       maxTokens = 4000,
       responseFormat = null
     } = options;
-    const model = 'deepseek-v4-pro';
+    const model = resolveDeepSeekModel(options.model);
 
     try {
       const payload = {
         model,
-        messages: [{ role: 'user', content: prompt }],
+        messages: this.buildMessages({ prompt, systemPrompt: options.systemPrompt, messages: options.messages }),
         thinking: { type: 'disabled' },
         temperature,
         max_tokens: maxTokens,
@@ -228,15 +257,20 @@ class DeepSeekService {
         payload.response_format = responseFormat;
       }
 
-      const response = await this.client.post('/chat/completions', payload);
+      const response = await this.postWithTransientRetry(
+        '/chat/completions',
+        payload,
+        {},
+        (candidate) => normalizeText(candidate?.data?.choices?.[0]?.message?.content).length > 0
+      );
 
       return {
         success: true,
         data: response.data,
-        content: response.data.choices[0]?.message?.content || '',
+        content: response.data.choices?.[0]?.message?.content || '',
         usage: response.data.usage || null,
         model: response.data.model || model,
-        finishReason: response.data.choices[0]?.finish_reason || null
+        finishReason: response.data.choices?.[0]?.finish_reason || null
       };
     } catch (error) {
       console.error('DeepSeek API 调用失败:', error.message);
@@ -297,13 +331,29 @@ class DeepSeekService {
       responseFormat = null,
       signal
     } = options;
-    const model = 'deepseek-v4-pro';
+    const model = resolveDeepSeekModel(options.model);
+    const configuredHardTimeout = Number(process.env.DEEPSEEK_STREAM_HARD_TIMEOUT_MS || 240000);
+    const hardTimeoutMs = Number.isFinite(configuredHardTimeout) && configuredHardTimeout > 0
+      ? configuredHardTimeout
+      : 240000;
+    const hardTimeoutSignal = AbortSignal.timeout(hardTimeoutMs);
+    const requestSignal = signal
+      ? AbortSignal.any([signal, hardTimeoutSignal])
+      : hardTimeoutSignal;
+    const normalizeStreamError = (error, fallbackMessage) => {
+      if (hardTimeoutSignal.aborted && !signal?.aborted) {
+        const timeoutError = new Error(`流式生成超过硬时限 ${Math.round(hardTimeoutMs / 1000)} 秒`);
+        timeoutError.statusCode = 408;
+        return timeoutError;
+      }
+      return createStreamError(error, fallbackMessage);
+    };
 
     let response;
     try {
       const payload = {
         model,
-        messages: [{ role: 'user', content: prompt }],
+        messages: this.buildMessages({ prompt, systemPrompt: options.systemPrompt, messages: options.messages }),
         thinking: { type: 'disabled' },
         temperature,
         max_tokens: maxTokens,
@@ -314,18 +364,19 @@ class DeepSeekService {
         payload.response_format = responseFormat;
       }
 
-      response = await this.client.post('/chat/completions', payload, {
+      response = await this.postWithTransientRetry('/chat/completions', payload, {
         responseType: 'stream',
         timeout: 300000,
-        signal
+        signal: requestSignal
       });
     } catch (error) {
-      throw createStreamError(error, '流式请求初始化失败');
+      throw normalizeStreamError(error, '流式请求初始化失败');
     }
 
     let buffer = '';
     let fullContent = '';
     let usage = null;
+    let finishReason = null;
     let doneReceived = false;
 
     try {
@@ -357,6 +408,9 @@ class DeepSeekService {
           }
 
           const delta = parsed?.choices?.[0]?.delta?.content;
+          if (parsed?.choices?.[0]?.finish_reason) {
+            finishReason = parsed.choices[0].finish_reason;
+          }
           if (typeof delta === 'string' && delta.length > 0) {
             fullContent += delta;
             yield { type: 'delta', content: delta, fullContent };
@@ -375,6 +429,9 @@ class DeepSeekService {
         try {
           const parsed = JSON.parse(trailingData);
           const delta = parsed?.choices?.[0]?.delta?.content;
+          if (parsed?.choices?.[0]?.finish_reason) {
+            finishReason = parsed.choices[0].finish_reason;
+          }
           if (typeof delta === 'string' && delta.length > 0) {
             fullContent += delta;
             yield { type: 'delta', content: delta, fullContent };
@@ -387,14 +444,40 @@ class DeepSeekService {
         }
       }
     } catch (error) {
-      throw createStreamError(error);
+      throw normalizeStreamError(error, '流式生成失败');
     } finally {
       if (response?.data?.destroy && !response.data.destroyed) {
         response.data.destroy();
       }
     }
 
-    yield { type: 'usage', usage, fullContent };
+    yield { type: 'usage', usage, fullContent, finishReason, model };
+  }
+
+  buildMessages({ prompt = '', systemPrompt = '', messages = null } = {}) {
+    if (Array.isArray(messages) && messages.length > 0) {
+      return messages
+        .filter((item) => item && ['system', 'user', 'assistant'].includes(item.role) && normalizeText(item.content))
+        .map((item) => ({ role: item.role, content: String(item.content) }));
+    }
+    return [
+      normalizeText(systemPrompt) ? { role: 'system', content: String(systemPrompt) } : null,
+      { role: 'user', content: String(prompt || '') }
+    ].filter(Boolean);
+  }
+
+  getCreativeSystemPrompt() {
+    return [
+      '你是长篇中文网文正文生成器。你的输出会直接作为小说章节草稿入库。',
+      '输出契约：只输出正文，不输出标题、提纲、解释、注释、总结、Markdown 标题或代码块；结尾必须是完整句。',
+      '事实优先级：剧情线角色变化边界 > 本章角色执行要求 > 角色底层资料。书籍、分卷、章节、连续性账本和禁止事项都是事实，不得改写或跳过。',
+      '连续性契约：保持角色姓名、身份、性别、关系、位置、知识、能力代价及世界规则一致；不得串入其他作品人物。',
+      '推进契约：必须落实本章任务和 mustAdvance；每一项 mustAdvance 都必须在正文中形成可观察的动作、结果或状态变化，只有提及、暗示、征兆、讨论或尝试不算完成；mustNotHappen 绝不能提前发生；上章钩子、伏笔和开放问题必须合理承接。',
+      '扩展边界：不得擅自引入改变主线的角色、势力、道具、规则或背景。必要的新信息只能是既有事实的直接后果，并立即服务本章任务。',
+      '写作契约：人物行动不能为推进剧情而降智；对话必须推动关系、信息或冲突；避免模板化抒情、空泛总结、重复解释和明显 AI 腔。',
+      '收束契约：围绕章节任务写必要场景；达到目标后立即收束，不追加额外支线、尾声或回味。',
+      '所有动态作品资料和本章参数由 user 消息提供。'
+    ].join('\n');
   }
 
   buildCreativePrompt(params) {
@@ -415,7 +498,69 @@ class DeepSeekService {
       emotionIntensity = 70,
       colloquialLevel = 80,
       dialogueRatio = 30,
-      wordCount = 2000,
+      wordCount = DEFAULT_WORD_COUNT,
+      addCliffhanger = true,
+      enhanceDialogue = true,
+      avoidAIFeel = true,
+      fastPace = false,
+      detailedDesc = false,
+      customInstruction = ''
+    } = params;
+    const genreName = GENRE_LABELS[genre] || normalizeText(genre) || '未分类';
+    const subgenreName = SUBGENRE_LABELS[subgenre] || normalizeText(subgenre);
+    const platformInfo = PLATFORM_LABELS[platform] || PLATFORM_LABELS.qidian;
+    const roleNames = extractRoleNames(appearingRoles);
+    const roleExecutionLines = summarizeRoleExecution(roleExecution);
+    const { min: minWords, max: maxWords } = getWordCountBounds(wordCount);
+    const lines = [
+      '【生成任务】',
+      `作品：${normalizeText(bookTitle) || '未命名作品'}`,
+      `章节：${normalizeText(chapterTitle) || '未命名章节'}`,
+      `题材：${[genreName, subgenreName].filter(Boolean).join(' · ')}`,
+      `平台：${platformInfo.name}；风格：${platformInfo.style.join('、')}`,
+      normalizeText(template) ? `写法模板：${normalizeText(template)}` : '',
+      '',
+      '【本章参数】',
+      `目标有效字数：${wordCount}；允许范围：${minWords}-${maxWords}`,
+      `情绪强度：${emotionIntensity}%；口语化：${colloquialLevel}%；对话占比：${dialogueRatio}%`,
+      normalizeArray(shuangTags).length ? `爽点标签：${normalizeArray(shuangTags).join('、')}` : '',
+      `写作开关：${[
+        addCliffhanger ? '结尾留钩子' : '', enhanceDialogue ? '强化有效对话' : '',
+        avoidAIFeel ? '避免AI腔' : '', fastPace ? '快节奏' : '', detailedDesc ? '强化关键细节' : ''
+      ].filter(Boolean).join('；') || '默认'}`,
+      customInstruction ? `用户补充：${customInstruction}` : '',
+      roleNames.length ? `允许角色姓名：${roleNames.join(' / ')}` : '',
+      roleExecutionLines.length ? `角色执行要求：\n${roleExecutionLines.map((line, index) => `${index + 1}. ${line}`).join('\n')}` : '',
+      chapterSummary ? `章节摘要：${chapterSummary}` : '',
+      '',
+      contextNotes ? `【上下文快照】\n${contextNotes}` : '',
+      characters ? `【角色资料】\n${characters}` : '',
+      `【章节细纲】\n${outline}`,
+      '',
+      `【提交前自检】逐项确认 mustAdvance 已在正文发生并产生结果，不是只被提到或暗示；mustNotHappen 未触发；角色与事实连续；有效字数不超过 ${maxWords}；仅输出正文。`
+    ];
+    return lines.filter(Boolean).join('\n');
+  }
+
+  buildCreativePromptLegacy(params) {
+    const {
+      bookTitle,
+      genre,
+      subgenre,
+      platform = 'qidian',
+      template,
+      chapterTitle,
+      chapterSummary = '',
+      outline,
+      characters,
+      appearingRoles = [],
+      roleExecution = [],
+      contextNotes = '',
+      shuangTags = [],
+      emotionIntensity = 70,
+      colloquialLevel = 80,
+      dialogueRatio = 30,
+      wordCount = DEFAULT_WORD_COUNT,
       addCliffhanger = true,
       enhanceDialogue = true,
       avoidAIFeel = true,
@@ -431,9 +576,11 @@ class DeepSeekService {
     const tags = normalizeArray(shuangTags);
     const roleNames = extractRoleNames(appearingRoles);
     const roleExecutionLines = summarizeRoleExecution(roleExecution);
-    const minWords = Math.max(200, Math.floor(wordCount * 0.85));
-    const maxWords = Math.max(minWords, Math.ceil(wordCount * 1.15));
-    const softTargetWords = Math.max(200, Math.floor(wordCount * 0.95));
+    const { min: minWords, max: maxWords } = getWordCountBounds(wordCount);
+    const softTargetWords = Math.max(
+      WORD_COUNT_POLICY.min_target,
+      Math.floor(wordCount * WORD_COUNT_POLICY.soft_target_ratio)
+    );
 
     const promptParts = [
       `你现在要以 ${platformInfo.name} 网文作者的口吻，创作一章${subgenreName ? ` ${genreName} · ${subgenreName}` : ` ${genreName}`}小说正文。`,

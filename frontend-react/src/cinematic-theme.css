@@ -1,0 +1,1126 @@
+:root {
+  --cinema-bg: #071014;
+  --cinema-bg-soft: #0a171c;
+  --cinema-panel: #0d1d23;
+  --cinema-panel-strong: #11262d;
+  --cinema-line: rgba(126, 194, 194, 0.16);
+  --cinema-line-strong: rgba(126, 194, 194, 0.3);
+  --cinema-text: #e8f0ed;
+  --cinema-muted: #8ea5a6;
+  --cinema-signal: #27c7b7;
+  --cinema-signal-soft: rgba(39, 199, 183, 0.12);
+  --cinema-gold: #d5a94f;
+  --cinema-danger: #e66b67;
+  --cinema-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+  --font-display: "Noto Serif SC", "Source Han Serif SC", "STSong", Georgia, serif;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background: var(--cinema-bg);
+}
+
+body {
+  color: var(--cinema-text);
+  background:
+    radial-gradient(circle at 12% -10%, rgba(39, 199, 183, 0.11), transparent 34rem),
+    radial-gradient(circle at 92% 12%, rgba(213, 169, 79, 0.07), transparent 28rem),
+    linear-gradient(180deg, #071014 0%, #081318 56%, #071014 100%);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.24;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.014) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(to bottom, black, transparent 72%);
+}
+
+::selection {
+  color: #04110f;
+  background: var(--cinema-signal);
+}
+
+/* Global navigation */
+body .al-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  min-height: 58px;
+  background: rgba(7, 16, 20, 0.9);
+  border-bottom: 1px solid var(--cinema-line);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(20px) saturate(130%);
+}
+
+body .al-nav-inner {
+  max-width: 1480px;
+  min-height: 58px;
+  padding: 0 28px;
+}
+
+body .al-nav-brand-name {
+  color: var(--cinema-text);
+  font-family: var(--font-display);
+  font-size: 18px;
+  letter-spacing: 0.08em;
+}
+
+body .al-nav-brand-code {
+  color: var(--cinema-signal);
+  font: 600 10px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: 0.18em;
+}
+
+body .al-nav-link {
+  position: relative;
+  color: var(--cinema-muted);
+  border-radius: 8px;
+  letter-spacing: 0.04em;
+}
+
+body .al-nav-link:hover,
+body .al-nav-link--active {
+  color: var(--cinema-text);
+  background: var(--cinema-signal-soft);
+}
+
+body .al-nav-link--active::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  bottom: 5px;
+  left: 14px;
+  height: 2px;
+  background: var(--cinema-signal);
+  box-shadow: 0 0 16px rgba(39, 199, 183, 0.55);
+}
+
+/* Home */
+body .hp-hero {
+  max-width: 1180px;
+  min-height: 620px;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 108px 54px 92px;
+  text-align: left;
+}
+
+body .hp-hero::before {
+  top: 76px;
+  right: 3%;
+  width: 430px;
+  height: 430px;
+  border: 1px solid var(--cinema-line-strong);
+  border-radius: 50%;
+  opacity: 1;
+  background:
+    radial-gradient(circle at center, transparent 0 39%, rgba(39,199,183,.08) 40% 40.5%, transparent 41%),
+    radial-gradient(circle at center, rgba(39,199,183,.1), transparent 64%);
+  box-shadow: inset 0 0 90px rgba(39,199,183,.08), 0 0 100px rgba(0,0,0,.22);
+}
+
+body .hp-hero::after {
+  right: 16%;
+  bottom: 130px;
+  left: auto;
+  width: 92px;
+  height: 92px;
+  border: 1px solid rgba(213,169,79,.5);
+  border-radius: 50%;
+  opacity: .8;
+  background: radial-gradient(circle, rgba(213,169,79,.18), transparent 64%);
+}
+
+body .hp-hero-badge {
+  margin-bottom: 24px;
+  color: var(--cinema-signal);
+  background: rgba(39,199,183,.08);
+  border-color: rgba(39,199,183,.28);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+body .hp-hero-title {
+  max-width: 760px;
+  margin: 0;
+  color: var(--cinema-text);
+  font-family: var(--font-display);
+  font-size: clamp(58px, 8vw, 104px);
+  font-weight: 600;
+  line-height: .98;
+  letter-spacing: -.055em;
+  text-shadow: 0 20px 60px rgba(0,0,0,.28);
+}
+
+body .hp-hero-slogan {
+  max-width: 760px;
+  margin: 28px 0 0;
+  color: var(--cinema-gold);
+  font: 500 16px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: .16em;
+}
+
+body .hp-hero-desc {
+  max-width: 620px;
+  margin: 20px 0 0;
+  color: #a9babb;
+  font-size: 17px;
+  line-height: 1.9;
+}
+
+body .hp-hero-actions {
+  justify-content: flex-start;
+  margin-top: 36px;
+}
+
+body .hp-btn-primary,
+body .hp-btn-secondary {
+  min-height: 46px;
+  padding: 0 24px;
+  border-radius: 8px;
+  font-weight: 700;
+  letter-spacing: .03em;
+}
+
+body .hp-btn-primary {
+  color: #041512;
+  background: var(--cinema-signal);
+  border-color: var(--cinema-signal);
+  box-shadow: 0 12px 34px rgba(39,199,183,.22);
+}
+
+body .hp-btn-primary:hover { background: #42d9ca; transform: translateY(-2px); }
+
+body .hp-btn-secondary {
+  color: var(--cinema-text);
+  background: rgba(255,255,255,.035);
+  border-color: var(--cinema-line-strong);
+}
+
+body .hp-divider { max-width: 1180px; opacity: .7; }
+body .hp-divider-line { border-color: var(--cinema-line); }
+body .hp-divider-icon-red { color: var(--cinema-gold); background: var(--cinema-bg); }
+body .hp-divider-icon-cyan { color: var(--cinema-signal); background: var(--cinema-bg); }
+
+body .hp-features {
+  max-width: 1180px;
+  padding: 92px 32px 108px;
+}
+
+body .hp-section-header { text-align: left; }
+body .hp-section-title {
+  color: var(--cinema-text);
+  font-family: var(--font-display);
+  font-size: clamp(34px, 4vw, 52px);
+}
+body .hp-section-subtitle { color: var(--cinema-muted); }
+
+body .hp-feature-grid { gap: 14px; }
+body .hp-feature-card {
+  min-height: 230px;
+  padding: 28px;
+  background: linear-gradient(145deg, rgba(17,38,45,.92), rgba(10,23,28,.94));
+  border: 1px solid var(--cinema-line);
+  border-radius: 12px;
+  box-shadow: none;
+}
+body .hp-feature-card:hover {
+  border-color: rgba(39,199,183,.42);
+  box-shadow: 0 18px 55px rgba(0,0,0,.22);
+  transform: translateY(-4px);
+}
+body .hp-feature-icon-wrap {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  color: #041512;
+  box-shadow: 0 0 0 6px rgba(39,199,183,.05);
+}
+body .hp-feature-title { color: var(--cinema-text); font-family: var(--font-display); }
+body .hp-feature-desc { color: var(--cinema-muted); }
+
+body .hp-upcoming { max-width: 1180px; padding-bottom: 100px; }
+body .hp-upcoming-inner {
+  background: linear-gradient(110deg, rgba(39,199,183,.08), rgba(213,169,79,.04));
+  border: 1px solid var(--cinema-line);
+  border-radius: 12px;
+  box-shadow: none;
+}
+body .hp-upcoming-label { color: var(--cinema-gold); }
+body .hp-upcoming-tags { color: var(--cinema-text); }
+body .hp-upcoming-tags-accent { color: var(--cinema-signal); }
+body .hp-upcoming-note { color: var(--cinema-muted); }
+
+/* Library shell */
+body .books-admin-page.library-app-shell {
+  --bg: var(--cinema-bg);
+  --panel: var(--cinema-panel);
+  --panel-strong: var(--cinema-panel-strong);
+  --line: var(--cinema-line);
+  --line-strong: var(--cinema-line-strong);
+  --text: var(--cinema-text);
+  --muted: var(--cinema-muted);
+  --accent: var(--cinema-signal);
+  --accent-soft: var(--cinema-signal-soft);
+  min-height: calc(100vh - 58px);
+  color: var(--cinema-text);
+  background:
+    radial-gradient(circle at 92% 0%, rgba(39,199,183,.08), transparent 28rem),
+    var(--cinema-bg);
+}
+
+body .books-admin-page .library-sidebar {
+  background: rgba(8, 20, 24, .96);
+  border-right: 1px solid var(--cinema-line);
+  box-shadow: 16px 0 60px rgba(0,0,0,.15);
+}
+
+body .books-admin-page .library-sidebar-head,
+body .books-admin-page .library-sidebar-section {
+  border-color: var(--cinema-line);
+}
+
+body .books-admin-page .eyebrow,
+body .books-admin-page .summary-nav-kicker {
+  color: var(--cinema-signal);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: .13em;
+}
+
+body .books-admin-page .library-nav-item {
+  color: var(--cinema-muted);
+  background: transparent;
+  border-color: transparent;
+  border-radius: 8px;
+}
+
+body .books-admin-page .library-nav-item:hover:not(:disabled),
+body .books-admin-page .library-nav-item.is-active {
+  color: var(--cinema-text);
+  background: var(--cinema-signal-soft);
+  border-color: rgba(39,199,183,.18);
+}
+
+body .books-admin-page .library-nav-item.is-active {
+  box-shadow: inset 3px 0 0 var(--cinema-signal);
+}
+
+body .books-admin-page .library-main { padding: 34px clamp(22px, 3vw, 52px) 70px; }
+
+body .books-admin-page .books-page-header,
+body .books-admin-page .detail-header {
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--cinema-line);
+}
+
+body .books-admin-page .books-page-header h1,
+body .books-admin-page .detail-header h2,
+body .books-admin-page .summary-hub h2,
+body .books-admin-page .chapter-reader-head h2 {
+  color: var(--cinema-text);
+  font-family: var(--font-display);
+  letter-spacing: -.025em;
+}
+
+body .books-admin-page .books-page-header p,
+body .books-admin-page .detail-header p,
+body .books-admin-page .excerpt-text { color: var(--cinema-muted); }
+
+body .books-admin-page .books-page-stat-card,
+body .books-admin-page .books-page-card,
+body .books-admin-page .book-info-panel,
+body .books-admin-page .summary-overview-panel,
+body .books-admin-page .summary-metric-card,
+body .books-admin-page .summary-nav-card,
+body .books-admin-page .detail-section,
+body .books-admin-page .detail-outline-section,
+body .books-admin-page .detail-character-item,
+body .books-admin-page .detail-volume-card,
+body .books-admin-page .chapter-flow-card,
+body .books-admin-page .chapter-reader-note,
+body .books-admin-page .chapter-reader-audit {
+  color: var(--cinema-text);
+  background: linear-gradient(145deg, rgba(17,38,45,.9), rgba(10,23,28,.94));
+  border-color: var(--cinema-line);
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+body .books-admin-page .books-page-stat-card:hover,
+body .books-admin-page .books-page-card:hover,
+body .books-admin-page .summary-nav-card:hover,
+body .books-admin-page .detail-character-item:hover,
+body .books-admin-page .chapter-flow-card:hover {
+  border-color: rgba(39,199,183,.4);
+  box-shadow: var(--cinema-shadow);
+  transform: translateY(-3px);
+}
+
+body .books-admin-page .books-page-stat-card strong,
+body .books-admin-page .summary-metric-card strong,
+body .books-admin-page .books-page-card-title,
+body .books-admin-page .detail-character-title strong,
+body .books-admin-page .chapter-title-link {
+  color: var(--cinema-text);
+}
+
+body .books-admin-page input,
+body .books-admin-page textarea,
+body .books-admin-page select {
+  color: var(--cinema-text);
+  background: rgba(3,12,15,.72);
+  border-color: var(--cinema-line-strong);
+  border-radius: 8px;
+}
+
+body .books-admin-page input:focus,
+body .books-admin-page textarea:focus,
+body .books-admin-page select:focus {
+  border-color: var(--cinema-signal);
+  box-shadow: 0 0 0 3px rgba(39,199,183,.12);
+}
+
+body .books-admin-page .solid-btn,
+body .books-admin-page .nav-btn-primary {
+  color: #041512;
+  background: var(--cinema-signal);
+  border-color: var(--cinema-signal);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(39,199,183,.16);
+}
+
+body .books-admin-page .ghost-btn,
+body .books-admin-page .nav-btn {
+  color: var(--cinema-text);
+  background: rgba(255,255,255,.035);
+  border-color: var(--cinema-line-strong);
+  border-radius: 8px;
+}
+
+body .books-admin-page .ghost-btn:hover:not(:disabled),
+body .books-admin-page .nav-btn:hover:not(:disabled) {
+  color: var(--cinema-signal);
+  background: var(--cinema-signal-soft);
+  border-color: rgba(39,199,183,.4);
+}
+
+body .books-admin-page .detail-danger-btn { color: #f08b86; border-color: rgba(230,107,103,.28); }
+body .books-admin-page .detail-meta-chip,
+body .books-admin-page .detail-role-tier-badge {
+  color: var(--cinema-gold);
+  background: rgba(213,169,79,.09);
+  border-color: rgba(213,169,79,.24);
+}
+
+body .books-admin-page .summary-hub-top {
+  gap: 16px;
+  padding: 22px;
+  background: linear-gradient(135deg, rgba(39,199,183,.07), rgba(213,169,79,.035));
+  border: 1px solid var(--cinema-line);
+  border-radius: 14px;
+}
+
+body .books-admin-page .summary-nav-card::after { background: var(--cinema-signal); }
+body .books-admin-page .summary-nav-card em { color: var(--cinema-signal); }
+
+body .books-admin-page .detail-character-avatar {
+  background: linear-gradient(145deg, #15343b, #0c1e23);
+  border-color: var(--cinema-line-strong);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+}
+
+body .books-admin-page .chapter-flow-board { border-top-color: var(--cinema-line); }
+body .books-admin-page .chapter-flow-head { color: var(--cinema-muted); }
+body .books-admin-page .chapter-flow-card::before { background: var(--cinema-signal); }
+body .books-admin-page .chapter-flow-outline { color: #a9babb; }
+
+/* Reading mode: keep content width and natural page scroll. */
+body .books-admin-page.is-chapter-reader-page {
+  background: #061014;
+}
+
+body .books-admin-page .chapter-reader-shell { max-width: 1180px; }
+body .books-admin-page .chapter-reader-toolbar {
+  position: sticky;
+  top: 72px;
+  z-index: 5;
+  padding: 10px 12px;
+  background: rgba(7,16,20,.88);
+  border: 1px solid var(--cinema-line);
+  border-radius: 10px;
+  backdrop-filter: blur(16px);
+}
+
+body .books-admin-page .chapter-reader-prose {
+  color: #dce6e2;
+  background:
+    linear-gradient(90deg, rgba(39,199,183,.025), transparent 22%, transparent 78%, rgba(39,199,183,.025)),
+    #0a171b;
+  border: 1px solid var(--cinema-line);
+  border-radius: 4px;
+  box-shadow: 0 30px 90px rgba(0,0,0,.32);
+  font-family: var(--font-display);
+  font-size: clamp(17px, 1.35vw, 20px);
+  line-height: 2.05;
+}
+
+body .books-admin-page .chapter-reader-prose p { color: #dce6e2; }
+body .books-admin-page .chapter-reader-footer { border-color: var(--cinema-line); color: var(--cinema-muted); }
+
+body .modal-backdrop { background: rgba(0,7,9,.8); backdrop-filter: blur(12px); }
+body .book-editor-modal,
+body .avatar-crop-modal {
+  color: var(--cinema-text);
+  background: var(--cinema-panel);
+  border-color: var(--cinema-line-strong);
+  box-shadow: 0 32px 100px rgba(0,0,0,.5);
+}
+
+@media (max-width: 900px) {
+  body .al-nav-inner { padding: 0 14px; }
+  body .hp-hero { min-height: auto; padding: 76px 24px 64px; }
+  body .hp-hero::before { right: -190px; width: 380px; height: 380px; }
+  body .hp-hero-title { font-size: clamp(50px, 15vw, 76px); }
+  body .hp-features { padding-top: 64px; }
+  body .books-admin-page .library-main { padding: 22px 16px 54px; }
+  body .books-admin-page .chapter-reader-toolbar { top: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body .hp-feature-card,
+  body .books-admin-page .books-page-card,
+  body .books-admin-page .summary-nav-card,
+  body .books-admin-page .chapter-flow-card { transition: none; }
+}
+
+/* AppLayout loads legacy app-shell rules late; this bridge intentionally wins
+   without using !important or changing the established import graph. */
+html body .al-nav {
+  min-height: 58px;
+  background: rgba(7, 16, 20, .92);
+  border-color: var(--cinema-line);
+  box-shadow: 0 14px 40px rgba(0,0,0,.18);
+}
+html body .al-nav-inner { max-width: 1480px; min-height: 58px; padding: 0 28px; }
+html body .al-nav-monogram {
+  color: #051512;
+  background: var(--cinema-signal);
+  border-color: rgba(39,199,183,.55);
+  box-shadow: 0 0 22px rgba(39,199,183,.18);
+}
+html body .al-nav-brand-name { color: var(--cinema-text); }
+html body .al-nav-brand-code { color: var(--cinema-signal); }
+html body .al-nav-link { color: var(--cinema-muted); background: transparent; }
+html body .al-nav-link:hover,
+html body .al-nav-link--active { color: var(--cinema-text); background: var(--cinema-signal-soft); }
+
+html body .hp-hero {
+  max-width: 1180px;
+  min-height: 620px;
+  align-items: flex-start;
+  justify-content: center;
+  margin: 0 auto;
+  padding: 108px 54px 92px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+html body .hp-hero::before {
+  top: 76px;
+  right: 3%;
+  bottom: auto;
+  left: auto;
+  width: 430px;
+  height: 430px;
+  border: 1px solid var(--cinema-line-strong);
+  border-radius: 50%;
+  opacity: 1;
+  background: radial-gradient(circle at center, transparent 0 39%, rgba(39,199,183,.08) 40% 40.5%, transparent 41%), radial-gradient(circle at center, rgba(39,199,183,.1), transparent 64%);
+  box-shadow: inset 0 0 90px rgba(39,199,183,.08), 0 0 100px rgba(0,0,0,.22);
+}
+html body .hp-hero::after {
+  right: 16%;
+  bottom: 130px;
+  left: auto;
+  width: 92px;
+  height: 92px;
+  border: 1px solid rgba(213,169,79,.5);
+  border-radius: 50%;
+  opacity: .8;
+  background: radial-gradient(circle, rgba(213,169,79,.18), transparent 64%);
+}
+html body .hp-hero-badge {
+  color: var(--cinema-signal);
+  background: rgba(39,199,183,.08);
+  border-color: rgba(39,199,183,.28);
+  border-radius: 6px;
+}
+html body .hp-hero-badge-dot { background: var(--cinema-signal); }
+html body .hp-hero-title {
+  color: var(--cinema-text);
+  font-family: var(--font-display);
+  font-size: clamp(58px, 8vw, 104px);
+  line-height: .98;
+  letter-spacing: -.055em;
+}
+html body .hp-hero-slogan { color: var(--cinema-gold); }
+html body .hp-hero-desc { color: #a9babb; }
+html body .hp-btn-primary { color: #041512; background: var(--cinema-signal); border-color: var(--cinema-signal); }
+html body .hp-btn-secondary { color: var(--cinema-text); background: rgba(255,255,255,.035); border-color: var(--cinema-line-strong); }
+html body .hp-divider-line { border-color: var(--cinema-line); }
+html body .hp-features { max-width: 1180px; padding: 92px 32px 108px; }
+html body .hp-section-header { text-align: left; }
+html body .hp-section-title { color: var(--cinema-text); font-family: var(--font-display); }
+html body .hp-section-subtitle { color: var(--cinema-muted); }
+html body .hp-features .hp-feature-card {
+  min-height: 230px;
+  color: var(--cinema-text);
+  background: linear-gradient(145deg, rgba(17,38,45,.92), rgba(10,23,28,.94));
+  border-color: var(--cinema-line);
+  border-radius: 12px;
+  box-shadow: none;
+}
+html body .hp-features .hp-feature-title { color: var(--cinema-text); }
+html body .hp-features .hp-feature-desc { color: var(--cinema-muted); }
+html body .hp-upcoming .hp-upcoming-inner {
+  color: var(--cinema-text);
+  background: linear-gradient(110deg, rgba(39,199,183,.08), rgba(213,169,79,.04));
+  border-color: var(--cinema-line);
+  border-radius: 12px;
+  box-shadow: none;
+}
+html body .hp-upcoming .hp-upcoming-label { color: var(--cinema-gold); }
+html body .hp-upcoming .hp-upcoming-tags { color: var(--cinema-text); }
+html body .hp-upcoming .hp-upcoming-tags-accent { color: var(--cinema-signal); }
+html body .hp-upcoming .hp-upcoming-note { color: var(--cinema-muted); }
+
+/* The homepage now owns a semantic story graph instead of the old generic rings. */
+html body .hp-hero::before,
+html body .hp-hero::after { display: none; }
+html body .hp-hero-visual {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  grid-column: 2;
+  grid-row: 1 / span 5;
+  align-self: center;
+  justify-self: end;
+  width: min(100%, 520px);
+  max-width: 100%;
+}
+html body .hp-hero {
+  grid-template-columns: minmax(0, 480px) minmax(420px, 520px);
+  column-gap: 48px;
+  justify-content: start;
+}
+html body .hp-hero > :not(.hp-hero-visual) {
+  grid-column: 1;
+  max-width: 100%;
+}
+html body .hp-hero-title,
+html body .hp-hero-slogan {
+  width: auto;
+  max-width: 100%;
+}
+html body .hp-hero-actions { width: fit-content; }
+html body .hp-hero-desc { max-width: 480px; }
+
+@media (max-width: 900px) {
+  html body .hp-hero {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0;
+    justify-content: center;
+  }
+  html body .hp-hero > :not(.hp-hero-visual) { grid-column: 1; }
+  html body .hp-hero-title,
+  html body .hp-hero-slogan {
+    width: auto;
+    max-width: 100%;
+  }
+  html body .hp-hero-actions { width: 100%; }
+  html body .hp-hero-visual {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: center;
+    width: min(100%, 560px);
+    margin-top: 56px;
+  }
+  html body .al-nav-inner { padding: 0 14px; }
+  html body .hp-hero { min-height: auto; padding: 76px 24px 64px; }
+  html body .hp-hero::before { right: -190px; width: 380px; height: 380px; }
+  html body .hp-hero-title { font-size: clamp(50px, 15vw, 76px); }
+}
+
+/* BooksPage owns late inline styles, so all library overrides are scoped one
+   level above the page root to keep the cascade deterministic. */
+html body .books-admin-page.library-app-shell {
+  color: var(--cinema-text);
+  background: radial-gradient(circle at 92% 0%, rgba(39,199,183,.08), transparent 28rem), var(--cinema-bg);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+html body .books-admin-page .library-sidebar {
+  color: var(--cinema-text);
+  background: rgba(8,20,24,.98);
+  border-color: var(--cinema-line);
+  box-shadow: 16px 0 60px rgba(0,0,0,.15);
+}
+html body .books-admin-page .library-main {
+  color: var(--cinema-text);
+  background: transparent;
+}
+html body .books-admin-page :is(.library-sidebar-head, .library-sidebar-section, .books-page-header, .detail-header) {
+  border-color: var(--cinema-line);
+}
+html body .books-admin-page .library-nav-item {
+  color: var(--cinema-muted);
+  background: transparent;
+  border-color: transparent;
+}
+html body .books-admin-page :is(.library-nav-item:hover:not(:disabled), .library-nav-item.is-active) {
+  color: var(--cinema-text);
+  background: var(--cinema-signal-soft);
+  border-color: rgba(39,199,183,.18);
+}
+html body .books-admin-page .library-nav-item.is-active { box-shadow: inset 3px 0 0 var(--cinema-signal); }
+html body .books-admin-page :is(.books-page-header h1, .detail-header h2, .summary-hub h2, .chapter-reader-head h2) {
+  color: var(--cinema-text);
+  font-family: var(--font-display);
+}
+html body .books-admin-page :is(.books-page-header p, .detail-header p, .excerpt-text, .books-page-card-meta, .chapter-flow-outline) {
+  color: var(--cinema-muted);
+}
+html body .books-admin-page :is(
+  .books-page-toolbar,
+  .books-page-stat-card,
+  .books-page-card,
+  .book-info-panel,
+  .summary-overview-panel,
+  .summary-metric-card,
+  .summary-nav-card,
+  .detail-section,
+  .detail-outline-section,
+  .detail-character-item,
+  .detail-character-ai-box,
+  .detail-volume-card,
+  .detail-inline-editor,
+  .chapter-flow-board,
+  .chapter-flow-card,
+  .chapter-reader-note,
+  .chapter-reader-audit,
+  .global-banner
+) {
+  color: var(--cinema-text);
+  background: linear-gradient(145deg, rgba(17,38,45,.9), rgba(10,23,28,.95));
+  border-color: var(--cinema-line);
+  box-shadow: none;
+}
+html body .books-admin-page :is(.books-page-stat-card, .books-page-card, .summary-nav-card, .detail-character-item, .chapter-flow-card):hover {
+  border-color: rgba(39,199,183,.4);
+  box-shadow: var(--cinema-shadow);
+}
+html body .books-admin-page :is(
+  .books-page-stat-card strong,
+  .summary-metric-card strong,
+  .books-page-card-title,
+  .detail-character-title strong,
+  .chapter-title-link,
+  .detail-section h3,
+  .chapter-flow-card h3
+) { color: var(--cinema-text); }
+html body .books-admin-page :is(input, textarea, select) {
+  color: var(--cinema-text);
+  background: rgba(3,12,15,.76);
+  border-color: var(--cinema-line-strong);
+}
+html body .books-admin-page :is(input, textarea, select):focus {
+  border-color: var(--cinema-signal);
+  box-shadow: 0 0 0 3px rgba(39,199,183,.12);
+}
+html body .books-admin-page :is(.solid-btn, .nav-btn-primary) {
+  color: #041512;
+  background: var(--cinema-signal);
+  border-color: var(--cinema-signal);
+}
+html body .books-admin-page :is(.ghost-btn, .nav-btn) {
+  color: var(--cinema-text);
+  background: rgba(255,255,255,.035);
+  border-color: var(--cinema-line-strong);
+}
+html body .books-admin-page :is(.ghost-btn, .nav-btn):hover:not(:disabled) {
+  color: var(--cinema-signal);
+  background: var(--cinema-signal-soft);
+  border-color: rgba(39,199,183,.4);
+}
+html body .books-admin-page .summary-hub-top {
+  background: linear-gradient(135deg, rgba(39,199,183,.07), rgba(213,169,79,.035));
+  border-color: var(--cinema-line);
+}
+html body .books-admin-page :is(.detail-meta-chip, .detail-role-tier-badge) {
+  color: var(--cinema-gold);
+  background: rgba(213,169,79,.09);
+  border-color: rgba(213,169,79,.24);
+}
+html body .books-admin-page.is-chapter-reader-page { background: #061014; }
+html body .books-admin-page .chapter-reader-toolbar {
+  background: rgba(7,16,20,.9);
+  border-color: var(--cinema-line);
+}
+html body .books-admin-page .chapter-reader-prose {
+  color: #dce6e2;
+  background: linear-gradient(90deg, rgba(39,199,183,.025), transparent 22%, transparent 78%, rgba(39,199,183,.025)), #0a171b;
+  border-color: var(--cinema-line);
+  box-shadow: 0 30px 90px rgba(0,0,0,.32);
+}
+html body .books-admin-page .chapter-reader-prose p { color: #dce6e2; }
+html body .books-admin-page .chapter-reader-footer { color: var(--cinema-muted); border-color: var(--cinema-line); }
+html body .books-admin-page :is(.books-page-prompt-entry, .books-page-toolbar-input, .books-page-toolbar-select, .books-page-toolbar-btn) {
+  color: var(--cinema-text);
+  background: rgba(3,12,15,.76);
+  border-color: var(--cinema-line-strong);
+  box-shadow: none;
+}
+html body .books-admin-page :is(.books-page-prompt-entry, .books-page-toolbar-btn):hover:not(:disabled) {
+  color: var(--cinema-signal);
+  background: var(--cinema-signal-soft);
+  border-color: rgba(39,199,183,.4);
+}
+html body .books-admin-page .books-page-toolbar-btn-primary {
+  color: #041512;
+  background: var(--cinema-signal);
+  border-color: var(--cinema-signal);
+  box-shadow: 0 10px 28px rgba(39,199,183,.16);
+}
+html body .books-admin-page .books-page-toolbar-btn-primary:hover:not(:disabled) {
+  color: #041512;
+  background: #42d9ca;
+  border-color: #42d9ca;
+}
+
+html body .books-admin-page .library-sidebar-context strong {
+  color: var(--cinema-text) !important;
+}
+
+html body .books-admin-page .books-page-stat-card,
+html body .books-admin-page .books-page-stat-card:first-child {
+  color: var(--cinema-text) !important;
+  background: linear-gradient(145deg, rgba(17,38,45,.9), rgba(10,23,28,.95)) !important;
+  border-color: var(--cinema-line) !important;
+}
+
+html body .books-admin-page .books-page-stat-card :is(.books-page-stat-value, .books-page-stat-label) {
+  color: var(--cinema-text) !important;
+}
+
+html body .books-admin-page .books-page-stat-card .books-page-stat-label {
+  color: var(--cinema-muted) !important;
+}
+
+/* Bring the changelog page onto the same dark theme as the rest of the app. */
+html body .page-shell:has(.changelog-page-title) {
+  color: var(--cinema-text) !important;
+  background: transparent !important;
+}
+
+html body .page-shell:has(.changelog-page-title) .changelog-page-header {
+  border-color: var(--cinema-line) !important;
+}
+
+html body .page-shell:has(.changelog-page-title) .changelog-page-title {
+  color: var(--cinema-text) !important;
+  font-family: var(--font-display);
+}
+
+html body .page-shell:has(.changelog-page-title) .changelog-page-subtitle,
+html body .page-shell:has(.changelog-page-title) .changelog-page-date,
+html body .page-shell:has(.changelog-page-title) .changelog-page-item-summary,
+html body .page-shell:has(.changelog-page-title) .changelog-page-item-details,
+html body .page-shell:has(.changelog-page-title) .changelog-page-cta-note {
+  color: var(--cinema-muted) !important;
+}
+
+html body .page-shell:has(.changelog-page-title) .changelog-page-meta {
+  color: var(--cinema-muted) !important;
+  background: rgba(17,38,45,.88) !important;
+  border-color: var(--cinema-line) !important;
+}
+
+html body .page-shell:has(.changelog-page-title) .changelog-page-meta > span:not(.changelog-page-meta-sep) {
+  color: var(--cinema-muted) !important;
+}
+
+html body .page-shell:has(.changelog-page-title) .changelog-page-card {
+  color: var(--cinema-text) !important;
+  background: linear-gradient(145deg, rgba(17,38,45,.92), rgba(10,23,28,.96)) !important;
+  border-color: var(--cinema-line) !important;
+}
+
+html body .page-shell:has(.changelog-page-title) .changelog-page-item-title {
+  color: var(--cinema-text) !important;
+}
+
+html body .page-shell:has(.changelog-page-title) .changelog-page-version-badge {
+  color: var(--cinema-signal) !important;
+  background: var(--cinema-signal-soft) !important;
+}
+
+html body .page-shell:has(.changelog-page-title) .changelog-page-card-line {
+  background: var(--cinema-signal) !important;
+}
+
+html body .page-shell:has(.changelog-page-title) .changelog-page-cta {
+  border-color: var(--cinema-line) !important;
+}
+
+html body .page-shell:has(.changelog-page-title) .changelog-page-empty {
+  color: var(--cinema-muted) !important;
+  background: rgba(17, 38, 45, 0.88) !important;
+  border: 1px solid var(--cinema-line) !important;
+}
+
+html body .page-shell:has(.changelog-page-title) .changelog-page-cta-btn {
+  color: #041512 !important;
+  background: var(--cinema-signal) !important;
+  border-color: var(--cinema-signal) !important;
+}
+
+/* Compact page switcher, aligned to the top-right like a model selector. */
+html body .al-nav-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 40px;
+  padding: 4px;
+  border: 1px solid var(--cinema-line-strong);
+  border-radius: 12px;
+  background: rgba(11, 27, 32, .9);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.035), 0 8px 24px rgba(0,0,0,.18);
+}
+
+html body .al-nav-switcher-option {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--cinema-muted);
+  background: transparent;
+  font: 650 13px/1.2 var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  letter-spacing: .03em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+html body .al-nav-switcher-option:hover {
+  color: var(--cinema-text);
+  background: rgba(255,255,255,.07);
+  transform: translateY(-1px);
+}
+
+html body .al-nav-switcher-option.is-active {
+  color: #152023;
+  background: var(--cinema-text);
+  box-shadow: 0 6px 16px rgba(0,0,0,.2);
+}
+
+html body .al-nav-switcher-option.is-active:hover {
+  color: #152023;
+  background: #f3faf7;
+}
+
+/* Keep the document canvas dark even when legacy page styles are loaded later. */
+html,
+body,
+#root {
+  background-color: var(--cinema-bg) !important;
+}
+
+body {
+  background:
+    radial-gradient(circle at 12% -10%, rgba(39, 199, 183, 0.11), transparent 34rem),
+    radial-gradient(circle at 92% 12%, rgba(213, 169, 79, 0.07), transparent 28rem),
+    linear-gradient(180deg, #071014 0%, #081318 56%, #071014 100%) !important;
+}
+
+@media (max-width: 720px) {
+  html body .al-nav-switcher {
+    gap: 2px;
+    min-height: 36px;
+    padding: 3px;
+  }
+
+  html body .al-nav-switcher-option {
+    min-height: 28px;
+    padding-inline: 8px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 430px) {
+  html body .al-nav-switcher-option {
+    padding-inline: 6px;
+    font-size: 11px;
+  }
+}
+
+/* Library sub-pages: keep inherited legacy panels and active states on the dark theme. */
+html body .books-admin-page .library-nav-item::before {
+  color: var(--cinema-muted);
+  background: rgba(17, 38, 45, .92);
+  border-color: var(--cinema-line-strong);
+}
+
+html body .books-admin-page .library-nav-item.is-active {
+  color: var(--cinema-text);
+  background: rgba(39, 199, 183, .18);
+  border-color: rgba(39, 199, 183, .34);
+  box-shadow: inset 3px 0 0 var(--cinema-signal), inset 0 0 0 1px rgba(39, 199, 183, .08);
+}
+
+html body .books-admin-page .library-nav-item.is-active::before {
+  color: #041512;
+  background: var(--cinema-signal);
+  border-color: rgba(39, 199, 183, .72);
+  box-shadow: 0 0 0 4px rgba(39, 199, 183, .1), 0 0 16px rgba(39, 199, 183, .24);
+}
+
+html body .books-admin-page .detail-panel,
+html body .books-admin-page .storyline-board-card {
+  color: var(--cinema-text) !important;
+  background: linear-gradient(145deg, rgba(17, 38, 45, .92), rgba(10, 23, 28, .96)) !important;
+  border-color: var(--cinema-line) !important;
+  box-shadow: none !important;
+}
+
+html body .books-admin-page .detail-panel :is(h3, h4, strong),
+html body .books-admin-page .storyline-board-card :is(h3, h4, strong) {
+  color: var(--cinema-text);
+}
+
+html body .books-admin-page .detail-panel :is(p, .excerpt-text),
+html body .books-admin-page .storyline-board-card :is(p, .excerpt-text) {
+  color: var(--cinema-muted);
+}
+
+html body .books-admin-page :is(input, textarea, select) {
+  color: var(--cinema-text) !important;
+  background: rgba(3, 12, 15, .82) !important;
+  border-color: var(--cinema-line-strong) !important;
+}
+
+html body .books-admin-page .storyline-control-panel .detail-inline-field > span,
+html body .books-admin-page .storyline-board-kicker {
+  color: var(--cinema-signal) !important;
+}
+
+html body .books-admin-page .storyline-board-card :is(.storyline-header-side, .storyline-row-meta) {
+  background: rgba(17, 38, 45, .92) !important;
+  border-color: var(--cinema-line) !important;
+}
+
+html body .books-admin-page .storyline-board-card :is(.storyline-volume-band, .storyline-bar) {
+  color: var(--cinema-text) !important;
+  background: linear-gradient(135deg, rgba(22, 57, 62, .94), rgba(10, 27, 32, .96)) !important;
+  border-color: rgba(39, 199, 183, .28) !important;
+}
+
+html body .books-admin-page .storyline-board-card :is(.storyline-volume-band span, .storyline-bar p, .storyline-bar span) {
+  color: var(--cinema-muted) !important;
+}
+
+html body .books-admin-page .storyline-board-card a {
+  color: var(--cinema-signal) !important;
+}
+
+html body .books-admin-page .storyline-board-card a:hover {
+  color: var(--cinema-text) !important;
+}
+
+/* Chapter cards: override the legacy light card treatment on the dark library page. */
+html body .books-admin-page .chapter-flow-card {
+  color: var(--cinema-text) !important;
+  background: linear-gradient(145deg, rgba(17, 38, 45, .92), rgba(10, 23, 28, .96)) !important;
+  border-color: var(--cinema-line) !important;
+  box-shadow: none !important;
+}
+
+html body .books-admin-page .chapter-flow-card :is(.chapter-flow-number, .chapter-flow-meta) {
+  color: var(--cinema-signal) !important;
+}
+
+html body .books-admin-page .chapter-flow-card .chapter-title-link {
+  color: var(--cinema-text) !important;
+}
+
+html body .books-admin-page .chapter-flow-card .chapter-title-link:hover {
+  color: var(--cinema-signal) !important;
+}
+
+html body .books-admin-page .chapter-flow-card .chapter-flow-outline {
+  color: var(--cinema-muted) !important;
+}
+
+html body .books-admin-page .chapter-flow-card .chapter-flow-outline b {
+  color: var(--cinema-text) !important;
+}
+
+html body .books-admin-page .chapter-flow-card .chapter-flow-actions .ghost-btn {
+  color: var(--cinema-text) !important;
+  background: rgba(17, 38, 45, .84) !important;
+  border-color: var(--cinema-line-strong) !important;
+}
+
+html body .books-admin-page .chapter-flow-card .chapter-flow-actions .ghost-btn:hover:not(:disabled) {
+  color: var(--cinema-signal) !important;
+  background: rgba(39, 199, 183, .12) !important;
+  border-color: rgba(39, 199, 183, .42) !important;
+}
+
+/* Outline editor: keep the large text area readable even when legacy inline styles win. */
+html body .books-admin-page .detail-outline-section .detail-inline-editor {
+  background: rgba(10, 23, 28, .72) !important;
+  border-color: var(--cinema-line) !important;
+}
+
+html body .books-admin-page .detail-outline-section .detail-inline-editor textarea {
+  color: var(--cinema-text) !important;
+  background: rgba(3, 12, 15, .88) !important;
+  border-color: var(--cinema-line-strong) !important;
+}
+
+html body .books-admin-page .detail-outline-section .detail-inline-editor textarea::placeholder {
+  color: rgba(169, 186, 187, .72) !important;
+}
+
+html body .books-admin-page .detail-outline-section .detail-inline-field > span {
+  color: var(--cinema-signal) !important;
+}
+
+/* Outline read mode: the rendered summary needs the same contrast as the editor. */
+html body .books-admin-page .detail-outline-section .detail-pre {
+  color: var(--cinema-text) !important;
+  background: rgba(10, 23, 28, .72) !important;
+  border: 1px solid var(--cinema-line) !important;
+}
+
+html body .books-admin-page .detail-outline-section .detail-pre-paragraph {
+  color: var(--cinema-text) !important;
+}

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { BookService, ChapterService, TemplateService, ForeshadowingService, CharacterService, ChapterPlanService, BookPlanService, execQuery, execQueryOne } = require('../services/database');
+const { BookService, ChapterService, TemplateService, ForeshadowingService, CharacterService, ChapterPlanService, BookPlanService, execQuery, execQueryOne, saveDatabase } = require('../services/database');
 const dbPromise = require('../database/init');
 const logger = require('../utils/logger');
 const { validateRequest } = require('../middleware/validation');
@@ -79,7 +79,7 @@ async function buildCharacterGenerationContext(bookId) {
 
   const existingCharacters = Array.isArray(characters)
     ? characters
-      .filter((item) => normalizeJsonText(item.name) && normalizeJsonText(item.name) !== '全书角色设定')
+      .filter((item) => normalizeJsonText(item.name) && !['全书角色设定', '本章新增角色'].includes(normalizeJsonText(item.name)))
       .map((item) => ({
         name: normalizeJsonText(item.name),
         role_tier: normalizeJsonText(item.role_tier) || 'supporting_major',
@@ -772,7 +772,10 @@ router.get('/books/:bookId/export', async (req, res) => {
 
     // 设置响应头，触发下载
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(result.filename)}"`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="novel.txt"; filename*=UTF-8''${encodeURIComponent(result.filename)}`
+    );
 
     res.send(result.content);
   } catch (error) {
@@ -1071,6 +1074,8 @@ router.get('/books/:bookId/characters', async (req, res) => {
   try {
     const userId = '';
     const characterType = req.query.type || null; // 可选的类型筛选参数
+    // 兼容旧作品：历史摘要会在首次读取时拆成独立角色卡，原摘要记录保留给生成链路使用。
+    await characterService.ensureLegacySummarySplit(req.params.bookId, userId);
     const characters = await characterService.getByBookId(req.params.bookId, userId, characterType);
 
     res.json({
@@ -1108,6 +1113,8 @@ router.post('/books/:bookId/characters',
   try {
     const userId = ''; // 纯前端应用，不关联用户
     const { name, appearance = '', personality = '', background = '', notes = '', avatar_image = '', character_type = 'main_character', role_tier = 'supporting_major' } = req.body;
+    // 与生成卡片/批量生成保持一致：role_tier 只接受合法枚举，非法值回落为重要配角
+    const safeRoleTier = ROLE_TIER_VALUES.includes(role_tier) ? role_tier : 'supporting_major';
 
     const character = await characterService.create(
       req.params.bookId,
@@ -1118,7 +1125,7 @@ router.post('/books/:bookId/characters',
       notes,
       userId,
       character_type,
-      role_tier,
+      safeRoleTier,
       avatar_image
     );
 
@@ -2023,5 +2030,65 @@ router.post('/books/:bookId/chapter-plans/:chapterNumber',
     }
   }
 );
+
+/**
+ * POST /api/books/:bookId/chapter-plans/:chapterNumber/review-confirm
+ * 人工确认放行：在章节审计的 quality_check 上打 human_confirmed 标记，
+ * 之后生成下一章时不再被"上一章质量门禁"阻塞。
+ */
+router.post('/books/:bookId/chapter-plans/:chapterNumber/review-confirm', async (req, res) => {
+  try {
+    const userId = '';
+    const chapterNumber = Number.parseInt(req.params.chapterNumber, 10);
+    if (!Number.isFinite(chapterNumber) || chapterNumber < 1) {
+      return res.status(400).json({ success: false, error: 'chapterNumber 必须大于 0' });
+    }
+
+    const db = await dbPromise;
+    const plan = execQueryOne(
+      db,
+      'SELECT * FROM chapter_plans WHERE book_id = ? AND chapter_number = ? ORDER BY updated_at DESC LIMIT 1',
+      [req.params.bookId, chapterNumber]
+    );
+    if (!plan) {
+      return res.status(404).json({ success: false, error: '章节规划不存在' });
+    }
+
+    let structuredContent = {};
+    try {
+      structuredContent = JSON.parse(plan.structured_content || '{}');
+    } catch (_) {
+      structuredContent = {};
+    }
+    if (!structuredContent.chapter_feedback || typeof structuredContent.chapter_feedback !== 'object') {
+      structuredContent.chapter_feedback = {};
+    }
+    if (!structuredContent.chapter_feedback.quality_check || typeof structuredContent.chapter_feedback.quality_check !== 'object') {
+      structuredContent.chapter_feedback.quality_check = {};
+    }
+    structuredContent.chapter_feedback.quality_check.human_confirmed = true;
+    structuredContent.chapter_feedback.quality_check.human_confirmed_at = new Date().toISOString();
+
+    db.run(
+      'UPDATE chapter_plans SET structured_content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [JSON.stringify(structuredContent), plan.id]
+    );
+    saveDatabase(db);
+
+    res.json({
+      success: true,
+      data: { confirmed: true, chapterNumber }
+    });
+  } catch (error) {
+    logger.error('人工确认放行失败', {
+      error: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({
+      success: false,
+      error: '服务器内部错误'
+    });
+  }
+});
 
 module.exports = router;

@@ -1,0 +1,391 @@
+/* Visual-only layer for the existing three-column workbench. */
+.workbench-app-shell {
+  --wb-bg: #071014;
+  --wb-panel: #0d1d23;
+  --wb-panel-strong: #11262d;
+  --wb-line: rgba(126, 194, 194, 0.16);
+  --wb-line-strong: rgba(126, 194, 194, 0.3);
+  --wb-text: #e8f0ed;
+  --wb-muted: #8ea5a6;
+  --wb-signal: #27c7b7;
+  --wb-gold: #d5a94f;
+  color: var(--wb-text);
+  background:
+    radial-gradient(circle at 75% 0%, rgba(39,199,183,.07), transparent 32rem),
+    var(--wb-bg);
+}
+
+.workbench-app-shell .workbench-topbar,
+.workbench-app-shell .workbench-sidebar-shell,
+.workbench-app-shell .workbench-triple-pane-left,
+.workbench-app-shell .workbench-triple-pane-right {
+  color: var(--wb-text);
+  background: rgba(8, 20, 24, .97);
+  border-color: var(--wb-line);
+}
+
+.workbench-app-shell .workbench-topbar {
+  box-shadow: 0 12px 36px rgba(0,0,0,.18);
+  backdrop-filter: blur(18px);
+}
+
+.workbench-app-shell .workbench-brand,
+.workbench-app-shell .workbench-book-title,
+.workbench-app-shell .workbench-prose-title,
+.workbench-app-shell .workbench-pane-title,
+.workbench-app-shell h1,
+.workbench-app-shell h2,
+.workbench-app-shell h3,
+.workbench-app-shell strong { color: var(--wb-text); }
+
+.workbench-app-shell .workbench-kicker,
+.workbench-app-shell .workbench-pane-kicker,
+.workbench-app-shell .workbench-nav-section-head,
+.workbench-app-shell .workbench-info-label {
+  color: var(--wb-signal);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: .11em;
+}
+
+.workbench-app-shell p,
+.workbench-app-shell .workbench-muted,
+.workbench-app-shell .workbench-info-empty { color: var(--wb-muted); }
+
+.workbench-app-shell .workbench-nav-link,
+.workbench-app-shell .workbench-nav-select-trigger,
+.workbench-app-shell .workbench-nav-chapter-button,
+.workbench-app-shell .workbench-pane-action {
+  color: var(--wb-muted);
+  background: transparent;
+  border-color: transparent;
+  border-radius: 8px;
+}
+
+.workbench-app-shell .workbench-nav-link:hover,
+.workbench-app-shell .workbench-nav-link.is-active,
+.workbench-app-shell .workbench-nav-select-trigger:hover,
+.workbench-app-shell .workbench-nav-select-trigger.is-open,
+.workbench-app-shell .workbench-nav-chapter-button:hover,
+.workbench-app-shell .workbench-pane-action:hover {
+  color: var(--wb-text);
+  background: rgba(39,199,183,.1);
+  border-color: rgba(39,199,183,.2);
+}
+
+.workbench-app-shell .workbench-nav-link.is-active {
+  box-shadow: inset 3px 0 0 var(--wb-signal);
+}
+
+.workbench-app-shell .workbench-nav-select-menu {
+  color: var(--wb-text);
+  background: #0b1a20;
+  border-color: var(--wb-line-strong);
+  box-shadow: 0 22px 54px rgba(0,0,0,.42);
+}
+
+.workbench-app-shell .workbench-nav-select-option:hover,
+.workbench-app-shell .workbench-nav-select-option.is-active { background: rgba(39,199,183,.1); }
+
+.workbench-app-shell .workbench-triple-pane-center {
+  background: linear-gradient(180deg, rgba(17,38,45,.36), rgba(7,16,20,.65));
+}
+
+.workbench-app-shell .workbench-prose-shell,
+.workbench-app-shell .workbench-prose-main { background: transparent; }
+
+.workbench-app-shell .workbench-prose-toolbar,
+.workbench-app-shell .workbench-pane-head {
+  color: var(--wb-text);
+  background: rgba(10,23,28,.9);
+  border-color: var(--wb-line);
+}
+
+/* Keep height/flex/overflow rules in workbench-layout.css untouched. */
+.workbench-app-shell .workbench-prose-paper {
+  color: #dce6e2;
+  background:
+    linear-gradient(90deg, rgba(39,199,183,.018), transparent 20%, transparent 80%, rgba(39,199,183,.018)),
+    #0a171b;
+  border-color: var(--wb-line);
+  box-shadow: 0 26px 74px rgba(0,0,0,.3);
+  scrollbar-color: rgba(39,199,183,.36) transparent;
+}
+
+.workbench-app-shell .workbench-prose-paper p,
+.workbench-app-shell .workbench-prose-paper textarea,
+.workbench-app-shell .workbench-prose-content { color: #dce6e2; }
+
+.workbench-app-shell input,
+.workbench-app-shell textarea,
+.workbench-app-shell select {
+  color: var(--wb-text);
+  background: rgba(3,12,15,.72);
+  border-color: var(--wb-line-strong);
+  border-radius: 8px;
+}
+
+.workbench-app-shell input:focus,
+.workbench-app-shell textarea:focus,
+.workbench-app-shell select:focus {
+  border-color: var(--wb-signal);
+  box-shadow: 0 0 0 3px rgba(39,199,183,.12);
+}
+
+.workbench-app-shell button { border-radius: 8px; }
+
+.workbench-app-shell .solid-btn,
+.workbench-app-shell .primary-btn,
+.workbench-app-shell .workbench-primary-action {
+  color: #041512;
+  background: var(--wb-signal);
+  border-color: var(--wb-signal);
+  box-shadow: 0 10px 28px rgba(39,199,183,.16);
+}
+
+.workbench-app-shell .ghost-btn,
+.workbench-app-shell .secondary-btn {
+  color: var(--wb-text);
+  background: rgba(255,255,255,.035);
+  border-color: var(--wb-line-strong);
+}
+
+.workbench-app-shell .workbench-info-card,
+.workbench-app-shell .workbench-context-card,
+.workbench-app-shell .workbench-status-card,
+.workbench-app-shell .workbench-generation-card {
+  color: var(--wb-text);
+  background: linear-gradient(145deg, rgba(17,38,45,.86), rgba(10,23,28,.94));
+  border-color: var(--wb-line);
+  box-shadow: none;
+}
+
+/* Prompt 管理弹窗沿用工作台深色层级，避免被全局浅色变量冲成白底。 */
+.workbench-app-shell .prompt-manager-modal-backdrop {
+  background: rgba(0, 7, 9, .82);
+}
+
+.workbench-app-shell .prompt-manager-modal-panel {
+  color: var(--wb-text);
+  background: #0b1a20;
+  border-color: var(--wb-line-strong);
+  box-shadow: 0 34px 110px rgba(0, 0, 0, .55);
+}
+
+.workbench-app-shell .prompt-manager-header,
+.workbench-app-shell .prompt-manager-card {
+  color: var(--wb-text);
+  background: linear-gradient(145deg, rgba(17, 38, 45, .92), rgba(10, 23, 28, .96));
+  border-color: var(--wb-line);
+}
+
+.workbench-app-shell .prompt-manager-header-copy h2,
+.workbench-app-shell .prompt-manager-card-head strong,
+.workbench-app-shell .prompt-manager-empty strong {
+  color: var(--wb-text);
+}
+
+.workbench-app-shell .prompt-manager-header-copy p,
+.workbench-app-shell .prompt-manager-card-head p,
+.workbench-app-shell .prompt-manager-updated,
+.workbench-app-shell .prompt-manager-empty p {
+  color: var(--wb-muted);
+}
+
+.workbench-app-shell .prompt-manager-card.is-error,
+.workbench-app-shell .prompt-manager-card.is-empty {
+  background: linear-gradient(145deg, rgba(58, 29, 31, .88), rgba(33, 21, 25, .94));
+  border-color: rgba(230, 107, 103, .36);
+}
+
+.workbench-app-shell .prompt-manager-meta span {
+  color: var(--wb-signal);
+  background: rgba(39, 199, 183, .08);
+  border-color: rgba(39, 199, 183, .24);
+}
+
+.workbench-app-shell .prompt-manager-pre {
+  color: #e8f0ed;
+  background: rgba(3, 12, 15, .88);
+  border: 1px solid var(--wb-line);
+  scrollbar-color: rgba(39, 199, 183, .36) transparent;
+}
+
+.workbench-app-shell .prompt-manager-empty {
+  background: rgba(17, 38, 45, .74);
+  border-color: var(--wb-line-strong);
+}
+
+.workbench-app-shell .status-success,
+.workbench-app-shell .is-complete { color: var(--wb-signal); }
+.workbench-app-shell .status-warning { color: var(--wb-gold); }
+
+.modal-backdrop { background: rgba(0,7,9,.82); backdrop-filter: blur(12px); }
+.modal-panel,
+.modal-panel-revision,
+.context-drawer-panel {
+  color: var(--wb-text);
+  background: #0b1a20;
+  border-color: var(--wb-line-strong);
+  box-shadow: 0 34px 110px rgba(0,0,0,.55);
+}
+
+.modal-panel-revision .revision-review-side,
+.modal-panel-revision .revision-original-panel,
+.modal-panel-revision .revision-edit-box,
+.modal-panel-revision .revision-suggestion-panel,
+.context-drawer-panel .drawer-detail-stack > * {
+  color: var(--wb-text);
+  background: rgba(17,38,45,.78);
+  border-color: var(--wb-line);
+}
+
+.modal-panel-revision .revision-original-list,
+.modal-panel-revision .revision-suggestion-list {
+  scrollbar-color: rgba(39,199,183,.36) transparent;
+}
+
+.modal-panel-revision textarea,
+.context-drawer-panel input,
+.context-drawer-panel textarea,
+.context-drawer-panel select {
+  color: var(--wb-text);
+  background: rgba(3,12,15,.72);
+  border-color: var(--wb-line-strong);
+}
+
+.context-drawer-head {
+  color: var(--wb-text);
+  background: rgba(11,26,32,.95);
+  border-color: var(--wb-line);
+  backdrop-filter: blur(14px);
+}
+
+@media (max-width: 900px) {
+  .workbench-app-shell .workbench-prose-paper {
+    background: #0a171b;
+    box-shadow: none;
+  }
+}
+
+/* Project entry loads its legacy stylesheet after App; use a scoped bridge. */
+html body .project-entry-page {
+  --wb-bg: #071014;
+  --wb-panel: #0d1d23;
+  --wb-panel-strong: #11262d;
+  --wb-line: rgba(126, 194, 194, 0.16);
+  --wb-line-strong: rgba(126, 194, 194, 0.3);
+  --wb-text: #e8f0ed;
+  --wb-muted: #8ea5a6;
+  --wb-signal: #27c7b7;
+  --wb-gold: #d5a94f;
+  color: var(--wb-text);
+  background:
+    radial-gradient(circle at 82% 18%, rgba(39,199,183,.1), transparent 28rem),
+    radial-gradient(circle at 10% 88%, rgba(213,169,79,.06), transparent 24rem),
+    #071014;
+}
+html body .project-entry-page::before {
+  opacity: .2;
+  background-image: linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.014) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+html body .project-entry-topbar { color: var(--wb-text); border-color: var(--wb-line); }
+html body .project-entry-brand { color: var(--wb-text); }
+html body .project-entry-brand span,
+html body .project-entry-kicker { color: var(--wb-signal); }
+html body .project-entry-brand em {
+  color: var(--wb-gold);
+  background: rgba(213,169,79,.1);
+  border-color: rgba(213,169,79,.25);
+}
+html body .project-entry-tagline,
+html body .project-entry-subtitle { color: var(--wb-muted); }
+html body .project-entry-copy h1 {
+  color: var(--wb-text);
+  font-family: "Noto Serif SC", "Source Han Serif SC", STSong, Georgia, serif;
+  text-shadow: 0 24px 64px rgba(0,0,0,.3);
+}
+html body .project-handdrawn { color: var(--wb-gold); }
+html body .project-entry-feature-list span {
+  color: #a9babb;
+  background: rgba(255,255,255,.025);
+  border-color: var(--wb-line);
+}
+html body .project-entry-home-panel,
+html body .project-create-panel,
+html body .project-card,
+html body .project-list-section {
+  color: var(--wb-text);
+  background: linear-gradient(145deg, rgba(17,38,45,.92), rgba(10,23,28,.96));
+  border-color: var(--wb-line);
+  box-shadow: 0 26px 78px rgba(0,0,0,.3);
+}
+html body .project-primary-action {
+  color: #041512;
+  background: var(--wb-signal);
+  border-color: var(--wb-signal);
+  box-shadow: 0 12px 30px rgba(39,199,183,.18);
+}
+html body .project-primary-action:hover { background: #42d9ca; }
+html body .project-secondary-action,
+html body .project-entry-toplink,
+html body .project-card-actions button {
+  color: var(--wb-text);
+  background: rgba(255,255,255,.035);
+  border-color: var(--wb-line-strong);
+}
+html body .project-secondary-action:hover,
+html body .project-entry-toplink:hover,
+html body .project-card-actions button:hover {
+  color: var(--wb-signal);
+  background: rgba(39,199,183,.1);
+  border-color: rgba(39,199,183,.38);
+}
+html body .project-entry-future { border-color: var(--wb-line); }
+html body .project-entry-future span { color: var(--wb-gold); }
+html body .project-entry-future p { color: var(--wb-muted); }
+html body .project-entry-field span,
+html body .project-create-head span { color: var(--wb-signal); }
+html body .project-create-head strong,
+html body .project-list-head h2,
+html body .project-card h3 { color: var(--wb-text); }
+html body .project-entry-field :is(input, select, textarea) {
+  color: var(--wb-text);
+  background: rgba(3,12,15,.78);
+  border-color: var(--wb-line-strong);
+}
+html body .project-entry-field :is(input, select, textarea):focus {
+  border-color: var(--wb-signal);
+  box-shadow: 0 0 0 3px rgba(39,199,183,.12);
+}
+html body .project-entry-float { opacity: .16; filter: grayscale(1) sepia(.4) hue-rotate(110deg); }
+
+/* Contrast corrections for legacy light surfaces inside the dark workbench. */
+.workbench-app-shell .workbench-sidebar-shell .workbench-nav-select-label {
+  color: #a9babb !important;
+}
+
+.workbench-app-shell .workbench-sidebar-shell .workbench-nav-select-trigger strong {
+  color: var(--wb-text) !important;
+}
+
+.workbench-app-shell .workbench-info-card .workbench-info-row > strong {
+  color: var(--wb-text) !important;
+}
+
+.workbench-app-shell .workbench-surface-tabs .workbench-surface-tab {
+  color: #667085;
+}
+
+.workbench-app-shell .workbench-surface-tabs .workbench-surface-tab strong {
+  color: inherit !important;
+}
+
+.workbench-app-shell .workbench-surface-tabs .workbench-surface-tab.is-active {
+  color: #3157d5;
+}
+
+.workbench-app-shell .inline-status-banner.is-success,
+.workbench-app-shell .inline-status-banner.is-success strong {
+  color: #0f5b58 !important;
+}

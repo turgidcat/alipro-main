@@ -4,13 +4,15 @@ import WorkbenchSection from './WorkbenchSection.jsx';
 import MetaCode from './MetaCode.jsx';
 import StatusNotice from './StatusNotice.jsx';
 import { formatChapterLabel } from '../../lib/chapterName.js';
+import { DEFAULT_WORD_COUNT } from '../../lib/wordCountPolicy.js';
+import BlindLabelPanel from './BlindLabelPanel.jsx';
 
 function getGenerationWordTarget(plan) {
   return Number(
     plan?.structured_content?.generation_settings?.word_count
     || plan?.structuredContent?.generation_settings?.word_count
     || plan?.generation_settings?.word_count
-    || 3000
+    || DEFAULT_WORD_COUNT
   );
 }
 
@@ -28,10 +30,28 @@ function joinMissingLabels(items) {
   return items.length > 0 ? `缺：${items.join('、')}` : '已就绪';
 }
 
+function qualityStatusLabel(status = '') {
+  const map = {
+    passed: '通过',
+    stable: '稳定',
+    warning: '需复核',
+    needs_review: '需复核',
+    review: '需复核',
+    failed: '未通过',
+    blocked: '未通过',
+    not_run: '未运行',
+    not_applicable: '不适用',
+    degraded: '降级',
+    advanced: '已推进'
+  };
+  return map[String(status || '').toLowerCase()] || String(status || '未知');
+}
+
 export default function ContentWorkspace(props) {
   const {
     chapterConfigPanel,
     chapterNumber,
+    bookId,
     draftChapterPlan,
     canGenerate,
     generationState,
@@ -45,7 +65,9 @@ export default function ContentWorkspace(props) {
     onUpdateGenerationSetting,
     onOpenOutlineModal,
     onOpenCharacterModal,
-    onOpenStorylinePicker
+    onOpenStorylinePicker,
+    onConfirmReview,
+    reviewConfirming = false
   } = props;
   const mountedStorylineCount = Array.isArray(draftChapterPlan.target_storylines)
     ? draftChapterPlan.target_storylines.length
@@ -70,9 +92,144 @@ export default function ContentWorkspace(props) {
       ? `${mountedStorylineCount} 条已挂载，当前卷主线待补`
       : '未挂载叙事脉络';
   const proseDisplayText = String(generationState.content || generationState.previewText || '').trim();
+  // 完整审校数据在章节规划的 structured_content.chapter_feedback.quality_check 里
+  const qualityCheck = draftChapterPlan?.structured_content?.chapter_feedback?.quality_check
+    || draftChapterPlan?.structuredContent?.chapter_feedback?.quality_check
+    || null;
+  const qualityConfirmed = Boolean(qualityCheck?.human_confirmed);
+  const qualityStatusLower = String(qualityCheck?.status || '').toLowerCase();
+  const qualityNeedsReview = Boolean(qualityCheck?.needs_human_review)
+    || ['warning', 'failed', 'degraded', 'not_run', 'needs_review'].includes(qualityStatusLower);
+  const qualityRisks = Array.isArray(qualityCheck?.risks) ? qualityCheck.risks : [];
+  const planAnchorIssues = Array.isArray(qualityCheck?.plan_anchor_audit?.issues)
+    ? qualityCheck.plan_anchor_audit.issues
+    : [];
 
   return (
     <>
+      <style>{`
+        .workbench-review-report {
+          border: 1px solid var(--paper-border);
+          border-radius: var(--paper-radius-md);
+          background: var(--paper-surface);
+          overflow: hidden;
+        }
+
+        .workbench-review-report summary {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          padding: 10px 14px;
+          cursor: pointer;
+          color: var(--paper-text);
+          font-size: 12.5px;
+          font-weight: 700;
+          list-style: none;
+          user-select: none;
+        }
+
+        .workbench-review-report summary::-webkit-details-marker {
+          display: none;
+        }
+
+        .workbench-review-report summary::after {
+          content: '▾';
+          color: var(--paper-text-tertiary);
+          font-size: 11px;
+          transition: transform 150ms ease;
+        }
+
+        .workbench-review-report[open] summary::after {
+          transform: rotate(180deg);
+        }
+
+        .workbench-review-badge {
+          padding: 2px 9px;
+          border-radius: 999px;
+          font-size: 10.5px;
+          font-weight: 700;
+        }
+
+        .workbench-review-badge.is-warning {
+          background: rgba(176, 138, 79, 0.18);
+          color: #8b6914;
+        }
+
+        .workbench-review-badge.is-ok {
+          background: rgba(74, 153, 96, 0.16);
+          color: #2f6b3f;
+        }
+
+        .workbench-review-badge.is-confirmed {
+          background: rgba(77, 129, 192, 0.16);
+          color: #31598c;
+        }
+
+        .workbench-review-report-body {
+          padding: 4px 14px 14px;
+          border-top: 1px solid var(--paper-border);
+        }
+
+        .workbench-review-grid {
+          display: grid;
+          grid-template-columns: 84px 1fr;
+          gap: 6px 12px;
+          padding: 10px 0 4px;
+          font-size: 12px;
+          line-height: 1.6;
+        }
+
+        .workbench-review-label {
+          color: var(--paper-text-tertiary);
+          font-size: 11px;
+          font-weight: 650;
+        }
+
+        .workbench-review-risks {
+          margin: 8px 0 0;
+          padding: 0 0 0 18px;
+          color: var(--paper-text-soft);
+          font-size: 11.5px;
+          line-height: 1.7;
+        }
+
+        .workbench-review-actions {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-top: 12px;
+        }
+
+        .workbench-review-confirm {
+          padding: 6px 14px;
+          border: 1px solid rgba(77, 129, 192, 0.45);
+          border-radius: var(--paper-radius-sm);
+          background: rgba(77, 129, 192, 0.12);
+          color: #31598c;
+          font-family: var(--font-sans);
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: background 150ms ease, border-color 150ms ease;
+        }
+
+        .workbench-review-confirm:hover:not(:disabled) {
+          background: rgba(77, 129, 192, 0.2);
+          border-color: rgba(77, 129, 192, 0.65);
+        }
+
+        .workbench-review-confirm:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .workbench-review-confirmed {
+          color: #31598c;
+          font-size: 12px;
+          font-weight: 650;
+        }
+      `}</style>
       <div className="workbench-content-split">
         <section className="workbench-prose-main" aria-label="正文工作区">
           <WorkbenchSection
@@ -117,6 +274,72 @@ export default function ContentWorkspace(props) {
                 title={isGenerating ? (generationState.statusTitle || '正在生成这一章') : generationState.statusTitle}
                 className="mb-0"
               />
+            ) : null}
+
+            {qualityCheck && Object.keys(qualityCheck).length > 0 ? (
+              <details className="workbench-review-report">
+                <summary>
+                  <span>创作审校报告</span>
+                  {qualityConfirmed ? (
+                    <span className="workbench-review-badge is-confirmed">已确认放行</span>
+                  ) : qualityNeedsReview ? (
+                    <span className="workbench-review-badge is-warning">需复核</span>
+                  ) : (
+                    <span className="workbench-review-badge is-ok">已通过</span>
+                  )}
+                </summary>
+                <div className="workbench-review-report-body">
+                  <div className="workbench-review-grid">
+                    <span className="workbench-review-label">质量结论</span>
+                    <span>
+                      {qualityStatusLabel(qualityCheck.status)}
+                      {qualityCheck.verdict ? `（${qualityCheck.verdict}）` : ''}
+                    </span>
+                    {qualityCheck.plan_anchor_audit && Object.keys(qualityCheck.plan_anchor_audit).length > 0 ? (
+                      <>
+                        <span className="workbench-review-label">计划锚点</span>
+                        <span>{qualityStatusLabel(qualityCheck.plan_anchor_audit.status)}</span>
+                      </>
+                    ) : null}
+                    {qualityCheck.word_count_audit && Object.keys(qualityCheck.word_count_audit).length > 0 ? (
+                      <>
+                        <span className="workbench-review-label">字数检查</span>
+                        <span>{qualityStatusLabel(qualityCheck.word_count_audit.status)}</span>
+                      </>
+                    ) : null}
+                    {qualityCheck.storyline_audit && Object.keys(qualityCheck.storyline_audit).length > 0 ? (
+                      <>
+                        <span className="workbench-review-label">剧情线推进</span>
+                        <span>{qualityStatusLabel(qualityCheck.storyline_audit.status)}</span>
+                      </>
+                    ) : null}
+                  </div>
+                  {qualityRisks.length > 0 ? (
+                    <ul className="workbench-review-risks">
+                      {qualityRisks.map((risk, index) => <li key={`risk-${index}`}>{risk}</li>)}
+                    </ul>
+                  ) : null}
+                  {planAnchorIssues.length > 0 ? (
+                    <ul className="workbench-review-risks">
+                      {planAnchorIssues.map((issue, index) => <li key={`anchor-${index}`}>{issue}</li>)}
+                    </ul>
+                  ) : null}
+                  <div className="workbench-review-actions">
+                    {qualityConfirmed ? (
+                      <span className="workbench-review-confirmed">已确认放行，下一章不再受此门禁阻塞</span>
+                    ) : qualityNeedsReview ? (
+                      <button
+                        type="button"
+                        className="workbench-review-confirm"
+                        onClick={onConfirmReview}
+                        disabled={reviewConfirming}
+                      >
+                        {reviewConfirming ? '确认中…' : '人工确认放行'}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </details>
             ) : null}
 
             {generationPreviewVisible ? (
@@ -193,6 +416,7 @@ export default function ContentWorkspace(props) {
           </WorkbenchSection>
         </section>
       </div>
+      <BlindLabelPanel bookId={bookId} chapterNumber={chapterNumber} />
     </>
   );
 }

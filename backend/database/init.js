@@ -2,6 +2,7 @@ const initSqlJs = require('sql.js');
 const path = require('path');
 const fs = require('fs');
 const TEMPLATES = require('../config/templates');
+const { resolveDatabasePath } = require('../config/runtime');
 
 // 数据库实例（全局）
 let db = null;
@@ -11,11 +12,11 @@ async function initDatabase() {
   const SQL = await initSqlJs();
 
   // 确保数据库目录存在
-  const dbDir = path.join(__dirname, '..');
-  const dbPath = path.join(dbDir, 'database', 'novel.db');
+  const dbPath = resolveDatabasePath();
+  const dbDir = path.dirname(dbPath);
 
-  if (!fs.existsSync(path.join(dbDir, 'database'))) {
-    fs.mkdirSync(path.join(dbDir, 'database'), { recursive: true });
+  if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true });
   }
 
   // 加载或创建数据库
@@ -474,6 +475,107 @@ async function initDatabase() {
   addColumnIfNotExists('chapter_characters', 'state_snapshot', "TEXT DEFAULT ''");
   db.run('CREATE INDEX IF NOT EXISTS idx_chapter_characters_chapter_id ON chapter_characters(chapter_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_chapter_characters_character_id ON chapter_characters(character_id)');
+
+  // 模型生成运行台账：保留可复现输入、参数、原始输出和门禁结果。
+  db.run(`
+    CREATE TABLE IF NOT EXISTS generation_runs (
+      id TEXT PRIMARY KEY,
+      book_id TEXT DEFAULT '',
+      chapter_number INTEGER DEFAULT 0,
+      prompt_type TEXT NOT NULL,
+      prompt_version TEXT NOT NULL,
+      prompt_hash TEXT NOT NULL,
+      prompt_text TEXT DEFAULT '',
+      context_snapshot_hash TEXT DEFAULT '',
+      context_snapshot_json TEXT DEFAULT '{}',
+      model TEXT DEFAULT '',
+      temperature REAL,
+      max_tokens INTEGER,
+      response_format TEXT DEFAULT '',
+      raw_output TEXT DEFAULT '',
+      final_output TEXT DEFAULT '',
+      finish_reason TEXT DEFAULT '',
+      usage_json TEXT DEFAULT '{}',
+      duration_ms INTEGER DEFAULT 0,
+      retry_count INTEGER DEFAULT 0,
+      judge_raw_json TEXT DEFAULT '{}',
+      judge_normalized_json TEXT DEFAULT '{}',
+      gate_decision TEXT DEFAULT '',
+      status TEXT DEFAULT 'completed',
+      error_text TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run('CREATE INDEX IF NOT EXISTS idx_generation_runs_book_chapter ON generation_runs(book_id, chapter_number, created_at)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_generation_runs_prompt ON generation_runs(prompt_type, prompt_version, created_at)');
+
+  // Judge 人工盲标：只保存评审结果，不把 Judge 预测混入盲标样本。
+  db.run(`
+    CREATE TABLE IF NOT EXISTS calibration_reviews (
+      id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL,
+      sample_id TEXT NOT NULL,
+      sample_hash TEXT NOT NULL,
+      reviewer TEXT NOT NULL,
+      review_json TEXT NOT NULL DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(book_id, sample_id, reviewer)
+    )
+  `);
+  db.run('CREATE INDEX IF NOT EXISTS idx_calibration_reviews_book_sample ON calibration_reviews(book_id, sample_id)');
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS continuity_events (
+      id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL,
+      chapter_number INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      subject TEXT DEFAULT '',
+      fact_text TEXT NOT NULL,
+      evidence_text TEXT DEFAULT '',
+      source TEXT DEFAULT 'model_feedback',
+      version INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run('CREATE INDEX IF NOT EXISTS idx_continuity_events_book_chapter ON continuity_events(book_id, chapter_number)');
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS character_state_ledger (
+      id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL,
+      chapter_number INTEGER NOT NULL,
+      character_name TEXT NOT NULL,
+      role_text TEXT DEFAULT '',
+      relationship_text TEXT DEFAULT '',
+      state_text TEXT DEFAULT '',
+      appearance_text TEXT DEFAULT '',
+      note_text TEXT DEFAULT '',
+      evidence_text TEXT DEFAULT '',
+      source TEXT DEFAULT 'model_feedback',
+      version INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run('CREATE INDEX IF NOT EXISTS idx_character_state_ledger_lookup ON character_state_ledger(book_id, character_name, chapter_number)');
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS foreshadow_ledger (
+      id TEXT PRIMARY KEY,
+      book_id TEXT NOT NULL,
+      chapter_number INTEGER NOT NULL,
+      foreshadow_key TEXT NOT NULL,
+      title TEXT NOT NULL,
+      state TEXT DEFAULT 'open',
+      due_chapter INTEGER DEFAULT 0,
+      evidence_text TEXT DEFAULT '',
+      source TEXT DEFAULT 'model_feedback',
+      version INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run('CREATE INDEX IF NOT EXISTS idx_foreshadow_ledger_lookup ON foreshadow_ledger(book_id, foreshadow_key, chapter_number)');
 
   // 创建用户表
   db.run(`

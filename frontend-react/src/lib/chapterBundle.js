@@ -7,6 +7,7 @@ import {
   getPlanWordCount
 } from './chapterPlan.js';
 import { countPlatformEffectiveWords, formatWordCountProgress } from './textMetrics.js';
+import { DEFAULT_WORD_COUNT } from './wordCountPolicy.js';
 
 function sanitizeGeneratedText(value) {
   return String(value || '')
@@ -70,7 +71,7 @@ export function normalizeChapterBundle(bundle, chapterNumber) {
       ),
       structured_content: plan.structuredContent || {},
       chapter_structure: {},
-      generation_settings: plan.structuredContent?.generation_settings || { word_count: 3000 },
+      generation_settings: plan.structuredContent?.generation_settings || { word_count: DEFAULT_WORD_COUNT },
       main_storyline_id: plan.mainStorylineId || '',
       target_storylines: Array.isArray(plan.targetStorylines) ? plan.targetStorylines : []
     },

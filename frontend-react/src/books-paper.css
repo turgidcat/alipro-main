@@ -1,0 +1,722 @@
+/*
+ * 资料库纸感语言层 —— 与「有声书」页设计语言对齐
+ *
+ * 只调整视觉（卡片 / 面板头 / 框中框 / 控件 / 按钮）与阅读页留白，不改页面结构。
+ * 全部使用 docs/paper-theme-spec.md 的 --paper-* token。
+ *
+ * 说明：cinematic-theme.css 对资料库子页面有大量硬编码暗色规则（带 !important），
+ * 本层统一使用 .library-app-shell 前缀提升优先级覆盖它们，浏览器与 IDE 表现一致。
+ */
+
+/* ==================== 页面骨架与 legacy token 重映射 ==================== */
+
+html body .books-admin-page.library-app-shell {
+  --bg: var(--paper-bg);
+  --bg-subtle: var(--paper-surface-sunken);
+  --panel: var(--paper-surface);
+  --panel-strong: var(--paper-surface-deep);
+  --panel-note-bg: var(--paper-surface-sunken);
+  --line: var(--paper-border);
+  --line-strong: var(--paper-border-strong);
+  --text: var(--paper-text);
+  --muted: var(--paper-text-muted);
+  --accent: var(--paper-accent);
+  --accent-deep: var(--paper-accent-deep);
+  --accent-soft: var(--paper-accent-soft);
+  --brand: var(--paper-accent);
+  --brand-deep: var(--paper-accent-deep);
+  color: var(--paper-text) !important;
+  background: var(--paper-bg) !important;
+  /* 覆盖 product-ui 的旧双栏外壳（236px 侧栏 + 内容），改为单列顶部导航布局 */
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 18px !important;
+}
+
+html body .books-admin-page.library-app-shell .library-sidebar {
+  background: var(--paper-surface) !important;
+  border-right: 1px solid var(--paper-border) !important;
+  box-shadow: none !important;
+}
+
+html body .books-admin-page.library-app-shell .library-sidebar-head {
+  border-color: var(--paper-border) !important;
+}
+
+html body .books-admin-page.library-app-shell .library-sidebar-kicker,
+html body .books-admin-page.library-app-shell .library-sidebar-note,
+html body .books-admin-page.library-app-shell .library-sidebar-context span {
+  color: var(--paper-text-muted) !important;
+}
+
+html body .books-admin-page.library-app-shell .library-sidebar-context strong {
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .library-surface-entry,
+html body .books-admin-page.library-app-shell .library-nav-item {
+  color: var(--paper-text-soft) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+html body .books-admin-page.library-app-shell .library-surface-entry:hover,
+html body .books-admin-page.library-app-shell .library-surface-entry.is-primary,
+html body .books-admin-page.library-app-shell .library-nav-item:hover:not(:disabled) {
+  color: var(--paper-text) !important;
+  background: var(--paper-accent-soft) !important;
+  border-color: var(--paper-accent-border) !important;
+  box-shadow: none !important;
+}
+
+html body .books-admin-page.library-app-shell .library-nav-item.is-active {
+  color: var(--paper-surface-raised) !important;
+  background: var(--paper-primary) !important;
+  box-shadow: 0 8px 20px rgba(90, 75, 60, 0.2) !important;
+}
+
+/* 左侧栏缩写图标（data-short 徽标） */
+html body .books-admin-page.library-app-shell .library-nav-item::before {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid var(--paper-accent-border);
+  border-radius: 7px;
+  background: var(--paper-tint-warm);
+  color: var(--paper-accent-deep);
+  font-size: 11px;
+  font-weight: 700;
+  content: attr(data-short);
+}
+
+html body .books-admin-page.library-app-shell .library-nav-item.is-active::before {
+  background: var(--paper-accent);
+  color: var(--paper-surface-raised);
+  border-color: var(--paper-accent-deep);
+  box-shadow: none !important;
+}
+
+/* ==================== 页面头与统计卡 ==================== */
+
+html body .books-admin-page.library-app-shell .books-page-header {
+  border-color: var(--paper-border) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-header h1 {
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-header-sub {
+  color: var(--paper-text-muted) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-stat-card,
+html body .books-admin-page.library-app-shell .books-page-stat-card:first-child {
+  border: 1px solid var(--paper-border) !important;
+  border-radius: var(--paper-radius-lg);
+  background: var(--paper-surface-raised) !important;
+  box-shadow: var(--paper-shadow-card) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-stat-card .books-page-stat-label {
+  color: var(--paper-text-muted) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-stat-card .books-page-stat-value {
+  color: var(--paper-text) !important;
+}
+
+/* ==================== 工具栏（面板头语言） ==================== */
+
+html body .books-admin-page.library-app-shell .books-page-toolbar {
+  border: 1px solid var(--paper-border) !important;
+  border-radius: var(--paper-radius-lg);
+  background: var(--paper-surface) !important;
+  box-shadow: var(--paper-shadow-card) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-toolbar-input,
+html body .books-admin-page.library-app-shell .books-page-toolbar-select {
+  border-color: var(--paper-border-strong) !important;
+  border-radius: var(--paper-radius-sm);
+  background: var(--paper-surface-raised) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-toolbar-input:focus,
+html body .books-admin-page.library-app-shell .books-page-toolbar-select:focus {
+  border-color: var(--paper-accent-border) !important;
+  box-shadow: 0 0 0 3px var(--paper-accent-soft);
+}
+
+html body .books-admin-page.library-app-shell .books-page-toolbar-btn {
+  border-color: var(--paper-border-strong) !important;
+  border-radius: var(--paper-radius-sm);
+  background: var(--paper-surface-raised) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-toolbar-btn:hover {
+  border-color: var(--paper-accent-border) !important;
+  background: var(--paper-accent-hover) !important;
+  color: var(--paper-accent-deep) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-toolbar-btn-primary,
+html body .books-admin-page.library-app-shell .books-page-toolbar-btn-primary:hover {
+  border-color: var(--paper-primary) !important;
+  background: var(--paper-primary) !important;
+  color: var(--paper-surface-raised) !important;
+  box-shadow: 0 8px 20px rgba(90, 75, 60, 0.2) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-toolbar-info {
+  color: var(--paper-text-muted) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-toolbar-sep {
+  background: var(--paper-border) !important;
+}
+
+/* ==================== 书籍卡 ==================== */
+
+html body .books-admin-page.library-app-shell .books-page-card {
+  border: 1px solid var(--paper-border) !important;
+  border-radius: var(--paper-radius-lg);
+  background: var(--paper-surface-raised) !important;
+  box-shadow: var(--paper-shadow-card) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-card:hover {
+  border-color: var(--paper-accent-border) !important;
+  box-shadow: var(--paper-shadow-panel) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-card-title {
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-card-meta,
+html body .books-admin-page.library-app-shell .books-page-card-author,
+html body .books-admin-page.library-app-shell .books-page-card-genre,
+html body .books-admin-page.library-app-shell .books-page-card-current {
+  color: var(--paper-text-muted) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-card-action-btn {
+  border-color: var(--paper-border) !important;
+  background: var(--paper-surface-raised) !important;
+  color: var(--paper-text-soft) !important;
+}
+
+html body .books-admin-page.library-app-shell .books-page-card-action-btn:hover {
+  border-color: var(--paper-accent-border) !important;
+  background: var(--paper-accent-hover) !important;
+  color: var(--paper-accent-deep) !important;
+}
+
+/* ==================== 封面占位（缩写图标） ==================== */
+
+html body .books-admin-page.library-app-shell .book-cover-placeholder {
+  background:
+    radial-gradient(circle at 28% 18%, rgba(169, 136, 116, 0.18) 0 22%, transparent 23%),
+    linear-gradient(145deg, var(--paper-surface-sunken), var(--paper-tint-warm));
+  color: var(--paper-text) !important;
+  border-color: var(--paper-border) !important;
+}
+
+html body .books-admin-page.library-app-shell .book-cover-placeholder span,
+html body .books-admin-page.library-app-shell .book-cover-placeholder strong {
+  color: var(--paper-accent-deep) !important;
+}
+
+html body .books-admin-page.library-app-shell .book-cover-placeholder em {
+  color: var(--paper-text-muted) !important;
+}
+
+/* ==================== 详情面板（框中框） ==================== */
+
+html body .books-admin-page.library-app-shell .detail-panel {
+  border: 1px solid var(--paper-border-subtle) !important;
+  border-radius: var(--paper-radius-lg);
+  background: var(--paper-surface-raised) !important;
+  box-shadow: var(--paper-shadow-panel) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-section,
+html body .books-admin-page.library-app-shell .detail-outline-section {
+  border: 1px solid var(--paper-border-line) !important;
+  border-radius: var(--paper-radius-md);
+  background: var(--paper-surface-sunken) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-header h1,
+html body .books-admin-page.library-app-shell .detail-header h2 {
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-header-meta,
+html body .books-admin-page.library-app-shell .detail-inline-count-label {
+  color: var(--paper-text-muted) !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-inline-count-input,
+html body .books-admin-page.library-app-shell .detail-inline-editor textarea {
+  border-color: var(--paper-border-strong) !important;
+  background: var(--paper-surface-raised) !important;
+  color: var(--paper-text) !important;
+}
+
+/* 全书大纲 / 分卷大纲框 */
+html body .books-admin-page.library-app-shell .detail-outline-section .detail-inline-editor {
+  background: var(--paper-surface-raised) !important;
+  border-color: var(--paper-border) !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-outline-section .detail-inline-editor textarea {
+  color: var(--paper-text) !important;
+  background: var(--paper-surface-raised) !important;
+  border-color: var(--paper-border-strong) !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-outline-section .detail-pre {
+  color: var(--paper-text) !important;
+  background: var(--paper-surface-raised) !important;
+  border: 1px solid var(--paper-border) !important;
+  border-radius: var(--paper-radius-md);
+}
+
+html body .books-admin-page.library-app-shell .detail-outline-section .detail-pre-paragraph {
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-outline-volume,
+html body .books-admin-page.library-app-shell .detail-outline-volume.detail-volume-card,
+html body .books-admin-page.library-app-shell .detail-outline-volume.detail-volume-card.has-volume-cover {
+  border: 1px solid var(--paper-border) !important;
+  border-radius: var(--paper-radius-lg);
+  background: var(--paper-surface-raised) !important;
+  box-shadow: var(--paper-shadow-card) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-outline-volume .detail-volume-content {
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-outline-volume strong {
+  color: var(--paper-accent-deep) !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-outline-volume p {
+  color: var(--paper-text-soft) !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-volume-cover-rail {
+  border-right-color: var(--paper-border) !important;
+  background: var(--paper-surface-sunken) !important;
+}
+
+/* ==================== 角色卡 ==================== */
+
+html body .books-admin-page.library-app-shell .detail-chapter-item,
+html body .books-admin-page.library-app-shell .detail-character-item {
+  border: 1px solid var(--paper-border) !important;
+  border-radius: var(--paper-radius-lg);
+  background: var(--paper-surface-raised) !important;
+  box-shadow: var(--paper-shadow-card) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-character-item-editing {
+  background: var(--paper-accent-soft) !important;
+  border-color: var(--paper-accent-border) !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-character-avatar {
+  background: var(--paper-surface-deep) !important;
+  border-color: var(--paper-accent-border) !important;
+  box-shadow: none !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-character-avatar-preview {
+  border-color: var(--paper-accent-border) !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-character-title {
+  color: var(--paper-text) !important;
+}
+
+/* ==================== 章节流 / 汇总 ==================== */
+
+html body .books-admin-page.library-app-shell .chapter-flow-board {
+  border: 1px solid var(--paper-border) !important;
+  border-radius: var(--paper-radius-lg);
+  background: var(--paper-surface-raised) !important;
+  box-shadow: var(--paper-shadow-card) !important;
+  color: var(--paper-text) !important;
+  padding: 20px 22px;
+  gap: 16px;
+}
+
+html body .books-admin-page.library-app-shell .chapter-flow-card {
+  border: 1px solid var(--paper-border) !important;
+  border-radius: var(--paper-radius-md);
+  background: var(--paper-surface) !important;
+  box-shadow: none !important;
+  color: var(--paper-text) !important;
+  padding: 20px 22px;
+  gap: 10px;
+}
+
+html body .books-admin-page.library-app-shell .chapter-flow-card:hover {
+  border-color: var(--paper-accent-border) !important;
+  background: var(--paper-accent-hover) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-flow-card::before {
+  background: var(--paper-accent) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-flow-head {
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-flow-number {
+  color: var(--paper-accent-deep) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-flow-meta,
+html body .books-admin-page.library-app-shell .chapter-flow-outline {
+  color: var(--paper-text-muted) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-flow-outline b {
+  color: var(--paper-text-soft) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-flow-card .chapter-flow-actions .ghost-btn,
+html body .books-admin-page.library-app-shell .chapter-flow-actions .ghost-btn {
+  color: var(--paper-text) !important;
+  background: var(--paper-surface-raised) !important;
+  border-color: var(--paper-border-strong) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-flow-card .chapter-flow-actions .ghost-btn:hover:not(:disabled),
+html body .books-admin-page.library-app-shell .chapter-flow-actions .ghost-btn:hover:not(:disabled) {
+  color: var(--paper-accent-deep) !important;
+  background: var(--paper-accent-hover) !important;
+  border-color: var(--paper-accent-border) !important;
+}
+
+html body .books-admin-page.library-app-shell .summary-metric-card {
+  border: 1px solid var(--paper-border) !important;
+  border-radius: var(--paper-radius-md);
+  background: var(--paper-surface) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .summary-nav-card {
+  border: 1px solid var(--paper-border) !important;
+  border-radius: var(--paper-radius-lg);
+  background: var(--paper-surface-raised) !important;
+  box-shadow: var(--paper-shadow-card) !important;
+  color: var(--paper-text) !important;
+}
+
+/* ==================== 叙事进度看板 ==================== */
+
+html body .books-admin-page.library-app-shell .storyline-board-card {
+  border: 1px solid var(--paper-border) !important;
+  border-radius: var(--paper-radius-lg);
+  background: var(--paper-surface-raised) !important;
+  box-shadow: var(--paper-shadow-card) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .storyline-board-kicker {
+  color: var(--paper-accent-deep) !important;
+}
+
+html body .books-admin-page.library-app-shell .storyline-board-card :is(.storyline-header-side, .storyline-row-meta) {
+  background: var(--paper-surface) !important;
+  border-color: var(--paper-border) !important;
+  border-radius: var(--paper-radius-md);
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .storyline-board-card :is(.storyline-header-side strong, .storyline-row-meta strong) {
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .storyline-board-card :is(.storyline-header-side span, .storyline-row-meta p) {
+  color: var(--paper-text-muted) !important;
+}
+
+html body .books-admin-page.library-app-shell .storyline-board-card :is(.storyline-volume-band, .storyline-bar) {
+  color: var(--paper-text) !important;
+  background:
+    linear-gradient(135deg, var(--paper-accent-soft), var(--paper-surface-sunken)) !important;
+  border-color: var(--paper-accent-border) !important;
+  border-radius: var(--paper-radius-md);
+  box-shadow: none !important;
+}
+
+html body .books-admin-page.library-app-shell .storyline-board-card .storyline-bar.is-main {
+  background:
+    linear-gradient(135deg, rgba(169, 136, 116, 0.28), rgba(176, 138, 79, 0.2)) !important;
+  border-color: var(--paper-accent-border) !important;
+}
+
+html body .books-admin-page.library-app-shell .storyline-board-card :is(.storyline-volume-band strong, .storyline-bar strong) {
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .storyline-board-card :is(.storyline-volume-band span, .storyline-bar p, .storyline-bar span) {
+  color: var(--paper-text-muted) !important;
+}
+
+html body .books-admin-page.library-app-shell .storyline-board-card a {
+  color: var(--paper-accent-deep) !important;
+}
+
+html body .books-admin-page.library-app-shell .detail-storyline-item {
+  border: 1px solid var(--paper-border) !important;
+  border-left: 4px solid var(--paper-accent-border) !important;
+  border-radius: var(--paper-radius-md);
+  background: var(--paper-surface-sunken) !important;
+  color: var(--paper-text) !important;
+  box-shadow: none !important;
+}
+
+/* ==================== 章节阅读器（含留白） ==================== */
+
+html body .books-admin-page.library-app-shell .chapter-reader-shell {
+  color: var(--paper-text) !important;
+  background: var(--paper-bg) !important;
+  gap: 22px;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-head {
+  padding: 22px 0 14px;
+  border-color: var(--paper-border) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-head h2 {
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-kicker {
+  color: var(--paper-accent-deep) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-meta {
+  color: var(--paper-text-muted) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-meta span {
+  border-color: var(--paper-border) !important;
+  background: var(--paper-surface) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-toolbar {
+  padding: 10px 14px;
+  border-color: var(--paper-border) !important;
+  background: var(--paper-surface) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audit {
+  border-left: 3px solid var(--paper-accent-border);
+  padding-left: 14px;
+  background: var(--paper-surface-sunken) !important;
+  border-radius: var(--paper-radius-sm);
+  padding-top: 8px;
+  padding-bottom: 8px;
+  color: var(--paper-text-muted) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audit summary {
+  color: var(--paper-accent-deep) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-note {
+  border-left: 4px solid var(--paper-accent-border);
+  background: var(--paper-tint-warm) !important;
+  padding: 14px 18px;
+  color: var(--paper-text-soft) !important;
+  border-radius: var(--paper-radius-sm);
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-prose {
+  color: var(--paper-text) !important;
+  background: var(--paper-surface-raised) !important;
+  border: 1px solid var(--paper-border) !important;
+  border-radius: var(--paper-radius-lg);
+  box-shadow: var(--paper-shadow-prose) !important;
+  padding: 32px 42px 36px;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio-panel {
+  width: min(720px, 100%);
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: 18px 20px;
+  border: 1px solid var(--paper-border-strong) !important;
+  border-radius: var(--paper-radius-lg);
+  background: linear-gradient(135deg, var(--paper-tint-warm), var(--paper-surface-raised)) !important;
+  box-shadow: var(--paper-shadow-soft) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio-kicker {
+  color: var(--paper-accent-deep);
+  font: 800 10px/1.2 var(--font-mono, ui-monospace, monospace);
+  letter-spacing: .14em;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio-head h3 {
+  margin: 5px 0 4px;
+  color: var(--paper-text);
+  font: 900 20px/1.2 var(--font-serif, Georgia, serif);
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio-head p,
+html body .books-admin-page.library-app-shell .chapter-reader-audio-hint {
+  margin: 0;
+  color: var(--paper-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio-controls {
+  display: grid;
+  flex: 0 0 150px;
+  gap: 5px;
+  color: var(--paper-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio-controls select {
+  width: 100%;
+  min-height: 32px;
+  margin: 0 !important;
+  padding: 0 8px;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio {
+  display: block;
+  width: 100%;
+  height: 42px;
+  margin: 4px 0 10px;
+  border-radius: 999px;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio-generate,
+html body .books-admin-page.library-app-shell .chapter-reader-audio-regenerate {
+  min-height: 34px;
+  margin: 4px 0 10px;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio-regenerate {
+  margin-left: 8px;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio-error {
+  margin: 0 0 8px;
+  color: var(--danger, #a85a4d);
+  font-size: 12px;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-prose .chapter-reader-segment {
+  display: inline;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  vertical-align: baseline;
+  white-space: normal;
+  outline: none;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-prose .chapter-reader-segment:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--paper-accent-border) 65%, transparent);
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-prose .chapter-reader-segment:hover {
+  background: color-mix(in srgb, var(--paper-accent-border) 24%, transparent);
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-prose .chapter-reader-segment.is-speaking {
+  background: color-mix(in srgb, var(--paper-accent-border) 48%, var(--paper-tint-warm));
+  color: var(--paper-accent-deep);
+  box-shadow: 0 2px 0 color-mix(in srgb, var(--paper-accent-border) 55%, transparent);
+}
+
+/* 电影主题会把正文段落强制成浅色（#dce6e2），在纸感白底上对比度不足；
+   这里以更高优先级把段落文字拉回纸感深色，保证正文可读。 */
+html body .books-admin-page.library-app-shell .chapter-reader-prose p {
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-end-marker {
+  border-color: var(--paper-border) !important;
+  padding: 24px 0;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-footer {
+  border-color: var(--paper-border-line) !important;
+  padding: 24px 0;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-empty {
+  border-color: var(--paper-border-strong) !important;
+  background: var(--paper-surface-sunken) !important;
+  color: var(--paper-text-muted) !important;
+}
+
+/* ==================== 通用控件 ==================== */
+
+html body .books-admin-page.library-app-shell :is(input, textarea, select) {
+  border-color: var(--paper-border-strong) !important;
+  border-radius: var(--paper-radius-sm);
+  background: var(--paper-surface-raised) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell :is(input, textarea, select):focus {
+  border-color: var(--paper-accent-border) !important;
+  box-shadow: 0 0 0 3px var(--paper-accent-soft);
+  outline: none;
+}
+
+html body .books-admin-page.library-app-shell .ghost-btn {
+  border-color: var(--paper-border-strong) !important;
+  border-radius: var(--paper-radius-sm);
+  background: var(--paper-surface-raised) !important;
+  color: var(--paper-text) !important;
+}
+
+html body .books-admin-page.library-app-shell .ghost-btn:hover {
+  border-color: var(--paper-accent-border) !important;
+  background: var(--paper-accent-hover) !important;
+  color: var(--paper-accent-deep) !important;
+}
