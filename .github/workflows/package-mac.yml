@@ -44,15 +44,25 @@ jobs:
           NODE_ENV=production
           EOF
 
-      - name: Build macOS DMG and ZIP
+      - name: Build macOS arm64 DMG and ZIP
         shell: bash
-        run: npm run package:mac --prefix desktop-ide
+        run: |
+          npx --prefix desktop-ide electron-builder --mac dmg zip --arm64 \
+            --config.directories.output=desktop-ide/release-arm64
+
+      - name: Build macOS x64 DMG and ZIP
+        shell: bash
+        run: |
+          npx --prefix desktop-ide electron-builder --mac dmg zip --x64 \
+            --config.directories.output=desktop-ide/release-x64
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
           name: longform-studio-macos
           path: |
-            desktop-ide/release/*.dmg
-            desktop-ide/release/*.zip
+            desktop-ide/release-arm64/*.dmg
+            desktop-ide/release-arm64/*.zip
+            desktop-ide/release-x64/*.dmg
+            desktop-ide/release-x64/*.zip
           if-no-files-found: error
