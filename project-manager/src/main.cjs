@@ -14,6 +14,8 @@ let mainWindow;
 let db;
 const operationQueue = [];
 let operationRunning = false;
+let operationPaused = false;
+let nextOperationId = 1;
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!gotSingleInstanceLock) {
@@ -101,7 +103,11 @@ async function giteeSnapshot(project) {
   } catch (error) { return { ok: false, error: error.message }; }
 }
 function cachedRemote(projectId) { const row = db.prepare('SELECT * FROM remote_cache WHERE project_id=?').get(projectId); if (!row) return null; return { ...JSON.parse(row.payload), syncedAt: row.synced_at, error: row.error || null }; }
-function saveRemote(projectId, result) { db.prepare('INSERT INTO remote_cache(project_id,provider,payload,synced_at,error) VALUES (?,?,?,?,?) ON CONFLICT(project_id) DO UPDATE SET provider=excluded.provider,payload=excluded.payload,synced_at=excluded.synced_at,error=excluded.error').run(projectId, 'gitee', JSON.stringify(result.payload || {}), now(), result.ok ? null : result.error); }
+function saveRemote(projectId, result) {
+  const existing = db.prepare('SELECT payload FROM remote_cache WHERE project_id=?').get(projectId);
+  const payload = result.ok ? result.payload || {} : existing ? JSON.parse(existing.payload) : {};
+  db.prepare('INSERT INTO remote_cache(project_id,provider,payload,synced_at,error) VALUES (?,?,?,?,?) ON CONFLICT(project_id) DO UPDATE SET provider=excluded.provider,payload=excluded.payload,synced_at=excluded.synced_at,error=excluded.error').run(projectId, 'gitee', JSON.stringify(payload), now(), result.ok ? null : result.error);
+}
 
 async function git(projectPath, args) {
   try {
@@ -172,10 +178,10 @@ async function runGitOperation(project, operation, args) {
 function queueGitOperation(project, operation, args, confirmed = false) {
   const command = `git -C "${project.path}" ${args.join(' ')}`;
   if (HIGH_RISK.has(operation) && !confirmed) return Promise.resolve({ needsConfirmation: true, command, operation, project: project.name, impact: '该操作可能改变远程或本地分支历史。' });
-  return new Promise((resolve) => { operationQueue.push({ project, operation, args, resolve, command, queuedAt: now() }); processOperationQueue(); });
+  return new Promise((resolve) => { operationQueue.push({ id: nextOperationId++, project, operation, args, resolve, command, queuedAt: now() }); processOperationQueue(); });
 }
 async function processOperationQueue() {
-  if (operationRunning || !operationQueue.length) return;
+  if (operationRunning || operationPaused || !operationQueue.length) return;
   operationRunning = true; const item = operationQueue.shift();
   try { item.resolve(await runGitOperation(item.project, item.operation, item.args)); } catch (error) { item.resolve({ ok: false, command: item.command, stderr: error.message }); }
   operationRunning = false; processOperationQueue();
@@ -189,7 +195,10 @@ if (gotSingleInstanceLock) app.whenReady().then(() => {
   ipcMain.handle('pm:gitee:open', (_e, url) => shell.openExternal(url));
   ipcMain.handle('pm:git:run', async (_e, { project, operation, args, confirmed }) => queueGitOperation(project, operation, args, confirmed));
   ipcMain.handle('pm:git:risk', (_e, operation) => HIGH_RISK.has(operation));
-  ipcMain.handle('pm:queue', () => ({ running: operationRunning, queued: operationQueue.map((item) => ({ operation: item.operation, project: item.project.name, command: item.command, queuedAt: item.queuedAt })) }));
+  ipcMain.handle('pm:queue', () => ({ running: operationRunning, paused: operationPaused, queued: operationQueue.map((item) => ({ id: item.id, operation: item.operation, project: item.project.name, command: item.command, queuedAt: item.queuedAt })) }));
+  ipcMain.handle('pm:queue:pause', () => { operationPaused = true; return true; });
+  ipcMain.handle('pm:queue:resume', () => { operationPaused = false; processOperationQueue(); return true; });
+  ipcMain.handle('pm:queue:cancel', (_e, id) => { const index = operationQueue.findIndex((item) => item.id === id); if (index < 0) return false; const [item] = operationQueue.splice(index, 1); item.resolve({ ok: false, cancelled: true, command: item.command, stderr: '已取消队列任务' }); return true; });
   ipcMain.handle('pm:queue:clear', () => { operationQueue.splice(0, operationQueue.length).forEach((item) => item.resolve({ ok: false, cancelled: true, command: item.command, stderr: '已从队列清除' })); return true; });
   ipcMain.handle('pm:scan', () => candidates());
   ipcMain.handle('pm:add-project', async (_e, projectPath) => { const stamp = now(); db.prepare('INSERT OR IGNORE INTO projects(path,name,created_at,updated_at) VALUES (?,?,?,?)').run(projectPath, path.basename(projectPath), stamp, stamp); return listProjects(); });
