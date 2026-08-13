@@ -5,12 +5,15 @@ const os = require('node:os');
 const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const { DatabaseSync } = require('node:sqlite');
+const https = require('node:https');
 
 const execFileAsync = promisify(execFile);
 const APP_TITLE = 'ALIPRO 项目管理台';
 const SCAN_MARKERS = ['.git', 'package.json', 'Cargo.toml', '*.sln', 'pyproject.toml', 'go.mod'];
 let mainWindow;
 let db;
+const operationQueue = [];
+let operationRunning = false;
 
 function dbPath() { return path.join(app.getPath('userData'), 'project-manager.sqlite'); }
 function openDb() {
@@ -31,6 +34,15 @@ function openDb() {
     CREATE TABLE IF NOT EXISTS operation_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER, operation TEXT NOT NULL,
       status TEXT NOT NULL, command TEXT, output TEXT, started_at TEXT NOT NULL, finished_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS remote_cache (
+      project_id INTEGER PRIMARY KEY, provider TEXT NOT NULL, payload TEXT NOT NULL,
+      synced_at TEXT NOT NULL, error TEXT
+    );
+    CREATE TABLE IF NOT EXISTS metric_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, captured_at TEXT NOT NULL,
+      project_count INTEGER NOT NULL, dirty_count INTEGER NOT NULL,
+      open_task_count INTEGER NOT NULL, unavailable_count INTEGER NOT NULL
     );`);
   seedSetting('theme', 'dark');
   seedSetting('scanRoots', JSON.stringify([path.join(os.homedir(), 'Desktop'), path.join(os.homedir(), 'Documents'), path.join(os.homedir(), 'Downloads')]));
@@ -49,6 +61,35 @@ function seedTasks() {
 }
 function rows(sql, ...args) { return db.prepare(sql).all(...args); }
 function now() { return new Date().toISOString(); }
+function getGiteeToken() { return process.env.GITEE_TOKEN || process.env.GITEE_ACCESS_TOKEN || ''; }
+function parseRemote(remote) {
+  const match = String(remote || '').match(/gitee\.com[/:]([^/]+)\/([^/.]+?)(?:\.git)?$/i);
+  return match ? { owner: match[1], repo: match[2] } : null;
+}
+function requestJson(url, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, { headers: { 'User-Agent': 'ALIPRO-Project-Manager', Accept: 'application/json', ...headers } }, (response) => {
+      let body = ''; response.setEncoding('utf8'); response.on('data', (chunk) => { body += chunk; });
+      response.on('end', () => { try { const payload = JSON.parse(body); if (response.statusCode >= 200 && response.statusCode < 300) resolve(payload); else reject(new Error(payload.message || `HTTP ${response.statusCode}`)); } catch (error) { reject(error); } });
+    });
+    request.setTimeout(12000, () => request.destroy(new Error('Gitee 请求超时'))); request.on('error', reject);
+  });
+}
+async function giteeSnapshot(project) {
+  const remote = parseRemote(project.remote); if (!remote) return { ok: false, error: '未识别 Gitee remote' };
+  const token = getGiteeToken(); const query = token ? `?access_token=${encodeURIComponent(token)}` : '';
+  try {
+    const [repo, prs, issues, milestones] = await Promise.all([
+      requestJson(`https://gitee.com/api/v5/repos/${remote.owner}/${remote.repo}${query}`),
+      requestJson(`https://gitee.com/api/v5/repos/${remote.owner}/${remote.repo}/pulls?state=all&per_page=20${token ? `&access_token=${encodeURIComponent(token)}` : ''}`),
+      requestJson(`https://gitee.com/api/v5/repos/${remote.owner}/${remote.repo}/issues?state=all&per_page=20${token ? `&access_token=${encodeURIComponent(token)}` : ''}`),
+      requestJson(`https://gitee.com/api/v5/repos/${remote.owner}/${remote.repo}/milestones?state=all&per_page=20${token ? `&access_token=${encodeURIComponent(token)}` : ''}`)
+    ]);
+    return { ok: true, payload: { provider: 'gitee', repo: { fullName: repo.full_name, description: repo.description, defaultBranch: repo.default_branch, stars: repo.stargazers_count, forks: repo.forks_count }, prs: prs.map((item) => ({ number: item.number, title: item.title, state: item.state, user: item.user?.name || item.user?.login, updatedAt: item.updated_at, htmlUrl: item.html_url })), issues: issues.map((item) => ({ number: item.number, title: item.title, state: item.state, user: item.user?.name || item.user?.login, updatedAt: item.updated_at, htmlUrl: item.html_url })), milestones: milestones.map((item) => ({ number: item.number, title: item.title, state: item.state, dueOn: item.due_on, openIssues: item.open_issues, closedIssues: item.closed_issues })) } };
+  } catch (error) { return { ok: false, error: error.message }; }
+}
+function cachedRemote(projectId) { const row = db.prepare('SELECT * FROM remote_cache WHERE project_id=?').get(projectId); if (!row) return null; return { ...JSON.parse(row.payload), syncedAt: row.synced_at, error: row.error || null }; }
+function saveRemote(projectId, result) { db.prepare('INSERT INTO remote_cache(project_id,provider,payload,synced_at,error) VALUES (?,?,?,?,?) ON CONFLICT(project_id) DO UPDATE SET provider=excluded.provider,payload=excluded.payload,synced_at=excluded.synced_at,error=excluded.error').run(projectId, 'gitee', JSON.stringify(result.payload || {}), now(), result.ok ? null : result.error); }
 
 async function git(projectPath, args) {
   try {
@@ -58,7 +99,7 @@ async function git(projectPath, args) {
     return { ok: false, stdout: error.stdout?.trim() || '', stderr: error.stderr?.trim() || error.message };
   }
 }
-async function projectStatus(project) {
+async function projectStatus(project, includeRemote = true) {
   const [branch, status, last, remotes] = await Promise.all([
     git(project.path, ['branch', '--show-current']),
     git(project.path, ['status', '--short']),
@@ -67,19 +108,26 @@ async function projectStatus(project) {
   ]);
   const parsed = (last.stdout || '').split('|');
   const remote = (remotes.stdout || '').split('\n').find((line) => line.includes('(fetch)')) || '';
-  return {
+  const result = {
     ...project,
     branch: branch.ok ? branch.stdout || '无分支' : '暂不可用',
     dirtyCount: status.ok ? (status.stdout ? status.stdout.split('\n').filter(Boolean).length : 0) : null,
     lastCommit: parsed[0] || '—', commitMessage: parsed[1] || '暂无提交', commitAuthor: parsed[2] || '—', commitDate: parsed[3] || '—',
     remote: remote.replace(/\s+\(fetch\)$/, '').replace(/^\S+\s+/, ''), gitAvailable: branch.ok
   };
+  if (includeRemote) result.gitee = cachedRemote(project.id);
+  return result;
 }
 async function listProjects() {
   const stored = rows('SELECT * FROM projects ORDER BY pinned DESC, favorite DESC, updated_at DESC');
   const missing = stored.filter((project) => !fs.existsSync(project.path)).map((project) => project.id);
   if (missing.length) db.prepare(`DELETE FROM projects WHERE id IN (${missing.map(() => '?').join(',')})`).run(...missing);
-  return Promise.all(stored.filter((project) => !missing.includes(project.id)).map(projectStatus));
+  const projects = await Promise.all(stored.filter((project) => !missing.includes(project.id)).map(projectStatus));
+  const dirtyCount = projects.filter((project) => project.dirtyCount > 0).length;
+  const unavailableCount = projects.filter((project) => !project.gitAvailable).length;
+  const openTaskCount = db.prepare("SELECT COUNT(*) AS count FROM tasks WHERE status <> 'done'").get().count;
+  db.prepare('INSERT INTO metric_snapshots(captured_at,project_count,dirty_count,open_task_count,unavailable_count) VALUES (?,?,?,?,?)').run(now(), projects.length, dirtyCount, openTaskCount, unavailableCount);
+  return projects;
 }
 function isProject(dir) {
   try {
@@ -105,11 +153,32 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 }
 function logOperation(projectId, operation, command, result, startedAt) { db.prepare('INSERT INTO operation_logs(project_id,operation,status,command,output,started_at,finished_at) VALUES (?,?,?,?,?,?,?)').run(projectId || null, operation, result.ok ? 'success' : 'failed', command, `${result.stdout}\n${result.stderr}`.trim(), startedAt, now()); }
+const HIGH_RISK = new Set(['push', 'merge', 'branch-delete', 'reset']);
+async function runGitOperation(project, operation, args) {
+  const startedAt = now(); const command = `git -C "${project.path}" ${args.join(' ')}`; const result = await git(project.path, args); logOperation(project.id, operation, command, result, startedAt); return { ...result, command };
+}
+function queueGitOperation(project, operation, args, confirmed = false) {
+  const command = `git -C "${project.path}" ${args.join(' ')}`;
+  if (HIGH_RISK.has(operation) && !confirmed) return Promise.resolve({ needsConfirmation: true, command, operation, project: project.name, impact: '该操作可能改变远程或本地分支历史。' });
+  return new Promise((resolve) => { operationQueue.push({ project, operation, args, resolve, command, queuedAt: now() }); processOperationQueue(); });
+}
+async function processOperationQueue() {
+  if (operationRunning || !operationQueue.length) return;
+  operationRunning = true; const item = operationQueue.shift();
+  try { item.resolve(await runGitOperation(item.project, item.operation, item.args)); } catch (error) { item.resolve({ ok: false, command: item.command, stderr: error.message }); }
+  operationRunning = false; processOperationQueue();
+}
 
 app.whenReady().then(() => {
   openDb();
   ipcMain.handle('pm:bootstrap', async () => ({ projects: await listProjects(), tasks: rows('SELECT * FROM tasks ORDER BY position, id'), settings: { theme: setting('theme'), scanRoots: JSON.parse(setting('scanRoots') || '[]') }, candidates: candidates() }));
   ipcMain.handle('pm:refresh', async () => ({ projects: await listProjects(), candidates: candidates() }));
+  ipcMain.handle('pm:gitee:sync', async (_e, project) => { const result = await giteeSnapshot(project); saveRemote(project.id, result); return { ...(result.ok ? result.payload : cachedRemote(project.id)), syncedAt: now(), error: result.ok ? null : result.error }; });
+  ipcMain.handle('pm:gitee:open', (_e, url) => shell.openExternal(url));
+  ipcMain.handle('pm:git:run', async (_e, { project, operation, args, confirmed }) => queueGitOperation(project, operation, args, confirmed));
+  ipcMain.handle('pm:git:risk', (_e, operation) => HIGH_RISK.has(operation));
+  ipcMain.handle('pm:queue', () => ({ running: operationRunning, queued: operationQueue.map((item) => ({ operation: item.operation, project: item.project.name, command: item.command, queuedAt: item.queuedAt })) }));
+  ipcMain.handle('pm:queue:clear', () => { operationQueue.splice(0, operationQueue.length).forEach((item) => item.resolve({ ok: false, cancelled: true, command: item.command, stderr: '已从队列清除' })); return true; });
   ipcMain.handle('pm:scan', () => candidates());
   ipcMain.handle('pm:add-project', async (_e, projectPath) => { const stamp = now(); db.prepare('INSERT OR IGNORE INTO projects(path,name,created_at,updated_at) VALUES (?,?,?,?)').run(projectPath, path.basename(projectPath), stamp, stamp); return listProjects(); });
   ipcMain.handle('pm:choose-project', async () => { const result = await dialog.showOpenDialog({ title: '选择本地项目目录', properties: ['openDirectory'] }); if (result.canceled || !result.filePaths[0]) return null; const projectPath = result.filePaths[0]; const stamp = now(); db.prepare('INSERT OR IGNORE INTO projects(path,name,created_at,updated_at) VALUES (?,?,?,?)').run(projectPath, path.basename(projectPath), stamp, stamp); return listProjects(); });
@@ -122,8 +191,11 @@ app.whenReady().then(() => {
   ipcMain.handle('pm:task:delete', (_e, id) => { db.prepare('DELETE FROM tasks WHERE id=?').run(id); return rows('SELECT * FROM tasks ORDER BY position,id'); });
   ipcMain.handle('pm:settings', (_e, settings) => { if (settings.theme) setSetting('theme', settings.theme); if (settings.scanRoots) setSetting('scanRoots', JSON.stringify(settings.scanRoots)); return true; });
   ipcMain.handle('pm:logs', () => rows('SELECT * FROM operation_logs ORDER BY id DESC LIMIT 200'));
+  ipcMain.handle('pm:metrics', () => rows('SELECT * FROM metric_snapshots ORDER BY id DESC LIMIT 500'));
   ipcMain.handle('pm:notify', (_e, { title, body }) => { if (Notification.isSupported()) new Notification({ title, body }).show(); return true; });
   ipcMain.handle('pm:export', async () => { const target = await dialog.showSaveDialog({ defaultPath: 'alipro-project-manager-backup.json', filters: [{ name: 'JSON', extensions: ['json'] }] }); if (target.canceled) return null; const payload = { exportedAt: now(), projects: rows('SELECT * FROM projects'), tasks: rows('SELECT * FROM tasks'), logs: rows('SELECT * FROM operation_logs'), settings: rows('SELECT * FROM settings') }; fs.writeFileSync(target.filePath, JSON.stringify(payload, null, 2), 'utf8'); return target.filePath; });
+  ipcMain.handle('pm:export:csv', async () => { const target = await dialog.showSaveDialog({ defaultPath: 'alipro-project-manager-metrics.csv', filters: [{ name: 'CSV', extensions: ['csv'] }] }); if (target.canceled) return null; const data = rows('SELECT * FROM metric_snapshots ORDER BY captured_at'); const csv = ['captured_at,project_count,dirty_count,open_task_count,unavailable_count', ...data.map((item) => [item.captured_at, item.project_count, item.dirty_count, item.open_task_count, item.unavailable_count].join(','))].join('\n'); fs.writeFileSync(target.filePath, `\ufeff${csv}\n`, 'utf8'); return target.filePath; });
+  ipcMain.handle('pm:export:zip', async () => { const target = await dialog.showSaveDialog({ defaultPath: 'alipro-project-manager-backup.zip', filters: [{ name: 'ZIP', extensions: ['zip'] }] }); if (target.canceled) return null; const temp = path.join(app.getPath('temp'), `alipro-manager-backup-${Date.now()}`); fs.mkdirSync(temp, { recursive: true }); const payload = { exportedAt: now(), projects: rows('SELECT * FROM projects'), tasks: rows('SELECT * FROM tasks'), logs: rows('SELECT * FROM operation_logs'), metrics: rows('SELECT * FROM metric_snapshots'), settings: rows('SELECT * FROM settings') }; fs.writeFileSync(path.join(temp, 'backup.json'), JSON.stringify(payload, null, 2), 'utf8'); await execFileAsync('powershell.exe', ['-NoProfile', '-Command', `Compress-Archive -Path ${JSON.stringify(path.join(temp, '*'))} -DestinationPath ${JSON.stringify(target.filePath)} -Force`]); fs.rmSync(temp, { recursive: true, force: true }); return target.filePath; });
   Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: '文件', submenu: [{ label: '导出备份', click: () => mainWindow.webContents.send('pm:export-request') }, { role: 'quit', label: '退出' }] }, { label: '视图', submenu: [{ role: 'reload', label: '重新加载' }, { role: 'toggleDevTools', label: '开发者工具' }] }]));
   createWindow();
 });
