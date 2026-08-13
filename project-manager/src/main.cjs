@@ -60,11 +60,47 @@ function openDb() {
     );`);
   seedSetting('theme', 'dark');
   seedSetting('scanRoots', JSON.stringify([path.join(os.homedir(), 'Desktop'), path.join(os.homedir(), 'Documents'), path.join(os.homedir(), 'Downloads')]));
+  seedSetting('notificationEnabled', 'true');
+  seedSetting('notifyWarning', 'true');
+  seedSetting('notifyCritical', 'true');
+  seedSetting('quietStart', '23:00');
+  seedSetting('quietEnd', '08:00');
+  seedSetting('startupEnabled', 'false');
+  seedSetting('logRetentionDays', '0');
   seedTasks();
 }
 function seedSetting(key, value) { db.prepare('INSERT OR IGNORE INTO settings(key,value) VALUES (?,?)').run(key, value); }
 function setting(key) { const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key); return row ? row.value : null; }
 function setSetting(key, value) { db.prepare('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, value); }
+function boolSetting(key) { return setting(key) === 'true'; }
+function readSettings() {
+  return {
+    theme: setting('theme'), scanRoots: JSON.parse(setting('scanRoots') || '[]'),
+    notificationEnabled: boolSetting('notificationEnabled'), notifyWarning: boolSetting('notifyWarning'), notifyCritical: boolSetting('notifyCritical'),
+    quietStart: setting('quietStart') || '23:00', quietEnd: setting('quietEnd') || '08:00', startupEnabled: boolSetting('startupEnabled'),
+    logRetentionDays: Number(setting('logRetentionDays') || 0)
+  };
+}
+function pruneLogs() {
+  const days = Number(setting('logRetentionDays') || 0);
+  if (!Number.isFinite(days) || days <= 0) return;
+  const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+  db.prepare('DELETE FROM operation_logs WHERE COALESCE(finished_at, started_at) < ?').run(cutoff);
+}
+function isQuietHours() {
+  const start = setting('quietStart') || '23:00'; const end = setting('quietEnd') || '08:00';
+  if (start === end) return false;
+  const current = new Date(); const minutes = current.getHours() * 60 + current.getMinutes();
+  const toMinutes = (value) => { const [hour, minute] = value.split(':').map(Number); return hour * 60 + minute; };
+  const startMinutes = toMinutes(start); const endMinutes = toMinutes(end);
+  return startMinutes < endMinutes ? minutes >= startMinutes && minutes < endMinutes : minutes >= startMinutes || minutes < endMinutes;
+}
+function showNotification({ title, body, severity = 'warning' }) {
+  if (!Notification.isSupported() || !boolSetting('notificationEnabled')) return false;
+  if (severity === 'critical' ? !boolSetting('notifyCritical') : !boolSetting('notifyWarning')) return false;
+  if (severity !== 'critical' && isQuietHours()) return false;
+  new Notification({ title, body }).show(); return true;
+}
 function seedTasks() {
   if (db.prepare('SELECT COUNT(*) AS count FROM tasks').get().count) return;
   const now = new Date().toISOString();
@@ -189,7 +225,8 @@ async function processOperationQueue() {
 
 if (gotSingleInstanceLock) app.whenReady().then(() => {
   openDb();
-  ipcMain.handle('pm:bootstrap', async () => ({ projects: await listProjects(), tasks: rows('SELECT * FROM tasks ORDER BY position, id'), settings: { theme: setting('theme'), scanRoots: JSON.parse(setting('scanRoots') || '[]') }, candidates: candidates() }));
+  pruneLogs();
+  ipcMain.handle('pm:bootstrap', async () => ({ projects: await listProjects(), tasks: rows('SELECT * FROM tasks ORDER BY position, id'), settings: readSettings(), candidates: candidates() }));
   ipcMain.handle('pm:refresh', async () => ({ projects: await listProjects(), candidates: candidates() }));
   ipcMain.handle('pm:gitee:sync', async (_e, project) => { const result = await giteeSnapshot(project); saveRemote(project.id, result); return { ...(result.ok ? result.payload : cachedRemote(project.id)), syncedAt: now(), error: result.ok ? null : result.error }; });
   ipcMain.handle('pm:gitee:open', (_e, url) => shell.openExternal(url));
@@ -210,10 +247,10 @@ if (gotSingleInstanceLock) app.whenReady().then(() => {
   ipcMain.handle('pm:task:create', (_e, task) => { const stamp = now(); const max = db.prepare('SELECT COALESCE(MAX(position), -1) AS max FROM tasks').get().max; db.prepare('INSERT INTO tasks(title,description,status,position,created_at,updated_at) VALUES (?,?,?,?,?,?)').run(task.title, task.description || '', task.status || 'todo', max + 1, stamp, stamp); return rows('SELECT * FROM tasks ORDER BY position,id'); });
   ipcMain.handle('pm:task:update', (_e, task) => { db.prepare('UPDATE tasks SET title=?,description=?,status=?,position=?,updated_at=? WHERE id=?').run(task.title, task.description || '', task.status, task.position, now(), task.id); return rows('SELECT * FROM tasks ORDER BY position,id'); });
   ipcMain.handle('pm:task:delete', (_e, id) => { db.prepare('DELETE FROM tasks WHERE id=?').run(id); return rows('SELECT * FROM tasks ORDER BY position,id'); });
-  ipcMain.handle('pm:settings', (_e, settings) => { if (settings.theme) setSetting('theme', settings.theme); if (settings.scanRoots) setSetting('scanRoots', JSON.stringify(settings.scanRoots)); return true; });
+  ipcMain.handle('pm:settings', (_e, settings) => { const keys = ['theme', 'quietStart', 'quietEnd', 'logRetentionDays']; keys.forEach((key) => { if (settings[key] !== undefined) setSetting(key, String(settings[key])); }); ['scanRoots', 'notificationEnabled', 'notifyWarning', 'notifyCritical', 'startupEnabled'].forEach((key) => { if (settings[key] !== undefined) setSetting(key, Array.isArray(settings[key]) ? JSON.stringify(settings[key]) : String(settings[key])); }); if (settings.startupEnabled !== undefined) app.setLoginItemSettings({ openAtLogin: Boolean(settings.startupEnabled), path: process.execPath, args: [app.getAppPath()] }); pruneLogs(); return readSettings(); });
   ipcMain.handle('pm:logs', () => rows('SELECT * FROM operation_logs ORDER BY id DESC LIMIT 200'));
   ipcMain.handle('pm:metrics', () => rows('SELECT * FROM metric_snapshots ORDER BY id DESC LIMIT 500'));
-  ipcMain.handle('pm:notify', (_e, { title, body }) => { if (Notification.isSupported()) new Notification({ title, body }).show(); return true; });
+  ipcMain.handle('pm:notify', (_e, payload) => showNotification(payload));
   ipcMain.handle('pm:export', async () => { const target = await dialog.showSaveDialog({ defaultPath: 'alipro-project-manager-backup.json', filters: [{ name: 'JSON', extensions: ['json'] }] }); if (target.canceled) return null; const payload = { exportedAt: now(), projects: rows('SELECT * FROM projects'), tasks: rows('SELECT * FROM tasks'), logs: rows('SELECT * FROM operation_logs'), settings: rows('SELECT * FROM settings') }; fs.writeFileSync(target.filePath, JSON.stringify(payload, null, 2), 'utf8'); return target.filePath; });
   ipcMain.handle('pm:export:csv', async () => { const target = await dialog.showSaveDialog({ defaultPath: 'alipro-project-manager-metrics.csv', filters: [{ name: 'CSV', extensions: ['csv'] }] }); if (target.canceled) return null; const data = rows('SELECT * FROM metric_snapshots ORDER BY captured_at'); const csv = ['captured_at,project_count,dirty_count,open_task_count,unavailable_count', ...data.map((item) => [item.captured_at, item.project_count, item.dirty_count, item.open_task_count, item.unavailable_count].join(','))].join('\n'); fs.writeFileSync(target.filePath, `\ufeff${csv}\n`, 'utf8'); return target.filePath; });
   ipcMain.handle('pm:export:zip', async () => { const target = await dialog.showSaveDialog({ defaultPath: 'alipro-project-manager-backup.zip', filters: [{ name: 'ZIP', extensions: ['zip'] }] }); if (target.canceled) return null; const temp = path.join(app.getPath('temp'), `alipro-manager-backup-${Date.now()}`); fs.mkdirSync(temp, { recursive: true }); const payload = { exportedAt: now(), projects: rows('SELECT * FROM projects'), tasks: rows('SELECT * FROM tasks'), logs: rows('SELECT * FROM operation_logs'), metrics: rows('SELECT * FROM metric_snapshots'), settings: rows('SELECT * FROM settings') }; fs.writeFileSync(path.join(temp, 'backup.json'), JSON.stringify(payload, null, 2), 'utf8'); await execFileAsync('powershell.exe', ['-NoProfile', '-Command', `Compress-Archive -Path ${JSON.stringify(path.join(temp, '*'))} -DestinationPath ${JSON.stringify(target.filePath)} -Force`]); fs.rmSync(temp, { recursive: true, force: true }); return target.filePath; });
