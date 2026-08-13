@@ -202,6 +202,14 @@ function candidates() {
   const known = new Set(rows('SELECT path FROM projects').map((p) => path.normalize(p.path)));
   return [...new Set(found.map(path.normalize))].filter((p) => !known.has(p)).map((p) => ({ path: p, name: path.basename(p) }));
 }
+function projectDocuments(projectPath) {
+  const names = ['README.md', 'README.txt', 'CHANGELOG.md', 'CHANGELOG.txt', 'task-board.md', 'latest-task-status.md', 'docs/task-board.md', 'docs/latest-task-status.md'];
+  return names.map((name) => {
+    const filePath = path.join(projectPath, name); if (!fs.existsSync(filePath)) return null;
+    const content = fs.readFileSync(filePath, 'utf8'); const lines = content.split(/\r?\n/).filter((line) => line.trim());
+    return { name, path: filePath, summary: lines.slice(0, 8).join('\n'), content: content.slice(0, 30000), updatedAt: fs.statSync(filePath).mtime.toISOString() };
+  }).filter(Boolean);
+}
 function createWindow() {
   mainWindow = new BrowserWindow({ width: 1500, height: 960, minWidth: 1100, minHeight: 720, title: APP_TITLE, backgroundColor: '#11151d', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false } });
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
@@ -228,6 +236,16 @@ if (gotSingleInstanceLock) app.whenReady().then(() => {
   pruneLogs();
   ipcMain.handle('pm:bootstrap', async () => ({ projects: await listProjects(), tasks: rows('SELECT * FROM tasks ORDER BY position, id'), settings: readSettings(), candidates: candidates() }));
   ipcMain.handle('pm:refresh', async () => ({ projects: await listProjects(), candidates: candidates() }));
+  ipcMain.handle('pm:documents', (_e, projectPath) => projectDocuments(projectPath));
+  ipcMain.handle('pm:git:commit', async (_e, { project, commitMessage }) => { const add = await queueGitOperation(project, 'commit', ['add', '-A'], true); if (!add.ok) return add; return queueGitOperation(project, 'commit', ['commit', '-m', commitMessage], true); });
+  ipcMain.handle('pm:git:show', async (_e, { project, commit }) => git(project.path, ['show', '--stat', '--format=fuller', commit || 'HEAD']));
+  ipcMain.handle('pm:git:diff', async (_e, { project, commit }) => git(project.path, ['show', '--format=', '--find-renames', commit || 'HEAD']));
+  ipcMain.handle('pm:gitee:create-pr', async (_e, { project, title, body, head, base }) => {
+    const remote = parseRemote(project.remote); if (!remote) return { ok: false, error: '未识别 Gitee remote' };
+    const token = getGiteeToken(); if (!token) return { ok: false, error: '未找到 GITEE_TOKEN 或 GITEE_ACCESS_TOKEN' };
+    const payload = JSON.stringify({ access_token: token, title, body: body || '', head, base });
+    return new Promise((resolve) => { const request = https.request(`https://gitee.com/api/v5/repos/${remote.owner}/${remote.repo}/pulls`, { method: 'POST', headers: { 'User-Agent': 'ALIPRO-Project-Manager', 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } }, (response) => { let data = ''; response.on('data', (chunk) => { data += chunk; }); response.on('end', () => { try { const result = JSON.parse(data); resolve(response.statusCode >= 200 && response.statusCode < 300 ? { ok: true, pullRequest: result } : { ok: false, error: result.message || `HTTP ${response.statusCode}` }); } catch (error) { resolve({ ok: false, error: error.message }); } }); }); request.on('error', (error) => resolve({ ok: false, error: error.message })); request.write(payload); request.end(); });
+  });
   ipcMain.handle('pm:gitee:sync', async (_e, project) => { const result = await giteeSnapshot(project); saveRemote(project.id, result); return { ...(result.ok ? result.payload : cachedRemote(project.id)), syncedAt: now(), error: result.ok ? null : result.error }; });
   ipcMain.handle('pm:gitee:open', (_e, url) => shell.openExternal(url));
   ipcMain.handle('pm:git:run', async (_e, { project, operation, args, confirmed }) => queueGitOperation(project, operation, args, confirmed));

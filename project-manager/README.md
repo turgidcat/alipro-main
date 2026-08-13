@@ -8,13 +8,14 @@
 - 项目卡片总览：路径、分支、未提交修改、最近提交、远程状态
 - 项目收藏、置顶、打开目录、打开终端
 - 内置任务看板：待办、进行中、阻塞、已完成；支持拖拽和状态切换
-- Gitee 仓库、PR、Issues、Milestones 基础同步与详情打开
-- Git Fetch、Pull、Commit、Push、Merge，带顺序队列和高风险确认
+- Gitee 仓库、PR、Issues、Milestones 基础同步与详情打开；支持创建 PR
+- Git Fetch、Pull、Commit、Push、Merge，带顺序队列和高风险确认；支持查看最近提交和 Diff
+- 自动识别 README、任务板、变更日志等项目文档，并在应用内查看摘要和完整内容
 - 操作日志、队列暂停/继续/清空、历史趋势、CSV/ZIP/JSON 备份
 - 本机 SQLite 数据保存、深色/浅色主题、Windows 通知、免打扰时段、开机启动和日志保留设置
 - 离线可用的本地优先结构
 
-后续扩展点：更完整的 Gitee PR 创建/合并流程、代码 Diff 阅读、项目文档摘要和安装包自动更新。
+当前打包说明：源码和开发版可直接运行；`npm run package:win` 需要 electron-builder 下载 Windows 打包工具，若网络不可用会在打包阶段失败，不影响开发版运行。
 
 ## 运行
 
