@@ -4,19 +4,14 @@ const dbPromise = require('../database/init');
 const { execQuery, generateId, saveDatabase, VolumePlanService } = require('../services/database');
 const storylineGenerationService = require('../services/storyline-generation-service');
 const logger = require('../utils/logger');
+const { authenticateToken, isAdmin } = require('../middleware/auth');
+const { bookIdParamAccess } = require('../middleware/book-access');
 const volumePlanService = new VolumePlanService();
 
-function localWorkbenchAuth(req, res, next) {
-  req.user = {
-    userId: '',
-    role: 'admin'
-  };
-  next();
-}
+router.use(authenticateToken);
+const localWorkbenchAuth = (_req, _res, next) => next();
 
-function isAdmin() {
-  return true;
-}
+router.param('bookId', bookIdParamAccess);
 
 function safeParseJson(value, fallback = null) {
   if (!value) return fallback;

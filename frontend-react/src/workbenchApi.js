@@ -4,9 +4,10 @@ import { compareRoleTier } from './lib/roleTiers.js';
 import { normalizeChapterName } from './lib/chapterName.js';
 import { DEFAULT_WORD_COUNT } from './lib/wordCountPolicy.js';
 import { playGenerationCompleteSound } from './lib/generationSound.js';
+import { getApiBase } from './lib/apiBase.js';
+import { requestJsonTransport } from './lib/jsonTransport.js';
 
-const APP_BASE_PATH = String(import.meta.env.BASE_URL || '/');
-const API_BASE = import.meta.env.VITE_API_BASE || `${APP_BASE_PATH.replace(/\/+$/, '')}/api`;
+const API_BASE = getApiBase();
 const CURRENT_BOOK_KEY = 'currentBookId';
 const LEGACY_CURRENT_BOOK_KEY = 'current_book_id';
 const CURRENT_BOOK_EVENT = 'alipro:current-book-changed';
@@ -28,12 +29,17 @@ function createHeaders() {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: createHeaders(),
-    ...options
+  const response = await requestJsonTransport(`${API_BASE}${path}`, {
+    ...options,
+    headers: { ...createHeaders(), ...(options.headers || {}) }
   });
 
-  const data = await response.json().catch(() => ({}));
+  const data = response.payload;
+  if (response.status === 401 && typeof window !== 'undefined') {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_user');
+    window.dispatchEvent(new CustomEvent('alipro:auth-required'));
+  }
   if (!response.ok || data.success === false) {
     throw new Error(data.error || `HTTP ${response.status}`);
   }
@@ -329,8 +335,21 @@ export async function fetchBookList() {
   return Array.isArray(books) ? books.map(normalizeBook) : [];
 }
 
+export async function fetchBooksStats() {
+  const stats = await request('/books/stats');
+  return stats && typeof stats === 'object' ? stats : {};
+}
+
 export async function fetchBookChapters(bookId) {
   return request(`/books/${bookId}/chapters`);
+}
+
+export async function fetchBookChapterSummaries(bookId) {
+  return request(`/books/${bookId}/chapters?includeContent=false`);
+}
+
+export async function fetchBookChapter(bookId, chapterNumber) {
+  return request(`/books/${bookId}/chapters/${Number(chapterNumber)}`);
 }
 
 export async function fetchBookVolumePlans(bookId) {
@@ -371,6 +390,22 @@ export async function generateInspiration(payload = {}) {
       chapterNumber: Number(payload.chapterNumber || payload.targetChapterNumber || 0) || 0,
       targetChapterNumber: Number(payload.targetChapterNumber || payload.chapterNumber || 0) || 0,
       contextMode: payload.contextMode || ''
+    })
+  });
+}
+
+export async function initializeInspirationBook(bookId, payload = {}) {
+  return request('/inspiration/initialize-book', {
+    method: 'POST',
+    body: JSON.stringify({
+      bookId,
+      candidate: payload.candidate || null,
+      scope: payload.scope || 'volume',
+      volumeNumber: Number(payload.volumeNumber || 1) || 1,
+      chapterNumber: Number(payload.chapterNumber || 1) || 1,
+      prompt: payload.prompt || '',
+      creativeFocus: payload.creativeFocus || '',
+      constraints: payload.constraints || ''
     })
   });
 }
@@ -427,6 +462,38 @@ export async function previewTts(payload) {
 
 export async function fetchBookTtsAudio(bookId) {
   return request(`/tts/books/${bookId}/audio`);
+}
+
+export function resolveTtsAudioUrl(entry) {
+  if (!entry) return '';
+  if (String(entry.audioUrl || '').startsWith('http')) return entry.audioUrl;
+  const path = String(entry.audioUrl || `/tts/audio/${entry.id}`).replace(/^\/api(?=\/)/, '');
+  const params = new URLSearchParams();
+  if (entry.audioTicketExpiresAt) params.set('expires', String(entry.audioTicketExpiresAt));
+  if (entry.audioTicketUser !== undefined) params.set('user', String(entry.audioTicketUser || ''));
+  if (entry.audioTicket) params.set('ticket', entry.audioTicket);
+  const query = params.toString();
+  return `${API_BASE}${path}${query ? `?${query}` : ''}`;
+}
+
+export async function downloadTtsBook(bookId) {
+  const response = await fetch(`${API_BASE}/tts/books/${bookId}/download`, {
+    headers: createHeaders()
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || `HTTP ${response.status}`);
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const fileName = encodedName ? decodeURIComponent(encodedName) : '有声书.zip';
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function deleteTtsAudio(id) {
@@ -745,7 +812,9 @@ export async function generateVolumeStorylineDetails(bookId, volumeNumber, userG
 
 function buildChapterContext(chapters = []) {
   const normalizedChapters = Array.isArray(chapters) ? chapters : [];
-  const contentChapters = normalizedChapters.filter((chapter) => Boolean(String(chapter?.content || '').trim()));
+  const contentChapters = normalizedChapters.filter((chapter) => (
+    Boolean(String(chapter?.content || '').trim()) || Number(chapter?.word_count || 0) > 0
+  ));
   if (contentChapters.length === 0) {
     return {
       suggestedChapterNumber: 1,
@@ -842,9 +911,10 @@ function findVolumeForChapter(chapterNumber, volumeRanges = []) {
   )) || null;
 }
 
-function buildChapterListItems(chapters = [], chapterPlans = [], currentChapterNumber = 1, volumeRecords = [], fallbackVolumeNumber = 1) {
+function buildChapterListItems(chapters = [], chapterPlans = [], currentChapterNumber = 1, volumeRecords = [], fallbackVolumeNumber = 1, versionSummaries = []) {
   const chapterMap = new Map();
   const planMap = new Map();
+  const versionMap = new Map();
   const volumeRanges = buildVolumeRanges(volumeRecords);
 
   (Array.isArray(chapters) ? chapters : []).forEach((chapter) => {
@@ -861,7 +931,14 @@ function buildChapterListItems(chapters = [], chapterPlans = [], currentChapterN
     }
   });
 
-  const allNumbers = [...chapterMap.keys(), ...planMap.keys()];
+  const versionNumbers = (Array.isArray(versionSummaries) ? versionSummaries : [])
+    .map((item) => {
+      const chapterNumber = Number(item?.chapter_number || 0);
+      if (chapterNumber > 0) versionMap.set(chapterNumber, item);
+      return chapterNumber;
+    })
+    .filter((item) => item > 0);
+  const allNumbers = [...chapterMap.keys(), ...planMap.keys(), ...versionNumbers];
   const maxChapterNumber = allNumbers.length > 0 ? Math.max(...allNumbers) : 0;
   const normalizedCurrentChapterNumber = Number(currentChapterNumber || 1);
   const count = Math.max(1, maxChapterNumber, normalizedCurrentChapterNumber);
@@ -870,8 +947,10 @@ function buildChapterListItems(chapters = [], chapterPlans = [], currentChapterN
     const chapterNumber = index + 1;
     const chapter = chapterMap.get(chapterNumber);
     const plan = planMap.get(chapterNumber);
-    const hasContent = Boolean(String(chapter?.content || '').trim());
+    const versionSummary = versionMap.get(chapterNumber);
+    const hasContent = Boolean(String(chapter?.content || '').trim()) || Number(chapter?.word_count || 0) > 0;
     const planOnly = !hasContent && hasAnyPlanContent(plan);
+    const historyOnly = !hasContent && !planOnly && Boolean(versionSummary);
     const inferredVolume = findVolumeForChapter(chapterNumber, volumeRanges);
     const volumeNumber = Number(
       plan?.volume_number
@@ -885,6 +964,8 @@ function buildChapterListItems(chapters = [], chapterPlans = [], currentChapterN
       chapter?.chapter_name
       || chapter?.title
       || plan?.chapter_name
+      || versionSummary?.chapter_name
+      || versionSummary?.title
       || ''
     );
 
@@ -895,7 +976,7 @@ function buildChapterListItems(chapters = [], chapterPlans = [], currentChapterN
       volumeLabel: matchedVolume?.volume_name
         ? `第 ${volumeNumber} 卷 · ${matchedVolume.volume_name}`
         : `第 ${volumeNumber} 卷`,
-      status: hasContent ? 'has-content' : planOnly ? 'plan-only' : 'empty'
+      status: hasContent ? 'has-content' : planOnly ? 'plan-only' : historyOnly ? 'history-only' : 'empty'
     };
   });
 
@@ -907,8 +988,9 @@ function buildChapterListItems(chapters = [], chapterPlans = [], currentChapterN
 
 export async function fetchChapterSetupBundle(bookId, chapterNumber) {
   const previousChapterNumber = Math.max(1, Number(chapterNumber || 1) - 1);
-  const [chapters, rawPlan, rawPreviousPlan, rawChapterPlans, allStorylines, volumePlans, volumeSettings] = await Promise.all([
-    request(`/books/${bookId}/chapters`).catch(() => []),
+  const [chapterSummaries, currentChapter, rawPlan, rawPreviousPlan, rawChapterPlans, allStorylines, volumePlans, volumeSettings, versionSummaries, feedbackRecords] = await Promise.all([
+    request(`/books/${bookId}/chapters?includeContent=false`).catch(() => []),
+    request(`/books/${bookId}/chapters/${chapterNumber}`).catch(() => null),
     request(`/books/${bookId}/chapter-plans/${chapterNumber}`).catch(() => null),
     Number(chapterNumber) > 1
       ? request(`/books/${bookId}/chapter-plans/${previousChapterNumber}`).catch(() => null)
@@ -916,7 +998,9 @@ export async function fetchChapterSetupBundle(bookId, chapterNumber) {
     request(`/books/${bookId}/chapter-plans`).catch(() => []),
     request(`/storyline-workbench/${bookId}/storylines`).catch(() => []),
     request(`/books/${bookId}/volume-plans`).catch(() => []),
-    request(`/storyline-workbench/${bookId}/volume-settings`).catch(() => [])
+    request(`/storyline-workbench/${bookId}/volume-settings`).catch(() => []),
+    request(`/books/${bookId}/chapter-versions`).catch(() => []),
+    request(`/books/${bookId}/chapter-feedback`).catch(() => [])
   ]);
   const plan = normalizeChapterPlanRecord(rawPlan);
   const previousPlan = normalizeChapterPlanRecord(rawPreviousPlan);
@@ -924,12 +1008,20 @@ export async function fetchChapterSetupBundle(bookId, chapterNumber) {
     ? rawChapterPlans.map(normalizeChapterPlanRecord).filter(Boolean)
     : [];
 
+  const chapters = (Array.isArray(chapterSummaries) ? chapterSummaries : []).map((chapter) => (
+    Number(chapter?.chapter_number || 0) === Number(chapterNumber) && currentChapter
+      ? currentChapter
+      : chapter
+  ));
   const chapterContext = buildChapterContext(chapters);
-  const currentChapter = Array.isArray(chapters)
-    ? chapters.find((item) => Number(item.chapter_number || 0) === Number(chapterNumber))
-    : null;
   const parsedPreviousStructuredContent = parseJsonObject(previousPlan?.structured_content);
-  const previousChapterFeedback = parsedPreviousStructuredContent?.chapter_feedback || null;
+  const normalizedFeedbackRecords = Array.isArray(feedbackRecords) ? feedbackRecords : [];
+  const previousFeedbackRecord = Number(chapterNumber) > 1
+    ? normalizedFeedbackRecords.find((item) => Number(item.chapter_number || 0) === previousChapterNumber)
+    : null;
+  const previousChapterFeedback = previousFeedbackRecord?.feedback
+    || parsedPreviousStructuredContent?.chapter_feedback
+    || null;
   const previousContinuityCarry = (() => {
     const raw = previousChapterFeedback?.continuity_report?.must_carry_forward;
     if (!Array.isArray(raw)) return [];
@@ -944,7 +1036,10 @@ export async function fetchChapterSetupBundle(bookId, chapterNumber) {
       .filter(Boolean);
   })();
   const parsedStructuredContent = parseJsonObject(plan?.structured_content);
-  const chapterFeedback = parsedStructuredContent?.chapter_feedback || null;
+  const chapterFeedbackRecord = normalizedFeedbackRecords.find((item) => Number(item.chapter_number || 0) === Number(chapterNumber));
+  const chapterFeedback = chapterFeedbackRecord?.feedback
+    || parsedStructuredContent?.chapter_feedback
+    || null;
   const parsedTargetStorylines = parseJsonArray(plan?.target_storylines);
   const normalizedStorylines = Array.isArray(allStorylines)
     ? allStorylines.map(normalizeStoryline)
@@ -984,7 +1079,7 @@ export async function fetchChapterSetupBundle(bookId, chapterNumber) {
   const volumeSetting = Array.isArray(volumeRecords)
     ? volumeRecords.find((item) => Number(item.volumeNumber || 0) === volumeNumber)
     : null;
-  const chapterList = buildChapterListItems(chapters, chapterPlans, chapterNumber, volumeRecords, volumeNumber);
+  const chapterList = buildChapterListItems(chapters, chapterPlans, chapterNumber, volumeRecords, volumeNumber, versionSummaries);
   const volumeList = buildVolumeRanges(volumeRecords).map((volume) => ({
     volumeNumber: Number(volume.volumeNumber || 1),
     volumeLabel: volume.volume_name
@@ -1092,6 +1187,33 @@ export async function deleteChapterContentByNumber(bookId, chapterNumber) {
   });
 }
 
+export async function fetchChapterVersions(bookId, chapterNumber) {
+  const versions = await request(`/books/${bookId}/chapters/${chapterNumber}/versions`);
+  return Array.isArray(versions) ? versions : [];
+}
+
+export async function fetchChapterFeedback(bookId) {
+  const feedback = await request(`/books/${bookId}/chapter-feedback`);
+  return Array.isArray(feedback) ? feedback : [];
+}
+
+export async function restoreChapterVersion(bookId, chapterNumber, versionId) {
+  return request(`/books/${bookId}/chapters/${chapterNumber}/versions/${versionId}/restore`, {
+    method: 'POST'
+  });
+}
+
+export async function fetchDatabaseBackups() {
+  const backups = await request('/database/backups');
+  return Array.isArray(backups) ? backups : [];
+}
+
+export async function scheduleDatabaseRestore(fileName) {
+  return request(`/database/backups/${encodeURIComponent(fileName)}/restore`, {
+    method: 'POST'
+  });
+}
+
 export async function saveChapterPlan(bookId, chapterNumber, planData) {
   const chapterGoal = buildChapterGoalPayload(planData);
   const chapterOutline = buildChapterOutlinePayload(planData);
@@ -1105,7 +1227,7 @@ export async function saveChapterPlan(bookId, chapterNumber, planData) {
     method: 'POST',
     body: JSON.stringify({
       volume_number: planData.volume_number || 1,
-      chapter_name: planData.chapter_name || '',
+      chapter_name: normalizeChapterName(planData.chapter_name || ''),
       summary,
       chapter_mission: chapterGoal.chapter_mission,
       emotion_target: chapterGoal.emotion_target,
@@ -1373,9 +1495,14 @@ export async function upsertGeneratedChapter(bookId, chapterData) {
     method: 'POST',
     body: JSON.stringify({
       title: chapterData.title,
-      chapterName: chapterData.chapterName || '',
+      chapterName: normalizeChapterName(chapterData.chapterName || ''),
       chapterNumber: chapterData.chapterNumber,
-      content: chapterData.content || ''
+      content: chapterData.content || '',
+      snapshotReason: chapterData.snapshotReason || 'ai_generation',
+      versionType: chapterData.versionType === 'revision' ? 'revision' : 'generation',
+      revisionTarget: chapterData.versionType === 'revision'
+        ? String(chapterData.revisionTarget || '').trim()
+        : ''
     })
   });
 }

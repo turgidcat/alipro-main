@@ -1,0 +1,44 @@
+.product-logo-mark {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--paper-accent-deep) 20%, var(--paper-border));
+  border-radius: 50%;
+  background: var(--paper-primary);
+  color: var(--paper-surface-raised);
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--paper-primary) 18%, transparent);
+}
+
+.product-logo-mark svg {
+  width: 22px;
+  height: 22px;
+}
+
+.ide-sidebar-monogram {
+  border: 0;
+  background: transparent;
+}
+
+.ide-sidebar-monogram .product-logo-mark {
+  width: 36px;
+  height: 36px;
+  flex-basis: 36px;
+}
+
+.mobile-app-header-mark.product-logo-mark {
+  width: 30px;
+  height: 30px;
+  flex-basis: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--paper-primary);
+  color: var(--paper-surface-raised);
+  box-shadow: none;
+}
+
+.mobile-app-header-mark.product-logo-mark svg {
+  width: 21px;
+  height: 21px;
+}

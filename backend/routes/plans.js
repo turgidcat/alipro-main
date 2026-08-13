@@ -4,9 +4,14 @@ const logger = require('../utils/logger');
 const dbPromise = require('../database/init');
 const { BookPlanService, VolumePlanService, saveDatabase } = require('../services/database');
 const deepseekService = require('../services/deepseek');
+const { authenticateToken } = require('../middleware/auth');
+const { bookIdParamAccess } = require('../middleware/book-access');
 
 const bookPlanService = new BookPlanService();
 const volumePlanService = new VolumePlanService();
+
+router.use(authenticateToken);
+router.param('bookId', bookIdParamAccess);
 
 function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -215,7 +220,7 @@ async function remapVolumeNumbers(bookId, pairs = [], userId = '') {
 
 router.get('/books/:bookId/book-plan', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const plan = await bookPlanService.getByBookId(req.params.bookId, userId);
     res.json({
       success: true,
@@ -229,7 +234,11 @@ router.get('/books/:bookId/book-plan', async (req, res) => {
 
 router.post('/books/:bookId/book-plan', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
+    const requestedSource = normalizeText(req.body.source || 'manual') || 'manual';
+    const source = ['manual', 'ai', 'imported', 'mixed'].includes(requestedSource)
+      ? requestedSource
+      : (requestedSource === 'inspiration' ? 'ai' : 'manual');
     const payload = {
       premise: normalizeText(req.body.premise || ''),
       main_goal: normalizeText(req.body.main_goal || req.body.mainGoal || ''),
@@ -240,7 +249,7 @@ router.post('/books/:bookId/book-plan', async (req, res) => {
       volume_outline: normalizeText(req.body.volume_outline || req.body.volumeOutline || ''),
       detailed_outline: normalizeText(req.body.detailed_outline || req.body.detailedOutline || ''),
       structured_content: req.body.structured_content || req.body.structuredContent || {},
-      source: normalizeText(req.body.source || 'manual') || 'manual',
+      source,
       status: normalizeText(req.body.status || 'draft') || 'draft'
     };
 
@@ -257,7 +266,7 @@ router.post('/books/:bookId/book-plan', async (req, res) => {
 
 router.get('/books/:bookId/volume-plans', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const plans = await volumePlanService.getByBookId(req.params.bookId, userId);
     res.json({
       success: true,
@@ -271,7 +280,7 @@ router.get('/books/:bookId/volume-plans', async (req, res) => {
 
 router.post('/books/:bookId/volume-plans/generate', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const { bookId } = req.params;
     const overwrite = req.body?.overwrite !== false;
     const targetVolumeCount = Math.max(0, Number.parseInt(req.body?.target_volume_count ?? req.body?.targetVolumeCount ?? 0, 10) || 0);
@@ -370,7 +379,7 @@ router.post('/books/:bookId/volume-plans/generate', async (req, res) => {
 
 router.post('/books/:bookId/volume-plans/reorder', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const { bookId } = req.params;
     const volumeNumbers = Array.isArray(req.body?.volume_numbers)
       ? req.body.volume_numbers.map((item) => Number.parseInt(item, 10)).filter((item) => Number.isFinite(item) && item > 0)
@@ -409,7 +418,7 @@ router.post('/books/:bookId/volume-plans/reorder', async (req, res) => {
 
 router.post('/books/:bookId/volume-plans/:volumeNumber', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const volumeNumber = Number.parseInt(req.params.volumeNumber, 10);
     if (!Number.isFinite(volumeNumber) || volumeNumber < 1) {
       return res.status(400).json({ success: false, error: 'volumeNumber 必须大于 0' });
@@ -428,7 +437,7 @@ router.post('/books/:bookId/volume-plans/:volumeNumber', async (req, res) => {
 
 router.delete('/books/:bookId/volume-plans/:volumeNumber', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const { bookId } = req.params;
     const volumeNumber = Number.parseInt(req.params.volumeNumber, 10);
     if (!Number.isFinite(volumeNumber) || volumeNumber < 1) {

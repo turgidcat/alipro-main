@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import '../books-paper.css';
 import {
   createBook,
+  fetchBookChapter,
   fetchBookList,
   generateChapterName,
   generateChapterOutline,
@@ -14,10 +15,12 @@ import {
   saveChapterPlan,
   saveOutlineSummary,
   synthesizeTtsChapter,
+  resolveTtsAudioUrl,
   updateBook
 } from '../workbenchApi.js';
 import IndentedTextBlock from '../components/IndentedTextBlock.jsx';
 import LibraryTopNav from '../components/library/LibraryTopNav.jsx';
+import MobileLibrarySurface from '../components/library/MobileLibrarySurface.jsx';
 import { getRoleTierShortLabel, roleTierOptions } from '../lib/roleTiers.js';
 import { formatChapterLabel, normalizeChapterName } from '../lib/chapterName.js';
 import { countPlatformEffectiveWords, formatExactWordCount } from '../lib/textMetrics.js';
@@ -25,9 +28,11 @@ import { DEFAULT_WORD_COUNT } from '../lib/wordCountPolicy.js';
 import { playGenerationCompleteSound } from '../lib/generationSound.js';
 import '../styles.css';
 import '../app-shell.css';
+import { getApiBase } from '../lib/apiBase.js';
+import { requestJsonTransport } from '../lib/jsonTransport.js';
 
 const APP_BASE_PATH = String(import.meta.env.BASE_URL || '/');
-const API_BASE = import.meta.env.VITE_API_BASE || `${APP_BASE_PATH.replace(/\/+$/, '')}/api`;
+const API_BASE = getApiBase();
 const LEGACY_CHARACTER_SUMMARY_NAMES = new Set(['全书角色设定', '本章新增角色']);
 
 function buildAppPath(pathname = '/') {
@@ -327,24 +332,29 @@ function buildChapterLibraryDraft(entry = null, chapterNumber = 1) {
   };
 }
 
-function requestJson(path, options = {}) {
+async function requestJson(path, options = {}) {
   const token = localStorage.getItem('auth_token') || '';
-  return fetch(`${API_BASE}${path}`, {
+  const response = await requestJsonTransport(`${API_BASE}${path}`, {
+    ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    },
-    ...options
-  }).then(async (response) => {
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload.success === false) {
-      throw new Error(payload.error || `HTTP ${response.status}`);
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {})
     }
-    if (/(?:^|\/)(?:generate|synthesize|polish)(?:\/|$)/i.test(String(path || '')) || /\/generate-/i.test(String(path || ''))) {
-      playGenerationCompleteSound();
-    }
-    return payload.data;
   });
+  const payload = response.payload;
+  if (response.status === 401) {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_user');
+    window.dispatchEvent(new CustomEvent('alipro:auth-required'));
+  }
+  if (!response.ok || payload.success === false) {
+    throw new Error(payload.error || `HTTP ${response.status}`);
+  }
+  if (/(?:^|\/)(?:generate|synthesize|polish)(?:\/|$)/i.test(String(path || '')) || /\/generate-/i.test(String(path || ''))) {
+    playGenerationCompleteSound();
+  }
+  return payload.data;
 }
 
 function formatDate(value) {
@@ -439,48 +449,54 @@ function openWorkbench(bookId) {
     persistCurrentBookId(bookId);
   }
   window.sessionStorage.setItem('alipro-open-current-workbench', '1');
-  window.location.href = buildAppPath('/workbench');
+  navigateToApp('/workbench');
 }
 
 function openPromptManager(bookId) {
   if (!bookId) return;
   persistCurrentBookId(bookId);
-  window.location.href = buildAppPath('/prompts');
+  navigateToApp('/prompts');
 }
 
 function openBooksSummaryPage(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
-  window.location.href = buildAppPath(bookId ? `/books/${encodeURIComponent(bookId)}` : '/books');
+  navigateToApp(bookId ? `/books/${encodeURIComponent(bookId)}` : '/books');
 }
 
 function openBooksOutlinePage(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
-  window.location.href = buildAppPath('/books/outlines');
+  navigateToApp('/books/outlines');
 }
 
 function openBooksStorylinePage(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
-  window.location.href = buildAppPath('/books/storylines');
+  navigateToApp('/books/storylines');
 }
 
 function openBooksCharacterPage(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
-  window.location.href = buildAppPath('/books/characters');
+  navigateToApp('/books/characters');
 }
 
 function openBooksChapterPage(bookId) {
   if (bookId) {
     persistCurrentBookId(bookId);
   }
-  window.location.href = buildAppPath('/books/chapters');
+  navigateToApp('/books/chapters');
+}
+
+function navigateToApp(pathname, { replace = false } = {}) {
+  const nextPath = buildAppPath(pathname);
+  window.history[replace ? 'replaceState' : 'pushState']({}, '', nextPath);
+  window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
 function createEmptyForm() {
@@ -553,7 +569,117 @@ function createCharacterBadgeDataUrl(name = '角色') {
   `);
 }
 
+function MobileBooksListScreen({
+  books,
+  stats,
+  filteredBooks,
+  loading,
+  searchText,
+  setSearchText,
+  statusFilter,
+  setStatusFilter,
+  genreFilter,
+  setGenreFilter,
+  statusOptions,
+  genreOptions,
+  currentBookId,
+  selectedIds,
+  toggleBookSelected,
+  openCreateEditor,
+  loadLibrary,
+  openBookDetail,
+  setCurrentBook,
+  downloadBookExport,
+  deleteBook
+}) {
+  return (
+    <section className="books-mobile-screen" aria-label="移动端作品列表">
+      <header className="books-mobile-hero">
+        <div>
+          <span className="books-mobile-kicker">MY LIBRARY</span>
+          <h1>我的作品</h1>
+          <p>{books.length ? `共 ${books.length} 部作品，继续把故事写下去。` : '建立第一部作品，开始你的创作旅程。'}</p>
+        </div>
+        <button type="button" className="books-mobile-add" onClick={openCreateEditor} aria-label="新建书籍">＋</button>
+      </header>
+
+      <div className="books-mobile-search">
+        <span aria-hidden="true">⌕</span>
+        <input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="搜索书名、作者或简介" aria-label="搜索作品" />
+        <button type="button" onClick={loadLibrary} aria-label="刷新作品列表">↻</button>
+      </div>
+
+      <div className="books-mobile-filters" aria-label="作品筛选">
+        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="按状态筛选">
+          <option value="all">全部状态</option>
+          {statusOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+        <select value={genreFilter} onChange={(event) => setGenreFilter(event.target.value)} aria-label="按题材筛选">
+          <option value="all">全部题材</option>
+          {genreOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+        <span>{loading ? '同步中…' : `${filteredBooks.length} 部作品`}</span>
+      </div>
+
+      {stats ? (
+        <div className="books-mobile-metrics" aria-label="作品统计">
+          <div><strong>{stats.totalChapters || 0}</strong><span>章节</span></div>
+          <div><strong>{formatExactWordCount(stats.totalWords || 0)}</strong><span>累计字数</span></div>
+          <div><strong>{stats.totalCharacters || 0}</strong><span>角色</span></div>
+        </div>
+      ) : null}
+
+      <div className="books-mobile-list">
+        {loading ? <div className="books-mobile-empty">正在同步作品资料…</div> : null}
+        {!loading && filteredBooks.length === 0 ? (
+          <div className="books-mobile-empty">
+            <strong>{books.length ? '没有找到匹配作品' : '还没有作品'}</strong>
+            <span>{books.length ? '换个关键词或筛选条件试试。' : '点击右上角的加号，建立你的第一部作品。'}</span>
+          </div>
+        ) : null}
+        {!loading ? filteredBooks.map((book, index) => {
+          const isCurrent = book.id === currentBookId;
+          const isSelected = selectedIds.has(book.id);
+          const statusClass = book.status === 'writing' ? 'is-writing' : book.status === 'completed' ? 'is-completed' : 'is-paused';
+          return (
+            <article className="books-mobile-item" key={book.id} onClick={() => openBookDetail(book.id)}>
+              <div className={`books-mobile-cover cover-${index % 5}`} aria-hidden="true"><span>{String(book.title || '未').slice(0, 1)}</span></div>
+              <div className="books-mobile-item-main">
+                <div className="books-mobile-item-title-row">
+                  <h2>{book.title || '未命名书籍'}</h2>
+                  {isCurrent ? <span className="books-mobile-current">当前</span> : null}
+                </div>
+                <p>{book.author || '未设置作者'} · {genreLabels[book.genre] || book.genre || '未设置题材'}</p>
+                <div className="books-mobile-item-meta">
+                  <span className={`books-mobile-status ${statusClass}`}>{statusLabels[book.status] || book.status || '草稿'}</span>
+                  <span>{formatExactWordCount(book.word_count || 0)} 字</span>
+                  <span>{book.chapter_count || 0} 章</span>
+                </div>
+                <div className="books-mobile-item-actions">
+                  <button type="button" onClick={(event) => { event.stopPropagation(); openBookDetail(book.id); }}>查看作品</button>
+                  {!isCurrent ? <button type="button" onClick={(event) => { event.stopPropagation(); setCurrentBook(book.id); }}>设为当前</button> : null}
+                  <button type="button" onClick={(event) => { event.stopPropagation(); downloadBookExport(book.id); }}>导出</button>
+                  <button type="button" className="is-danger" onClick={(event) => { event.stopPropagation(); deleteBook(book.id); }}>删除</button>
+                  <button type="button" className={isSelected ? 'is-selected' : ''} onClick={(event) => { event.stopPropagation(); toggleBookSelected(book.id); }}>{isSelected ? '已选' : '选择'}</button>
+                </div>
+              </div>
+              <span className="books-mobile-item-arrow" aria-hidden="true">›</span>
+            </article>
+          );
+        }) : null}
+      </div>
+    </section>
+  );
+}
+
 export default function BooksPage() {
+  const storedReaderFontSize = (() => {
+    try {
+      return Number(JSON.parse(localStorage.getItem('auth_user') || 'null')?.settings?.readerFontSize || 0);
+    } catch (_) {
+      return 0;
+    }
+  })();
   const currentPath = getCurrentAppPathname();
   const routeBookIdMatch = currentPath.match(/^\/books\/(?!outlines$|storylines$|characters$|chapters$)([^/?#]+)$/);
   const routeBookId = routeBookIdMatch ? decodeURIComponent(routeBookIdMatch[1]) : '';
@@ -582,6 +708,8 @@ export default function BooksPage() {
   const [detailCharacters, setDetailCharacters] = useState([]);
   const [detailChapters, setDetailChapters] = useState([]);
   const [detailChapterPlans, setDetailChapterPlans] = useState([]);
+  const [readerChapter, setReaderChapter] = useState(null);
+  const [detailResourceKey, setDetailResourceKey] = useState('');
   const [readerChapterNumber, setReaderChapterNumber] = useState(Number.isFinite(routeChapterNumber) ? routeChapterNumber : 0);
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -646,6 +774,7 @@ export default function BooksPage() {
   const [readerAudioError, setReaderAudioError] = useState('');
   const [readerAudioTime, setReaderAudioTime] = useState(0);
   const [readerAudioDuration, setReaderAudioDuration] = useState(0);
+  const [readerAudioPlaying, setReaderAudioPlaying] = useState(false);
   // 细纲编辑器渲染在章节列表上方，打开后自动滚动到面板，避免看起来“点了没反应”。
   useEffect(() => {
     if (!chapterEditorOpen) return;
@@ -683,6 +812,18 @@ export default function BooksPage() {
           : '选择一本书进入详情，或使用筛选条件快速定位作品。';
   const shellBook = detailBook || currentBook;
   const shellBookId = shellBook?.id || currentBookId;
+  const isMobileListSurface = view === 'list' && !isSubPage && !isChapterReaderPage;
+  const mobileLibraryPage = isMobileListSurface
+    ? 'list'
+    : isBookDetailPage && !isSubPage
+      ? 'summary'
+      : isCharacterPage
+        ? 'characters'
+        : isOutlinePage
+          ? 'outline'
+          : isChapterPage
+            ? 'chapters'
+            : '';
 
   const activeNavKey = isOutlinePage
     ? 'outline'
@@ -773,7 +914,15 @@ export default function BooksPage() {
   );
 
   const readerChapterIndex = chapterEntries.findIndex((entry) => entry.chapterNumber === readerChapterNumber);
-  const readerEntry = readerChapterIndex >= 0 ? chapterEntries[readerChapterIndex] : null;
+  const readerEntryBase = readerChapterIndex >= 0 ? chapterEntries[readerChapterIndex] : null;
+  const readerEntry = readerEntryBase
+    ? {
+        ...readerEntryBase,
+        chapter: Number(readerChapter?.chapter_number || 0) === Number(readerEntryBase.chapterNumber)
+          ? readerChapter
+          : readerEntryBase.chapter
+      }
+    : null;
   const previousReaderEntry = readerChapterIndex > 0 ? chapterEntries[readerChapterIndex - 1] : null;
   const nextReaderEntry = readerChapterIndex >= 0 && readerChapterIndex < chapterEntries.length - 1 ? chapterEntries[readerChapterIndex + 1] : null;
 
@@ -789,13 +938,13 @@ export default function BooksPage() {
 
   function openChapterReader(chapterNumber) {
     setReaderChapterNumber(chapterNumber);
-    window.history.pushState({}, '', buildAppPath(`/books/chapters/${encodeURIComponent(chapterNumber)}`));
+    navigateToApp(`/books/chapters/${encodeURIComponent(chapterNumber)}`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function closeChapterReader() {
     setReaderChapterNumber(0);
-    window.history.pushState({}, '', buildAppPath('/books/chapters'));
+    navigateToApp('/books/chapters', { replace: true });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -893,37 +1042,81 @@ export default function BooksPage() {
 
   useEffect(() => {
     if (!isSubPage || !currentBookId) return;
-    if (detailBook?.id === currentBookId) return;
+    if (detailResourceKey === `${currentBookId}:${mobileLibraryPage}`) return;
     loadDetail(currentBookId);
-  }, [isSubPage, currentBookId]);
+  }, [isSubPage, currentBookId, mobileLibraryPage, detailResourceKey]);
 
   async function loadDetail(bookId) {
     setView('detail');
     setDetailLoading(true);
     setError('');
     try {
-      const [bookData, bookPlanRes, outlineRes, volumePlans, storylines, characterData, chapterData, chapterPlanData] = await Promise.all([
-        requestJson(`/books/${bookId}`),
-        requestJson(`/books/${bookId}/book-plan`).catch(() => null),
-        requestJson(`/books/${bookId}/outline`).catch(() => null),
-        requestJson(`/books/${bookId}/volume-plans`).catch(() => []),
-        requestJson(`/storyline-workbench/${bookId}/storylines`).catch(() => []),
-        requestJson(`/books/${bookId}/characters`).catch(() => []),
-        requestJson(`/books/${bookId}/chapters`).catch(() => []),
-        requestJson(`/books/${bookId}/chapter-plans`).catch(() => [])
-      ]);
-      const mergedPlan = bookPlanRes || outlineRes || null;
+      const currentResourceBookId = detailResourceKey.split(':')[0];
+      const changingBook = currentResourceBookId !== bookId;
+      if (changingBook) {
+        setDetailOutline(null);
+        setDetailVolumePlans([]);
+        setDetailStorylines([]);
+        setDetailCharacters([]);
+        setDetailChapters([]);
+        setDetailChapterPlans([]);
+      }
+
+      const bookPromise = detailBook?.id === bookId
+        ? Promise.resolve(detailBook)
+        : requestJson(`/books/${bookId}`);
+      let resourcePromises = [];
+      if (isOutlinePage) {
+        resourcePromises = [
+          requestJson(`/books/${bookId}/book-plan`).catch(() => null),
+          requestJson(`/books/${bookId}/outline`).catch(() => null),
+          requestJson(`/books/${bookId}/volume-plans`).catch(() => [])
+        ];
+      } else if (isCharacterPage) {
+        resourcePromises = [requestJson(`/books/${bookId}/characters`).catch(() => [])];
+      } else if (isChapterSectionPage) {
+        resourcePromises = [
+          requestJson(`/books/${bookId}/chapters?includeContent=false`).catch(() => []),
+          requestJson(`/books/${bookId}/chapter-plans`).catch(() => [])
+        ];
+      } else {
+        resourcePromises = [
+          requestJson(`/books/${bookId}/volume-plans`).catch(() => []),
+          requestJson(`/storyline-workbench/${bookId}/storylines`).catch(() => []),
+          requestJson(`/books/${bookId}/characters`).catch(() => []),
+          requestJson(`/books/${bookId}/chapters?includeContent=false`).catch(() => [])
+        ];
+      }
+
+      const [bookData, ...resources] = await Promise.all([bookPromise, ...resourcePromises]);
       setDetailBook(bookData);
-      setDetailOutline(mergedPlan);
-      setDetailVolumePlans(Array.isArray(volumePlans) ? volumePlans : []);
-      setDetailStorylines(Array.isArray(storylines) ? storylines : []);
-      setDetailCharacters(
-        Array.isArray(characterData)
-          ? characterData.filter((item) => !LEGACY_CHARACTER_SUMMARY_NAMES.has(String(item?.name || '').trim()))
-          : []
-      );
-      setDetailChapters(Array.isArray(chapterData) ? chapterData : []);
-      setDetailChapterPlans(Array.isArray(chapterPlanData) ? chapterPlanData : []);
+      if (isOutlinePage) {
+        const [bookPlanRes, outlineRes, volumePlans] = resources;
+        setDetailOutline(bookPlanRes || outlineRes || null);
+        setDetailVolumePlans(Array.isArray(volumePlans) ? volumePlans : []);
+      } else if (isCharacterPage) {
+        const [characterData] = resources;
+        setDetailCharacters(
+          Array.isArray(characterData)
+            ? characterData.filter((item) => !LEGACY_CHARACTER_SUMMARY_NAMES.has(String(item?.name || '').trim()))
+            : []
+        );
+      } else if (isChapterSectionPage) {
+        const [chapterData, chapterPlanData] = resources;
+        setDetailChapters(Array.isArray(chapterData) ? chapterData : []);
+        setDetailChapterPlans(Array.isArray(chapterPlanData) ? chapterPlanData : []);
+      } else {
+        const [volumePlans, storylines, characterData, chapterData] = resources;
+        setDetailVolumePlans(Array.isArray(volumePlans) ? volumePlans : []);
+        setDetailStorylines(Array.isArray(storylines) ? storylines : []);
+        setDetailCharacters(
+          Array.isArray(characterData)
+            ? characterData.filter((item) => !LEGACY_CHARACTER_SUMMARY_NAMES.has(String(item?.name || '').trim()))
+            : []
+        );
+        setDetailChapters(Array.isArray(chapterData) ? chapterData : []);
+      }
+      setDetailResourceKey(`${bookId}:${mobileLibraryPage}`);
     } catch (detailError) {
       setError(detailError.message);
       setView('list');
@@ -986,9 +1179,11 @@ export default function BooksPage() {
     setDetailCharacters([]);
     setDetailChapters([]);
     setDetailChapterPlans([]);
+    setDetailResourceKey('');
+    setReaderChapter(null);
     setCharacterNotice('');
     setCharacterError('');
-    window.history.pushState({}, '', buildAppPath('/books'));
+    navigateToApp('/books');
   }
 
   function setCurrentBook(bookId) {
@@ -1000,7 +1195,8 @@ export default function BooksPage() {
     if (!bookId || bookId === currentBookId) return;
     setCurrentBook(bookId);
     if (isSubPage) {
-      window.location.href = buildAppPath(currentPath);
+      setDetailBook(null);
+      setDetailResourceKey('');
     } else if (isBookDetailPage) {
       openBooksSummaryPage(bookId);
     }
@@ -1349,14 +1545,26 @@ export default function BooksPage() {
     }
   }
 
-  function downloadBookExport(bookId) {
-    const url = `${API_BASE}/books/${bookId}/export`;
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = '';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  async function downloadBookExport(bookId) {
+    try {
+      const response = await fetch(`${API_BASE}/books/${bookId}/export`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('auth_token') || ''}` }
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = '';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+    } catch (reason) {
+      alert(`导出失败：${reason.message}`);
+    }
   }
 
   async function batchDelete() {
@@ -1847,11 +2055,7 @@ export default function BooksPage() {
     const ratio = Math.min(0.999999, Math.max(0, readerAudioTime / readerAudioDuration));
     return (readerSegments.find((item) => ratio >= item.startRatio && ratio < item.endRatio) || readerSegments[readerSegments.length - 1])?.id || '';
   }, [readerAudioDuration, readerAudioTime, readerSegments]);
-  const readerAudioUrl = readerAudioEntry
-    ? (readerAudioEntry.audioUrl?.startsWith('http')
-      ? readerAudioEntry.audioUrl
-      : `${API_BASE.replace(/\/api\/?$/, '')}${readerAudioEntry.audioUrl || `/api/tts/audio/${readerAudioEntry.id}`}`)
-    : '';
+  const readerAudioUrl = resolveTtsAudioUrl(readerAudioEntry);
 
   useEffect(() => {
     if (!isChapterReaderPage || !detailBook?.id) {
@@ -1874,6 +2078,18 @@ export default function BooksPage() {
 
   useEffect(() => {
     if (!isChapterReaderPage || !detailBook?.id || !readerChapterNumber) {
+      setReaderChapter(null);
+      return undefined;
+    }
+    let alive = true;
+    fetchBookChapter(detailBook.id, readerChapterNumber)
+      .then((chapter) => alive && setReaderChapter(chapter || null))
+      .catch(() => alive && setReaderChapter(null));
+    return () => { alive = false; };
+  }, [isChapterReaderPage, detailBook?.id, readerChapterNumber]);
+
+  useEffect(() => {
+    if (!isChapterReaderPage || !detailBook?.id || !readerChapterNumber) {
       setReaderAudioEntry(null);
       setReaderAudioLoading(false);
       return undefined;
@@ -1884,6 +2100,7 @@ export default function BooksPage() {
     setReaderAudioEntry(null);
     setReaderAudioTime(0);
     setReaderAudioDuration(0);
+    setReaderAudioPlaying(false);
     readerAudioRef.current?.pause();
     fetchBookTtsAudio(detailBook.id)
       .then((entries) => {
@@ -1922,6 +2139,7 @@ export default function BooksPage() {
       setReaderAudioEntry(entry || null);
       setReaderAudioTime(0);
       setReaderAudioDuration(0);
+      setReaderAudioPlaying(false);
     } catch (generateError) {
       setReaderAudioError(generateError.message || '有声书生成失败');
     } finally {
@@ -1933,6 +2151,16 @@ export default function BooksPage() {
     if (!readerAudioRef.current || !readerAudioDuration || !segment) return;
     readerAudioRef.current.currentTime = readerAudioDuration * segment.startRatio;
     readerAudioRef.current.play().catch(() => {});
+  }
+
+  function toggleReaderAudio() {
+    const audio = readerAudioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      audio.play().catch(() => {});
+    } else {
+      audio.pause();
+    }
   }
 
   return (
@@ -1988,7 +2216,7 @@ export default function BooksPage() {
       .books-page-card-action-btn:hover { border-color: var(--brand); color: var(--brand-deep); background: color-mix(in srgb, var(--brand-soft) 36%, transparent); }
       .books-page-card-current { display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px; border-radius: 999px; background: color-mix(in srgb, var(--brand-soft) 72%, var(--panel)); color: var(--brand-deep); font-size: 11px; font-weight: 700; white-space: nowrap; }
     `}</style>
-    <div className={joinClasses('books-admin-page library-app-shell', isChapterReaderPage ? 'is-chapter-reader-page' : '')}>
+    <div className={joinClasses('books-admin-page library-app-shell', isChapterReaderPage ? 'is-chapter-reader-page' : '', mobileLibraryPage && 'mobile-library-mode')}>
       <LibraryTopNav
         active={activeNavKey}
         bookId={shellBookId || ''}
@@ -1999,7 +2227,122 @@ export default function BooksPage() {
         onNavigate={handleLibraryNavigate}
       />
 
-      <main className="library-main">
+      {mobileLibraryPage ? (
+        <MobileLibrarySurface
+          page={mobileLibraryPage}
+          books={books}
+          currentBookId={currentBookId}
+          onSwitchBook={switchCurrentBook}
+          onNavigate={handleLibraryNavigate}
+          book={detailBook || currentBook}
+          filteredBooks={filteredBooks}
+          stats={stats}
+          loading={loading}
+          searchText={searchText}
+          setSearchText={setSearchText}
+          statusFilter={statusFilter}
+          setStatusFilter={setStatusFilter}
+          genreFilter={genreFilter}
+          setGenreFilter={setGenreFilter}
+          statusOptions={statusOptions}
+          genreOptions={genreOptions}
+          openCreateEditor={openCreateEditor}
+          loadLibrary={loadLibrary}
+          openBookDetail={openBookDetail}
+          setCurrentBook={setCurrentBook}
+          downloadBookExport={downloadBookExport}
+          deleteBook={deleteBook}
+          detailChapters={detailChapters}
+          chapterEntries={chapterEntries}
+          detailCharacters={detailCharacters}
+          detailVolumePlans={detailVolumePlans}
+          detailStorylines={detailStorylines}
+          detailOutline={detailOutline}
+          onOpenWorkbench={() => openWorkbench(detailBook?.id || currentBookId)}
+          editingCharacterKey={editingCharacterKey}
+          characterDrafts={characterDrafts}
+          characterSavingKey={characterSavingKey}
+          characterDeletingKey={characterDeletingKey}
+          creatingCharacter={creatingCharacter}
+          newCharacterDraft={newCharacterDraft}
+          setEditingCharacterKey={setEditingCharacterKey}
+          setCreatingCharacter={setCreatingCharacter}
+          updateCharacterDraft={updateCharacterDraft}
+          resetNewCharacterDraft={resetNewCharacterDraft}
+          handleSaveCharacter={handleSaveCharacter}
+          handleCreateCharacter={handleCreateCharacter}
+          handleDeleteCharacter={handleDeleteCharacter}
+          handleGenerateCharacterCard={handleGenerateCharacterCard}
+          aiCharacterOpen={aiCharacterOpen}
+          setAiCharacterOpen={setAiCharacterOpen}
+          aiCharacterHint={aiCharacterHint}
+          setAiCharacterHint={setAiCharacterHint}
+          aiRoleCounts={aiRoleCounts}
+          setAiRoleCounts={setAiRoleCounts}
+          aiCharacterLoading={aiCharacterLoading}
+          characterError={characterError}
+          characterNotice={characterNotice}
+          outlineEditing={outlineEditing}
+          outlineDraft={outlineDraft}
+          outlineSaving={outlineSaving}
+          outlineGenerating={outlineGenerating}
+          setOutlineDraft={setOutlineDraft}
+          startOutlineEditing={startOutlineEditing}
+          stopOutlineEditing={stopOutlineEditing}
+          handleSaveOutline={handleSaveOutline}
+          handleGenerateFullOutlineDraft={handleGenerateFullOutlineDraft}
+          handleGenerateVolumePlans={handleGenerateVolumePlans}
+          handleCreateVolumePlan={handleCreateVolumePlan}
+          targetVolumeCount={targetVolumeCount}
+          setTargetVolumeCount={setTargetVolumeCount}
+          editingVolumeKey={editingVolumeKey}
+          setEditingVolumeKey={setEditingVolumeKey}
+          volumePlanDrafts={volumePlanDrafts}
+          updateVolumePlanDraft={updateVolumePlanDraft}
+          handleSaveVolumePlan={handleSaveVolumePlan}
+          handleDeleteVolumePlan={handleDeleteVolumePlan}
+          chapterEditorOpen={chapterEditorOpen}
+          chapterDraft={chapterDraft}
+          chapterPlanSaving={chapterPlanSaving}
+          chapterPlanGenerating={chapterPlanGenerating}
+          openChapterPlanEditor={openChapterPlanEditor}
+          setChapterEditorOpen={setChapterEditorOpen}
+          updateChapterDraftField={updateChapterDraftField}
+          handleSaveLibraryChapterPlan={handleSaveLibraryChapterPlan}
+          handleGenerateLibraryChapterPlan={handleGenerateLibraryChapterPlan}
+          openChapterReader={openChapterReader}
+          handleDeleteLibraryChapter={handleDeleteLibraryChapter}
+        />
+      ) : null}
+
+      <div className="library-legacy-surface">
+      {isMobileListSurface ? (
+        <MobileBooksListScreen
+          books={books}
+          stats={stats}
+          filteredBooks={filteredBooks}
+          loading={loading}
+          searchText={searchText}
+          setSearchText={setSearchText}
+          statusFilter={statusFilter}
+          setStatusFilter={setStatusFilter}
+          genreFilter={genreFilter}
+          setGenreFilter={setGenreFilter}
+          statusOptions={statusOptions}
+          genreOptions={genreOptions}
+          currentBookId={currentBookId}
+          selectedIds={selectedIds}
+          toggleBookSelected={toggleBookSelected}
+          openCreateEditor={openCreateEditor}
+          loadLibrary={loadLibrary}
+          openBookDetail={openBookDetail}
+          setCurrentBook={setCurrentBook}
+          downloadBookExport={downloadBookExport}
+          deleteBook={deleteBook}
+        />
+      ) : null}
+
+      <main className={joinClasses('library-main', isMobileListSurface && 'books-desktop-list-content')}>
         <div className="books-page-header">
           <div>
             <h1>{pageName}</h1>
@@ -2452,11 +2795,14 @@ export default function BooksPage() {
                                   </label>
                                 </div>
                               ) : (
-                                <div className="detail-character-metric-list">
-                                  {character.personality ? <p className="excerpt-text"><b>核心性格：</b>{character.personality}</p> : null}
-                                  {character.background ? <p className="excerpt-text"><b>身份背景：</b>{character.background}</p> : null}
-                                  {character.appearance ? <p className="excerpt-text"><b>外形标记：</b>{character.appearance}</p> : null}
-                                </div>
+                                <details className="detail-character-details">
+                                  <summary>查看人物资料</summary>
+                                  <div className="detail-character-metric-list">
+                                    {character.personality ? <p className="excerpt-text"><b>核心性格：</b>{character.personality}</p> : null}
+                                    {character.background ? <p className="excerpt-text"><b>身份背景：</b>{character.background}</p> : null}
+                                    {character.appearance ? <p className="excerpt-text"><b>外形标记：</b>{character.appearance}</p> : null}
+                                  </div>
+                                </details>
                               )}
                             </article>
                           );
@@ -2727,9 +3073,10 @@ export default function BooksPage() {
               ) : null}
 
               {readerEntry.plan?.outline_text ? (
-                <aside className="chapter-reader-note">
-                  <p><b>章节细纲：</b>{readerEntry.plan.outline_text}</p>
-                </aside>
+                <details className="chapter-reader-note">
+                  <summary>章节细纲</summary>
+                  <p>{readerEntry.plan.outline_text}</p>
+                </details>
               ) : null}
 
               {readerContent.trim() ? (
@@ -2738,7 +3085,7 @@ export default function BooksPage() {
                     <div>
                       <span className="chapter-reader-audio-kicker">AUDIO READING</span>
                       <h3>有声阅读</h3>
-                      <p>播放时会按音频时长与正文句子长度同步高亮，点击句子也可以跳转。</p>
+                      <p>点击正文句子可跳转。</p>
                     </div>
                     <div className="chapter-reader-audio-controls">
                       <label htmlFor="chapter-reader-voice">音色</label>
@@ -2756,7 +3103,12 @@ export default function BooksPage() {
                       src={readerAudioUrl}
                       onLoadedMetadata={(event) => setReaderAudioDuration(Number(event.currentTarget.duration) || 0)}
                       onTimeUpdate={(event) => setReaderAudioTime(Number(event.currentTarget.currentTime) || 0)}
-                      onEnded={() => setReaderAudioTime(readerAudioDuration)}
+                      onPlay={() => setReaderAudioPlaying(true)}
+                      onPause={() => setReaderAudioPlaying(false)}
+                      onEnded={() => {
+                        setReaderAudioPlaying(false);
+                        setReaderAudioTime(readerAudioDuration);
+                      }}
                     />
                   ) : (
                     <button type="button" className="solid-btn chapter-reader-audio-generate" onClick={generateReaderAudio} disabled={readerAudioLoading || readerAudioGenerating}>
@@ -2765,13 +3117,30 @@ export default function BooksPage() {
                   )}
                   {readerAudioUrl ? <button type="button" className="ghost-btn chapter-reader-audio-regenerate" onClick={generateReaderAudio} disabled={readerAudioGenerating}>{readerAudioGenerating ? '重新生成中…' : '重新生成'}</button> : null}
                   {readerAudioError ? <div className="chapter-reader-audio-error" role="alert">{readerAudioError}</div> : null}
-                  <div className="chapter-reader-audio-hint">{readerAudioEntry ? '音频已就绪 · 高亮采用正文句子与实际音频总时长的比例估算。' : '首次播放需要先生成本章音频，生成后会保存在有声书资料中。'}</div>
+                  <div className="chapter-reader-audio-hint">{readerAudioEntry ? '音频已就绪 · 点击正文句子同步播放。' : '首次播放会生成本章音频。'}</div>
                 </section>
+              ) : null}
+
+              {readerAudioUrl ? (
+                <aside className={`chapter-reader-audio-float${readerAudioPlaying ? ' is-playing' : ''}`} aria-label="朗读控制">
+                  <button
+                    type="button"
+                    className="chapter-reader-audio-float-toggle"
+                    onClick={toggleReaderAudio}
+                    aria-label={readerAudioPlaying ? '暂停朗读' : '继续朗读'}
+                  >
+                    {readerAudioPlaying ? (
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.7v12.6a1 1 0 0 0 1.52.86l9.7-6.3a1 1 0 0 0 0-1.72l-9.7-6.3A1 1 0 0 0 8 5.7Z" /></svg>
+                    )}
+                  </button>
+                </aside>
               ) : null}
 
               {readerParagraphs.length > 0 ? (
                 <>
-                  <div className="chapter-reader-prose">
+                  <div className="chapter-reader-prose" style={storedReaderFontSize ? { fontSize: `${Math.min(24, Math.max(16, storedReaderFontSize))}px` } : undefined}>
                     {readerParagraphs.map((paragraph, index) => {
                       const paragraphSegments = readerSegments.filter((segment) => segment.paragraphIndex === index);
                       return (
@@ -2885,10 +3254,12 @@ export default function BooksPage() {
                           {entry.chapter?.content ? '正文已保存' : '待生成正文'}
                         </span>
                         {entry.plan?.outline_text ? (
-                          <p className="chapter-flow-outline">
-                            <b>章节细纲：</b>
-                            {String(entry.plan.outline_text).replace(/\s+/g, ' ').trim()}
-                          </p>
+                          <details className="chapter-flow-outline-disclosure">
+                            <summary>查看章节细纲</summary>
+                            <p className="chapter-flow-outline">
+                              {String(entry.plan.outline_text).replace(/\s+/g, ' ').trim()}
+                            </p>
+                          </details>
                         ) : null}
                         <div className="chapter-flow-actions">
                           <button type="button" className="ghost-btn" onClick={() => openChapterPlanEditor(entry)}>编辑细纲</button>
@@ -3035,6 +3406,9 @@ export default function BooksPage() {
           )}
         </section>
       ) : null}
+      </main>
+      </div>
+
       {avatarCropState ? (
         <div className="modal-backdrop" onClick={closeAvatarCropper}>
           <div className="modal-panel avatar-crop-modal" onClick={(e) => e.stopPropagation()}>
@@ -3170,8 +3544,6 @@ export default function BooksPage() {
           </div>
         </div>
       ) : null}
-
-      </main>
 
       <style>{`
         .books-admin-page {
@@ -4354,8 +4726,14 @@ export default function BooksPage() {
           font-size: 14px;
           line-height: 1.75;
         }
+        .chapter-reader-note summary {
+          width: fit-content;
+          cursor: pointer;
+          color: var(--brand-deep);
+          font-weight: 750;
+        }
         .chapter-reader-note p {
-          margin: 0;
+          margin: 10px 0 0;
         }
         .chapter-reader-note p + p {
           margin-top: 6px;

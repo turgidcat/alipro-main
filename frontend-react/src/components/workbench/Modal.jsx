@@ -1,5 +1,9 @@
-export default function Modal({ title, description, children, onClose, actions, closeOnBackdrop = true }) {
-  const modalClassName = title.includes('正文校改') ? 'modal-panel modal-panel-revision' : 'modal-panel';
+export default function Modal({ title, description, children, onClose, actions, closeOnBackdrop = true, className = '' }) {
+  const modalClassName = [
+    'modal-panel',
+    String(title || '').includes('正文校改') ? 'modal-panel-revision' : '',
+    className
+  ].filter(Boolean).join(' ');
   function handleBackdropClick(event) {
     if (closeOnBackdrop && event.target === event.currentTarget) {
       onClose();
@@ -12,7 +16,7 @@ export default function Modal({ title, description, children, onClose, actions, 
         <div className="modal-head">
           <div>
             <h2>{title}</h2>
-            <p>{description}</p>
+            {description ? <p>{description}</p> : null}
           </div>
           <button type="button" className="ghost-btn modal-close-btn" onClick={onClose}>
             关闭

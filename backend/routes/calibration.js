@@ -16,9 +16,14 @@ const {
   resolveGoldLabel,
   scoreRows
 } = require('../harness/judge-calibration-core');
+const { authenticateToken } = require('../middleware/auth');
+const { requestedBookAccess } = require('../middleware/book-access');
 
 const router = express.Router();
 const REVIEWERS = new Set(['reviewer_a', 'reviewer_b', 'adjudicator']);
+
+router.use(authenticateToken);
+router.use(requestedBookAccess);
 
 function parseJson(value, fallback = {}) {
   if (!value) return fallback;

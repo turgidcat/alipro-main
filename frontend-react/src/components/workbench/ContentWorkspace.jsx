@@ -16,20 +16,6 @@ function getGenerationWordTarget(plan) {
   );
 }
 
-function getMainStorylineLabel(plan) {
-  const storylines = Array.isArray(plan?.target_storylines) ? plan.target_storylines : [];
-  const mainId = String(plan?.main_storyline_id || '').trim();
-  const mainStoryline = storylines.find((item) => String(item?.id || item?.storyline_id || '') === mainId);
-  const candidate = mainStoryline || storylines[0];
-  return String(
-    candidate?.name || candidate?.title || candidate?.storyline_title || candidate?.label || ''
-  ).trim();
-}
-
-function joinMissingLabels(items) {
-  return items.length > 0 ? `缺：${items.join('、')}` : '已就绪';
-}
-
 function qualityStatusLabel(status = '') {
   const map = {
     passed: '通过',
@@ -61,36 +47,23 @@ export default function ContentWorkspace(props) {
     onStopGeneration,
     onSaveGenerationSettings,
     onOpenRevisionEditor,
+    onOpenVersionHistory,
     onSetPromptPreview,
     onUpdateGenerationSetting,
+    onOpenReader,
     onOpenOutlineModal,
-    onOpenCharacterModal,
-    onOpenStorylinePicker,
     onConfirmReview,
+    onNextChapter,
     reviewConfirming = false
   } = props;
-  const mountedStorylineCount = Array.isArray(draftChapterPlan.target_storylines)
-    ? draftChapterPlan.target_storylines.length
-    : 0;
   const hasMainStoryline = Boolean(String(draftChapterPlan.main_storyline_id || '').trim());
-  const hasRoleConfig =
-    Boolean(String(draftChapterPlan.character_notes || '').trim()) ||
-    (Array.isArray(draftChapterPlan.role_execution) && draftChapterPlan.role_execution.length > 0);
   const generationPreviewVisible = !generationState.hasContent && !isGenerating;
   const chapterTitle = formatChapterLabel(chapterNumber, draftChapterPlan.chapter_name);
   const generationWordTarget = getGenerationWordTarget(draftChapterPlan);
   const generationPreviewOutline = String(draftChapterPlan.outline_text || '').trim();
-  const generationPreviewStoryline = getMainStorylineLabel(draftChapterPlan);
   const missingOutlineItems = generationPreviewOutline ? [] : ['章节细纲'];
-  const missingStorylineItems = [hasMainStoryline ? '' : '当前卷主线'].filter(Boolean);
-  const requiredMissingCount = missingOutlineItems.length + missingStorylineItems.length;
-  const requiredMissingLabels = [...missingOutlineItems, ...missingStorylineItems];
-  const roleConfigLabel = hasRoleConfig ? '已配置本章角色' : '建议补出场角色';
-  const storylineStatusLabel = hasMainStoryline
-    ? (generationPreviewStoryline || '当前卷主线已挂载')
-    : mountedStorylineCount > 0
-      ? `${mountedStorylineCount} 条已挂载，当前卷主线待补`
-      : '未挂载叙事脉络';
+  // 生成硬门槛只认章节细纲；叙事脉络是强烈建议项，不能一边提示“必填”一边仍允许生成。
+  const requiredMissingCount = missingOutlineItems.length;
   const proseDisplayText = String(generationState.content || generationState.previewText || '').trim();
   // 完整审校数据在章节规划的 structured_content.chapter_feedback.quality_check 里
   const qualityCheck = draftChapterPlan?.structured_content?.chapter_feedback?.quality_check
@@ -104,6 +77,93 @@ export default function ContentWorkspace(props) {
   const planAnchorIssues = Array.isArray(qualityCheck?.plan_anchor_audit?.issues)
     ? qualityCheck.plan_anchor_audit.issues
     : [];
+  const hasQualityCheck = Boolean(qualityCheck && Object.keys(qualityCheck).length > 0);
+  const qualityPassed = hasQualityCheck && (qualityConfirmed || !qualityNeedsReview);
+
+  let workflowStep = 1;
+  let nextStepState = {
+    tone: 'warning',
+    eyebrow: '先完成本章准备',
+    title: '补齐章节细纲',
+    text: '正文生成只剩这一项硬门槛。保存细纲后，这里会自动切换为“生成正文”。',
+    primaryLabel: '完善章节细纲',
+    onPrimary: onOpenOutlineModal,
+  };
+
+  if (loadingChapter) {
+    nextStepState = {
+      tone: 'info',
+      eyebrow: '正在确认当前进度',
+      title: '读取本章资料',
+      text: '系统正在整理细纲、正文和审校状态，完成后会给出唯一的下一步。',
+      primaryLabel: '',
+      onPrimary: null,
+    };
+  } else if (isGenerating) {
+    workflowStep = 2;
+    nextStepState = {
+      tone: 'info',
+      eyebrow: '正文生成中',
+      title: '留在当前页面等待完成',
+      text: '生成完成后会自动保存正文、刷新审校，并告诉你是否可以进入下一章。',
+      primaryLabel: '',
+      onPrimary: null,
+    };
+  } else if (requiredMissingCount === 0 && !generationState.hasContent) {
+    workflowStep = 2;
+    nextStepState = {
+      tone: hasMainStoryline ? 'ready' : 'warning',
+      eyebrow: hasMainStoryline ? '本章准备完成' : '已经可以生成',
+      title: '生成本章正文',
+      text: hasMainStoryline
+        ? '章节细纲和当前卷主线都已就位，可以开始生成。'
+        : '章节细纲已经就位。当前卷主线尚未挂载，可先补脉络让长篇承接更稳，也可以直接生成。',
+      primaryLabel: '生成正文',
+      onPrimary: onGenerateChapter
+    };
+  } else if (generationState.hasContent && hasQualityCheck && qualityNeedsReview && !qualityConfirmed) {
+    workflowStep = 3;
+    nextStepState = {
+      tone: 'warning',
+      eyebrow: '正文已生成 · 审校待处理',
+      title: '先处理审校风险',
+      text: '审校发现需要复核的项目。查看报告后，可以校改正文，或确认风险可接受再继续。',
+      primaryLabel: '查看审校报告',
+      onPrimary: () => {
+        const report = document.getElementById(`chapter-quality-review-${chapterNumber}`);
+        if (!report) return;
+        report.open = true;
+        report.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      },
+    };
+  } else if (generationState.hasContent && qualityPassed) {
+    workflowStep = 4;
+    nextStepState = {
+      tone: 'ready',
+      eyebrow: qualityConfirmed ? '风险已人工确认' : '本章审校已通过',
+      title: '进入下一章',
+      text: '本章正文和审校已经闭环。下一章会自动承接本章摘要、人物状态和未解决线索。',
+      primaryLabel: '开始下一章',
+      onPrimary: onNextChapter
+    };
+  } else if (generationState.hasContent) {
+    workflowStep = 3;
+    nextStepState = {
+      tone: 'info',
+      eyebrow: '正文已保存',
+      title: '校改或继续下一章',
+      text: '当前没有可用的正式审校结论。建议先校改定稿，也可以保留当前正文继续创作。',
+      primaryLabel: '校改正文',
+      onPrimary: onOpenRevisionEditor
+    };
+  }
+
+  const workflowSteps = [
+    { number: 1, label: '准备' },
+    { number: 2, label: '生成' },
+    { number: 3, label: '审校' },
+    { number: 4, label: '下一章' }
+  ];
 
   return (
     <>
@@ -232,9 +292,42 @@ export default function ContentWorkspace(props) {
       `}</style>
       <div className="workbench-content-split">
         <section className="workbench-prose-main" aria-label="正文工作区">
+          <section className={`workbench-next-step is-${nextStepState.tone}`} aria-label="当前创作进度与下一步">
+            <div className="workbench-next-step-track" aria-label={`当前第 ${workflowStep} 步，共 4 步`}>
+              {workflowSteps.map((item) => (
+                <div
+                  className={`workbench-next-step-node${item.number < workflowStep ? ' is-done' : ''}${item.number === workflowStep ? ' is-current' : ''}`}
+                  key={item.number}
+                >
+                  <span>{item.number < workflowStep ? '✓' : item.number}</span>
+                  <strong>{item.label}</strong>
+                </div>
+              ))}
+            </div>
+            <div className="workbench-next-step-body">
+              <div className="workbench-next-step-copy">
+                <span>{nextStepState.eyebrow}</span>
+                <strong>{nextStepState.title}</strong>
+                <p>{nextStepState.text}</p>
+              </div>
+              {nextStepState.primaryLabel ? (
+                <div className="workbench-next-step-actions">
+                  <button
+                    type="button"
+                    className="workbench-next-step-primary"
+                    onClick={nextStepState.onPrimary}
+                    disabled={nextStepState.primaryLabel === '生成正文' && (!canGenerate || requiredMissingCount > 0)}
+                  >
+                    {nextStepState.primaryLabel}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </section>
           <WorkbenchSection
             code="PROSE"
             title={generationPreviewVisible ? '生成预览' : (generationState.hasContent ? '正文' : '生成结果')}
+            className={generationPreviewVisible ? 'is-generation-empty' : ''}
             actions={
               <div className="workbench-prose-inline-actions">
                 {isGenerating ? (
@@ -242,6 +335,9 @@ export default function ContentWorkspace(props) {
                 ) : generationState.hasContent ? (
                   <button type="button" className="wpa-secondary" onClick={onOpenRevisionEditor}>校改</button>
                 ) : null}
+                {isGenerating ? null : (
+                  <button type="button" className="wpa-secondary" onClick={onOpenVersionHistory}>历史版本</button>
+                )}
                 {isGenerating ? null : (
                   <GenerationSettingsPopover
                     settings={draftChapterPlan.generation_settings}
@@ -258,17 +354,17 @@ export default function ContentWorkspace(props) {
                     type="button"
                     className="wpa-generate"
                     onClick={onGenerateChapter}
-                    disabled={!canGenerate}
+                    disabled={!canGenerate || requiredMissingCount > 0}
                   >
-                    {isGenerating ? '生成中' : '生成'}
+                    {generationState.hasContent ? '重新生成' : '生成正文'}
                   </button>
                 )}
               </div>
             }
-            contentClassName="gap-3"
+            contentClassName={generationPreviewVisible ? 'workbench-empty-section-content' : 'gap-3'}
           >
             {/* Status notice — compact, inside PROSE card */}
-            {generationState.statusTitle ? (
+            {generationState.statusTitle && !generationPreviewVisible ? (
               <StatusNotice
                 kind={isGenerating ? 'warning' : generationState.statusKind}
                 title={isGenerating ? (generationState.statusTitle || '正在生成这一章') : generationState.statusTitle}
@@ -277,7 +373,7 @@ export default function ContentWorkspace(props) {
             ) : null}
 
             {qualityCheck && Object.keys(qualityCheck).length > 0 ? (
-              <details className="workbench-review-report">
+              <details id={`chapter-quality-review-${chapterNumber}`} className="workbench-review-report">
                 <summary>
                   <span>创作审校报告</span>
                   {qualityConfirmed ? (
@@ -343,59 +439,24 @@ export default function ContentWorkspace(props) {
             ) : null}
 
             {generationPreviewVisible ? (
-              <section className="workbench-generation-preview">
-                <div className="workbench-generation-preview-head">
-                  <MetaCode>READY TO WRITE</MetaCode>
+              <section className="workbench-empty-canvas">
+                <div className="workbench-empty-canvas-meta">
+                  <span>CHAPTER {String(chapterNumber).padStart(2, '0')}</span>
                   <span>目标约 {generationWordTarget} 字</span>
                 </div>
-                <div className="workbench-generation-preview-title-row">
+                <div className="workbench-empty-canvas-copy">
+                  <span aria-hidden="true" />
                   <h3>{chapterTitle}</h3>
-                  <span className={requiredMissingCount > 0 ? 'is-warning' : 'is-ready'}>
-                    {requiredMissingCount > 0 ? `还差 ${requiredMissingCount} 个必填点` : '可以生成'}
-                  </span>
+                  <p>一页留白，等细纲落笔。</p>
                 </div>
-                {requiredMissingCount > 0 ? (
-                  <div className="workbench-generation-blocking-tip">
-                    <strong>缺：{requiredMissingLabels.join('、')}</strong>
-                    <span>先补齐红色项，再生成正文。</span>
-                  </div>
-                ) : null}
-                <div className="workbench-generation-prep-list">
-                  <button
-                    type="button"
-                    className={`workbench-generation-prep-row${missingOutlineItems.length > 0 ? ' is-warning' : ' is-ready'}`}
-                    onClick={() => onOpenOutlineModal?.()}
-                  >
-                    <span className="workbench-generation-prep-main">
-                      <strong>章节细纲</strong>
-                      <small>{joinMissingLabels(missingOutlineItems)}</small>
-                    </span>
-                    <em>补细纲</em>
-                  </button>
-                  <button
-                    type="button"
-                    className={`workbench-generation-prep-row is-storyline${missingStorylineItems.length > 0 ? ' is-warning' : ' is-ready'}`}
-                    onClick={() => onOpenStorylinePicker?.()}
-                  >
-                    <span className="workbench-generation-prep-main">
-                      <strong>叙事脉络</strong>
-                      <small>{storylineStatusLabel}</small>
-                    </span>
-                    <em>选择脉络</em>
-                  </button>
-                  <button
-                    type="button"
-                    className={`workbench-generation-prep-row${hasRoleConfig ? ' is-ready' : ''}`}
-                    onClick={() => onOpenCharacterModal?.()}
-                  >
-                    <span className="workbench-generation-prep-main">
-                      <strong>角色配置</strong>
-                      <small>{hasRoleConfig ? roleConfigLabel : `建议：${roleConfigLabel}`}</small>
-                    </span>
-                    <em>配角色</em>
-                  </button>
+                <div className="workbench-empty-canvas-lines" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
                 </div>
-                {/* No duplicate generate button here — use the one in card header */}
+                <div className="workbench-empty-canvas-ornament" aria-hidden="true">
+                  {String(chapterNumber).padStart(2, '0')}
+                </div>
               </section>
             ) : (
               <section className="workbench-prose-preview">
@@ -405,6 +466,14 @@ export default function ContentWorkspace(props) {
                     CH.{String(chapterNumber).padStart(2, '0')}　{generationState.wordCountLabel}
                   </span>
                 </div>
+                {onOpenReader ? (
+                  <button type="button" className="workbench-mobile-reader-entry" onClick={onOpenReader}>
+                    <span className="workbench-mobile-reader-kicker">正文已保存 · CH.{String(chapterNumber).padStart(2, '0')}</span>
+                    <strong>进入沉浸式阅读</strong>
+                    <small>隐藏工作台面板，专注阅读本章正文</small>
+                    <span className="workbench-mobile-reader-arrow" aria-hidden="true">→</span>
+                  </button>
+                ) : null}
                 <div className="workbench-prose-paper">
                   <IndentedTextBlock
                     text={proseDisplayText}

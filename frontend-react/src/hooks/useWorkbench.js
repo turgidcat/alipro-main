@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useWorkbenchData } from '../useWorkbenchData.js';
-import { fetchChapterSetupBundle } from '../workbenchApi.js';
+import { fetchChapterSetupBundle, initializeInspirationBook } from '../workbenchApi.js';
 import { emptyChapterPlan, initialGenerationState, emptyStorylineDraft } from '../lib/constants.js';
 import { normalizeChapterBundle } from '../lib/chapterBundle.js';
 
@@ -91,6 +91,7 @@ export function useWorkbench() {
   const workbenchData = useWorkbenchData();
   const { selectedBookId } = workbenchData;
   const appliedChapterEntryKeyRef = useRef('');
+  const initializedInspirationBooksRef = useRef(new Set());
 
   function setChapterEntryMode(mode) {
     const nextMode = CHAPTER_ENTRY_MODES.has(mode) ? mode : 'first';
@@ -108,6 +109,10 @@ export function useWorkbench() {
     async function loadChapter() {
       setLoadingChapter(true);
       try {
+        if (!initializedInspirationBooksRef.current.has(selectedBookId)) {
+          await initializeInspirationBook(selectedBookId, { chapterNumber }).catch(() => null);
+          initializedInspirationBooksRef.current.add(selectedBookId);
+        }
         const bundle = await fetchChapterSetupBundle(selectedBookId, chapterNumber);
         if (cancelled) return;
         const normalized = normalizeChapterBundle(bundle, chapterNumber);

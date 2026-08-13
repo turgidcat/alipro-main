@@ -94,7 +94,7 @@ export default function LibraryTopNav({
           background: var(--paper-primary);
           border-color: var(--paper-primary);
           color: var(--paper-surface-raised);
-          box-shadow: 0 8px 20px rgba(90, 75, 60, 0.2);
+          box-shadow: var(--paper-shadow-card);
         }
 
         .library-topbar-item:disabled {
@@ -117,8 +117,8 @@ export default function LibraryTopNav({
         }
 
         .library-topbar-item.is-active .library-topbar-chip {
-          background: rgba(255, 255, 255, 0.18);
-          border-color: rgba(255, 255, 255, 0.34);
+          background: var(--paper-accent);
+          border-color: var(--paper-accent-border);
           color: var(--paper-surface-raised);
         }
 

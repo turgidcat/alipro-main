@@ -19,11 +19,15 @@ const ttsRoutes = require('./routes/tts');
 const inspirationRoutes = require('./routes/inspiration');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT || 3000);
 const isDevelopment = (process.env.NODE_ENV || 'development') !== 'production';
 const reactDistDir = path.join(__dirname, '..', 'frontend-react', 'dist');
 const reactIndexPath = path.join(reactDistDir, 'index.html');
 const hasReactBuild = fs.existsSync(reactIndexPath);
+
+// Production traffic comes through Nginx on the same host. Trust only loopback
+// proxies so req.ip reflects the real client without accepting arbitrary XFF.
+app.set('trust proxy', 'loopback');
 
 function setNoCacheHeaders(res) {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -115,6 +119,10 @@ app.use(cors({
     'http://127.0.0.1:8081',
     'http://localhost:3456',
     'http://127.0.0.1:3456',
+    'https://localhost',
+    'http://localhost',
+    'capacitor://localhost',
+    'ionic://localhost',
     'http://turgidcat.space',
     'https://turgidcat.space',
     'null'
@@ -223,6 +231,8 @@ app.use('/projects/alipro/api/storyline-workbench', storylineRoutes);
 app.use('/projects/alipro/api', planRoutes);
 app.use('/projects/alipro/api/analysis', analysisRoutes);
 app.use('/projects/alipro/api/calibration', calibrationRoutes);
+app.use('/projects/alipro/api/tts', ttsRoutes);
+app.use('/projects/alipro/api/inspiration', inspirationRoutes);
 
 // ==================== 错误处理 ====================
 
@@ -252,7 +262,7 @@ app.use((err, req, res, next) => {
 
 // ==================== 启动服务 ====================
 
-app.listen(PORT, () => {
+const httpServer = app.listen(PORT, () => {
   logger.info('网文生成器后端服务已启动', {
     port: PORT,
     environment: process.env.NODE_ENV || 'development',
@@ -350,3 +360,4 @@ process.on('SIGINT', () => {
 });
 
 module.exports = app;
+module.exports.httpServer = httpServer;

@@ -1,414 +1,97 @@
 import { useEffect, useMemo, useState } from 'react';
-import { brand } from '../config/brand.js';
+import { useNavigate } from 'react-router-dom';
 import '../styles.css';
 import '../app-shell.css';
+import '../changelog-paper.css';
+import { getApiBase } from '../lib/apiBase.js';
 
-const tagMeta = {
-  important: { label: '重要', bg: 'rgba(214,141,33,0.14)', color: '#9a5a12', border: '#f3b338' },
-  fix: { label: '修复', bg: 'rgba(185,52,52,0.12)', color: '#9a3030', border: '#df7a7a' },
-  improve: { label: '完善', bg: 'rgba(59,130,246,0.12)', color: '#1d4ed8', border: '#7caeff' },
-  feature: { label: '新功能', bg: 'rgba(77,143,88,0.14)', color: '#397245', border: '#8fd28c' },
-  docs: { label: '文档', bg: 'rgba(120,93,62,0.12)', color: '#7a5d3e', border: '#d7b38b' }
+const CHANGE_TYPES = {
+  important: '重要',
+  fix: '修复',
+  improve: '完善',
+  feature: '新功能',
+  docs: '文档'
 };
 
 function normalizeDetails(value) {
   if (Array.isArray(value)) return value.filter(Boolean);
-  if (typeof value === 'string' && value.trim()) {
-    return value.split('|').map((item) => item.trim()).filter(Boolean);
-  }
+  if (typeof value === 'string' && value.trim()) return value.split('|').map((item) => item.trim()).filter(Boolean);
   return [];
 }
 
 function normalizeItem(item = {}) {
-  return {
-    date: item.date || '',
-    title: item.title || '未命名更新',
-    summary: item.summary || '',
-    details: normalizeDetails(item.details),
-    status: item.status || ''
-  };
+  return { date: item.date || '', title: item.title || '未命名更新', summary: item.summary || '', details: normalizeDetails(item.details), status: item.status || '' };
 }
 
 function normalizeGroup(group = {}) {
-  return {
-    category: group.category || 'improve',
-    title: group.title || tagMeta[group.category]?.label || '未分类',
-    items: Array.isArray(group.items) ? group.items.map(normalizeItem) : []
-  };
+  return { category: group.category || 'improve', title: group.title || CHANGE_TYPES[group.category] || '未分类', items: Array.isArray(group.items) ? group.items.map(normalizeItem) : [] };
 }
 
 function normalizeRelease(release = {}) {
-  return {
-    version: release.version || '',
-    date: release.date || '',
-    groups: Array.isArray(release.groups) ? release.groups.map(normalizeGroup) : []
-  };
+  return { version: release.version || '', date: release.date || '', groups: Array.isArray(release.groups) ? release.groups.map(normalizeGroup) : [] };
 }
 
 export default function ChangelogPage() {
-  const [data, setData] = useState({
-    currentVersion: '',
-    lastUpdated: '',
-    updatedAt: '',
-    releases: []
-  });
+  const navigate = useNavigate();
+  const [data, setData] = useState({ currentVersion: '', lastUpdated: '', updatedAt: '', releases: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let alive = true;
-
     async function load() {
       try {
         setLoading(true);
         setError('');
-        const appBasePath = String(import.meta.env.BASE_URL || '/');
-        const apiBase = import.meta.env.VITE_API_BASE || `${appBasePath.replace(/\/+$/, '')}/api`;
-        const response = await fetch(`${apiBase}/analysis/changelog`, { cache: 'no-store' });
+        const response = await fetch(`${getApiBase()}/analysis/changelog`, { cache: 'no-store' });
         const payload = await response.json();
-        if (!response.ok || payload.success === false) {
-          throw new Error(payload.error || `HTTP ${response.status}`);
-        }
-        if (alive) {
-          setData(payload.data || {});
-        }
+        if (!response.ok || payload.success === false) throw new Error(payload.error || `HTTP ${response.status}`);
+        if (alive) setData(payload.data || {});
       } catch (loadError) {
-        if (alive) {
-          setError(loadError.message || '加载失败');
-        }
+        if (alive) setError(loadError.message || '加载失败');
       } finally {
-        if (alive) {
-          setLoading(false);
-        }
+        if (alive) setLoading(false);
       }
     }
-
     load();
     return () => { alive = false; };
   }, []);
 
-  const releases = useMemo(() => (
-    Array.isArray(data.releases) ? data.releases.map(normalizeRelease) : []
-  ), [data.releases]);
+  const releases = useMemo(() => (Array.isArray(data.releases) ? data.releases.map(normalizeRelease) : []), [data.releases]);
+  const updateCount = releases.reduce((total, release) => total + release.groups.reduce((groupTotal, group) => groupTotal + group.items.length, 0), 0);
 
   return (
-    <div className="page-shell">
-      {/* ── Page Header ──────────────────────────────────────────────── */}
-      <header className="changelog-page-header">
-        <h1 className="changelog-page-title">更新日志</h1>
-        <p className="changelog-page-subtitle">ALIPRO 内测版迭代记录</p>
-        <div className="changelog-page-meta">
-          <span>{data.currentVersion ? `当前版本 v${data.currentVersion}` : '当前版本待同步'}</span>
-          <span className="changelog-page-meta-sep" />
-          <span>{data.lastUpdated ? `版本日期：${data.lastUpdated}` : '版本日期暂未记录'}</span>
-          <span className="changelog-page-meta-sep" />
-          <span>{data.updatedAt ? `同步于 ${data.updatedAt.slice(0, 16).replace('T', ' ')}` : '日志尚未同步'}</span>
+    <div className="changelog-app-surface">
+      <header className="changelog-app-hero">
+        <div className="changelog-app-kicker">PRODUCT JOURNAL</div>
+        <div className="changelog-app-hero-row">
+          <div><h1>更新日志</h1><p>把每一次产品进化，留在创作现场。</p></div>
+          <span className="changelog-app-current-version">{data.currentVersion ? `v${data.currentVersion}` : '同步中'}</span>
         </div>
+        <div className="changelog-app-stats"><span><b>{releases.length}</b> 个版本</span><i /><span><b>{updateCount}</b> 项变化</span><i /><span>{data.lastUpdated ? `最近更新 ${data.lastUpdated}` : '等待同步'}</span></div>
       </header>
 
-      {/* ── Timeline Releases ───────────────────────────────────────── */}
-      <section className="changelog-page-timeline">
-        {loading ? (
-          <div className="changelog-page-empty">正在读取更新日志...</div>
-        ) : null}
-        {!loading && error ? (
-          <div className="changelog-page-empty">更新日志加载失败：{error}</div>
-        ) : null}
-        {!loading && !error ? (
-          <div className="changelog-page-list">
-            {releases.map((release, idx) => (
-              <article key={release.version || release.date} className="changelog-page-card">
-                {/* Timeline connector line */}
-                <div className="changelog-page-card-line" aria-hidden="true" />
+      <main className="changelog-app-feed">
+        {loading ? <div className="changelog-app-state">正在读取产品更新…</div> : null}
+        {!loading && error ? <div className="changelog-app-state is-error">更新日志加载失败：{error}</div> : null}
+        {!loading && !error ? releases.map((release, releaseIndex) => (
+          <article className="changelog-release-card" key={release.version || release.date || releaseIndex}>
+            <div className="changelog-release-rail" aria-hidden="true"><span /></div>
+            <div className="changelog-release-head"><div><span className="changelog-release-index">0{releaseIndex + 1}</span><strong>{release.version ? `v${release.version}` : '未命名版本'}</strong></div><time>{release.date || '日期待补充'}</time></div>
+            <p className="changelog-release-caption">{releaseIndex === 0 ? '当前版本' : '版本迭代'}</p>
+            <div className="changelog-release-groups">
+              {release.groups.map((group) => (
+                <section className={`changelog-change-group is-${group.category}`} key={`${release.version}-${group.category}`}>
+                  <div className="changelog-change-group-head"><span>{group.title}</span><small>{group.items.length} 项</small></div>
+                  <ul>{group.items.map((item, itemIndex) => <li key={`${release.version}-${group.category}-${itemIndex}`}><strong>{item.title}</strong>{item.summary ? <p>{item.summary}</p> : null}{item.details.map((detail, detailIndex) => <span key={`${item.title}-${detailIndex}`}>· {detail}</span>)}</li>)}</ul>
+                </section>
+              ))}
+            </div>
+          </article>
+        )) : null}
+      </main>
 
-                <div className="changelog-page-card-inner">
-                  {/* Card top: version badge + date */}
-                  <div className="changelog-page-card-top">
-                    <div className="changelog-page-card-top-left">
-                      <span className="changelog-page-version-badge">
-                        {release.version ? `v${release.version}` : '未命名版本'}
-                      </span>
-                      <span className="changelog-page-date">{release.date}</span>
-                    </div>
-                  </div>
-
-                  {/* Change groups */}
-                  <div className="changelog-page-groups">
-                    {release.groups.map((group) => {
-                      const meta = tagMeta[group.category] || tagMeta.improve;
-                      return (
-                        <section key={`${release.version}-${group.category}`} className="changelog-page-group">
-                          <span
-                            className="changelog-page-group-tag"
-                            style={{
-                              background: meta.bg,
-                              color: meta.color,
-                              borderColor: meta.border
-                            }}
-                          >
-                            {group.title}
-                          </span>
-
-                          <ul className="changelog-page-group-items">
-                            {group.items.map((item, index) => (
-                              <li key={`${release.version}-${group.category}-${index}`} className="changelog-page-group-item">
-                                <span className="changelog-page-item-title">{item.title}</span>
-                                {item.summary ? (
-                                  <span className="changelog-page-item-summary">{item.summary}</span>
-                                ) : null}
-                                {item.details.length > 0 ? (
-                                  <ul className="changelog-page-item-details">
-                                    {item.details.map((detail, detailIndex) => (
-                                      <li key={`${release.version}-${group.category}-${index}-${detailIndex}`}>{detail}</li>
-                                    ))}
-                                  </ul>
-                                ) : null}
-                              </li>
-                            ))}
-                          </ul>
-                        </section>
-                      );
-                    })}
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : null}
-      </section>
-
-      {/* ── Bottom CTA ──────────────────────────────────────────────── */}
-      <section className="changelog-page-cta">
-        <a
-          href="#join-beta"
-          className="changelog-page-cta-btn"
-        >
-          加入内测
-        </a>
-        <p className="changelog-page-cta-note">申请即可体验全部功能</p>
-      </section>
-
-      {/* ── Scoped Styles ───────────────────────────────────────────── */}
-      <style>{`
-        /* ── Header ──────────────────────────────────────────────────── */
-        .changelog-page-header {
-          text-align: center;
-          padding-bottom: 40px;
-          border-bottom: 1px solid var(--line);
-          margin-bottom: 40px;
-        }
-        .changelog-page-title {
-          font-family: var(--font-serif);
-          font-size: clamp(28px, 3vw, 36px);
-          font-weight: 700;
-          color: var(--text);
-          margin: 0 0 8px 0;
-          line-height: 1.25;
-        }
-        .changelog-page-subtitle {
-          font-family: var(--font-mono);
-          font-size: 13px;
-          color: var(--muted);
-          letter-spacing: 0.06em;
-          margin: 0 0 20px 0;
-        }
-        .changelog-page-meta {
-          display: inline-flex;
-          align-items: center;
-          gap: 10px;
-          font-size: 13px;
-          color: var(--muted);
-          font-family: var(--font-mono);
-          background: var(--panel);
-          border: 1px solid var(--line);
-          border-radius: 999px;
-          padding: 6px 18px;
-        }
-        .changelog-page-meta-sep {
-          width: 4px;
-          height: 4px;
-          border-radius: 50%;
-          background: var(--line);
-          flex-shrink: 0;
-        }
-
-        /* ── Timeline list ─────────────────────────────────────────── */
-        .changelog-page-list {
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-        }
-
-        /* ── Card ────────────────────────────────────────────────────── */
-        .changelog-page-card {
-          position: relative;
-          border: 1px solid var(--line);
-          border-radius: var(--radius-panel-lg);
-          background: var(--panel);
-          overflow: hidden;
-        }
-        .changelog-page-card-line {
-          position: absolute;
-          left: 0;
-          top: 0;
-          bottom: 0;
-          width: 3px;
-          background: var(--brand);
-          border-radius: 0 3px 3px 0;
-        }
-        /* Dot on the timeline connector aligned with the version badge */
-        .changelog-page-card-line::after {
-          content: '';
-          position: absolute;
-          top: 32px;
-          left: 50%;
-          transform: translateX(-50%);
-          width: 10px;
-          height: 10px;
-          border-radius: 50%;
-          background: var(--brand);
-          border: 2px solid var(--panel-strong);
-          box-shadow: 0 0 0 2px var(--brand);
-        }
-        .changelog-page-card-inner {
-          padding: 24px;
-          padding-left: 28px;
-        }
-
-        /* ── Card top ─────────────────────────────────────────────────── */
-        .changelog-page-card-top {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 20px;
-        }
-        .changelog-page-card-top-left {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-        .changelog-page-version-badge {
-          display: inline-flex;
-          align-items: center;
-          background: var(--brand-soft);
-          color: var(--brand-deep);
-          border-radius: 999px;
-          font-family: var(--font-mono);
-          font-size: 12px;
-          font-weight: 600;
-          padding: 3px 10px;
-          line-height: 1.5;
-        }
-        .changelog-page-date {
-          font-size: 13px;
-          color: var(--muted);
-          font-family: var(--font-mono);
-          white-space: nowrap;
-        }
-
-        /* ── Groups ───────────────────────────────────────────────────── */
-        .changelog-page-groups {
-          display: flex;
-          flex-direction: column;
-          gap: 18px;
-        }
-        .changelog-page-group {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-        .changelog-page-group-tag {
-          display: inline-flex;
-          align-items: center;
-          align-self: flex-start;
-          min-height: 28px;
-          padding: 0 10px;
-          border-radius: var(--radius-panel-sm);
-          border: 1.5px solid transparent;
-          font-size: 12px;
-          font-weight: 700;
-          letter-spacing: 0.02em;
-        }
-        .changelog-page-group-items {
-          list-style: none;
-          margin: 0;
-          padding: 0;
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .changelog-page-group-item {
-          padding-left: 16px;
-          border-left: 2px solid var(--brand-soft);
-        }
-        .changelog-page-item-title {
-          display: block;
-          font-size: 14px;
-          font-weight: 600;
-          color: var(--text);
-          line-height: 1.5;
-        }
-        .changelog-page-item-summary {
-          display: block;
-          font-size: 13px;
-          color: var(--muted);
-          line-height: 1.5;
-          margin-top: 2px;
-        }
-        .changelog-page-item-details {
-          list-style: disc;
-          margin: 4px 0 0 0;
-          padding-left: 18px;
-          font-size: 13px;
-          color: var(--muted);
-          line-height: 1.65;
-        }
-
-        /* ── Empty / Error state ─────────────────────────────────────── */
-        .changelog-page-empty {
-          padding: 28px 24px;
-          border: 1px dashed var(--line);
-          border-radius: var(--radius-panel-lg);
-          color: var(--muted);
-          background: var(--panel);
-          text-align: center;
-          font-size: 14px;
-        }
-
-        /* ── Bottom CTA ──────────────────────────────────────────────── */
-        .changelog-page-cta {
-          text-align: center;
-          padding: 48px 0 16px 0;
-          margin-top: 40px;
-          border-top: 1px solid var(--line);
-        }
-        .changelog-page-cta-btn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          min-height: var(--button-height);
-          padding: 0 var(--button-padding-x);
-          background: var(--btn-solid-bg);
-          color: var(--btn-solid-text);
-          border: 1px solid var(--btn-solid-border);
-          border-radius: var(--radius-button);
-          font-size: 14px;
-          font-weight: 600;
-          text-decoration: none;
-          box-shadow: var(--btn-solid-shadow);
-          transition: opacity 0.18s ease, transform 0.18s ease;
-          cursor: pointer;
-        }
-        .changelog-page-cta-btn:hover {
-          opacity: 0.92;
-          transform: translateY(-1px);
-        }
-        .changelog-page-cta-note {
-          margin: 12px 0 0 0;
-          font-size: 13px;
-          color: var(--muted);
-        }
-      `}</style>
+      <footer className="changelog-app-footer"><p>接下来，把更新变成你的下一章。</p><button type="button" onClick={() => navigate('/books')}>进入资料库 <span>→</span></button></footer>
     </div>
   );
 }

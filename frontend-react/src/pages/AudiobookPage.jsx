@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   deleteTtsAudio,
-  fetchBookChapters,
+  downloadTtsBook,
+  fetchBookChapterSummaries,
   fetchBookList,
   fetchBookTtsAudio,
   fetchTtsVoices,
   getStoredCurrentBookId,
   persistCurrentBookId,
   previewTts,
+  resolveTtsAudioUrl,
   synthesizeTtsChapter
 } from '../workbenchApi.js';
 import {
@@ -18,9 +20,6 @@ import {
 const DEFAULT_VOICE = 'zh-CN-XiaoxiaoNeural';
 const OUTPUT_FORMAT_DEFAULT = 'audio-24khz-48kbitrate-mono-mp3';
 const OUTPUT_FORMAT_HIGH = 'audio-24khz-96kbitrate-mono-mp3';
-const APP_BASE_PATH = String(import.meta.env.BASE_URL || '/');
-const API_BASE = import.meta.env.VITE_API_BASE || `${APP_BASE_PATH.replace(/\/+$/, '')}/api`;
-
 const REGION_LABELS = {
   'zh-CN': '普通话',
   'zh-TW': '台湾',
@@ -182,7 +181,7 @@ export default function AudiobookPage() {
     if (!targetBookId) return;
     try {
       const [chapterList, audioList] = await Promise.all([
-        fetchBookChapters(targetBookId),
+        fetchBookChapterSummaries(targetBookId),
         fetchBookTtsAudio(targetBookId)
       ]);
       setChapters(Array.isArray(chapterList) ? chapterList : []);
@@ -1157,14 +1156,14 @@ export default function AudiobookPage() {
                 <h2 className="audiobook-panel-title">已生成音频</h2>
                 <span className="audiobook-panel-count">{entries.length ? `${entries.length} 段` : ''}</span>
                 {entries.length > 0 ? (
-                  <a
+                  <button
+                    type="button"
                     className="ide-btn"
-                    href={`${API_BASE}/tts/books/${bookId}/download`}
-                    download
+                    onClick={() => downloadTtsBook(bookId).catch((reason) => setError(reason.message || '下载失败'))}
                     title="打包为 zip：文件夹名为书名，内部为各章节 mp3"
                   >
                     批量下载 MP3
-                  </a>
+                  </button>
                 ) : null}
               </div>
 
@@ -1211,7 +1210,7 @@ export default function AudiobookPage() {
                           className="audiobook-result-audio"
                           controls
                           preload="none"
-                          src={`${API_BASE}/tts/audio/${entry.id}`}
+                          src={resolveTtsAudioUrl(entry)}
                         >
                           你的浏览器不支持音频播放。
                         </audio>

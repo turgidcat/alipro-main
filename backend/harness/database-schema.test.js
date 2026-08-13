@@ -10,18 +10,77 @@ process.env.NOVEL_DB_PATH = path.join(tempDir, 'novel.db');
 const dbPromise = require('../database/init');
 const { recordGenerationRun } = require('../services/generation-run-service');
 const { syncFeedbackLedgers } = require('../services/continuity-ledger-service');
-const { saveDatabase } = require('../services/database');
+const { BookService, saveDatabase, getChapterFeedbackRecord, upsertChapterFeedbackRecord } = require('../services/database');
 
 test.after(() => {
   fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 });
 
-test('隔离数据库包含运行溯源和三类连续性账本', async () => {
+test('隔离数据库包含章节版本、运行溯源和三类连续性账本', async () => {
   const db = await dbPromise;
   const tables = db.exec("SELECT name FROM sqlite_master WHERE type = 'table'")[0].values.flat();
-  ['generation_runs', 'continuity_events', 'character_state_ledger', 'foreshadow_ledger'].forEach((name) => {
+  [
+    'chapter_versions',
+    'chapter_feedback',
+    'generation_runs',
+    'continuity_events',
+    'character_state_ledger',
+    'foreshadow_ledger',
+    'users',
+    'auth_identities',
+    'auth_sessions',
+    'sms_verification_codes',
+    'oauth_states',
+    'auth_handoffs'
+  ].forEach((name) => {
     assert.ok(tables.includes(name), `缺少表 ${name}`);
   });
+
+  const versionColumns = db.exec("PRAGMA table_info('chapter_versions')")[0].values.map((row) => row[1]);
+  ['version_type', 'version_number', 'revision_target'].forEach((name) => {
+    assert.ok(versionColumns.includes(name), `chapter_versions 缺少字段 ${name}`);
+  });
+
+  const chapterColumns = db.exec("PRAGMA table_info('chapters')")[0].values.map((row) => row[1]);
+  ['content_version_type', 'content_version_number', 'content_revision_target'].forEach((name) => {
+    assert.ok(chapterColumns.includes(name), `chapters 缺少字段 ${name}`);
+  });
+
+  const feedbackColumns = db.exec("PRAGMA table_info('chapter_feedback')")[0].values.map((row) => row[1]);
+  ['feedback_json', 'quality_status', 'needs_human_review', 'source'].forEach((name) => {
+    assert.ok(feedbackColumns.includes(name), `chapter_feedback 缺少字段 ${name}`);
+  });
+
+  const userColumns = db.exec("PRAGMA table_info('users')")[0].values.map((row) => row[1]);
+  ['phone', 'display_name', 'settings_json', 'password_enabled', 'phone_verified_at'].forEach((name) => {
+    assert.ok(userColumns.includes(name), `users 缺少字段 ${name}`);
+  });
+
+  const smsColumns = db.exec("PRAGMA table_info('sms_verification_codes')")[0].values.map((row) => row[1]);
+  ['provider', 'provider_out_id', 'provider_biz_id'].forEach((name) => {
+    assert.ok(smsColumns.includes(name), `sms_verification_codes 缺少字段 ${name}`);
+  });
+});
+
+test('章节反馈写入正式主表并保持可读取', async () => {
+  const db = await dbPromise;
+  const book = await new BookService().create('反馈主表测试书', 'urban');
+  const feedback = upsertChapterFeedbackRecord(db, {
+    bookId: book.id,
+    chapterId: 'chapter-test',
+    chapterNumber: 3,
+    feedback: {
+      source: 'model_feedback',
+      chapter_summary: '本章完成一次推进。',
+      quality_check: { status: 'passed', needs_human_review: false }
+    }
+  });
+  saveDatabase(db);
+  assert.equal(feedback.chapter_number, 3);
+  assert.equal(feedback.feedback.chapter_summary, '本章完成一次推进。');
+  assert.equal(feedback.quality_status, 'passed');
+  assert.equal(Number(feedback.needs_human_review), 0);
+  assert.equal(getChapterFeedbackRecord(db, book.id, 3).feedback.chapter_summary, '本章完成一次推进。');
 });
 
 test('生成运行台账分别保存原始 Judge 与归一化结果', async () => {

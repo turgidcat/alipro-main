@@ -43,6 +43,10 @@ function tone(context, frequency, start, duration, gainValue) {
 }
 
 export function playGenerationCompleteSound() {
+  try {
+    const storedUser = JSON.parse(localStorage.getItem('auth_user') || 'null');
+    if (storedUser?.settings?.generationSound === false) return;
+  } catch (_) {}
   installUnlockListeners();
   const context = getAudioContext();
   if (!context) return;

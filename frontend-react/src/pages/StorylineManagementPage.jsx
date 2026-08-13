@@ -13,6 +13,7 @@ import {
 } from '../workbenchApi.js';
 import { formatStorylineTypeLabel } from '../lib/storylineLabel.js';
 import LibraryTopNav from '../components/library/LibraryTopNav.jsx';
+import MobileStorylineSurface from '../components/library/MobileStorylineSurface.jsx';
 import '../styles.css';
 import '../app-shell.css';
 
@@ -416,7 +417,7 @@ export default function StorylineManagementPage() {
   }
 
   return (
-    <div className="books-admin-page library-page library-app-shell">
+    <div className="books-admin-page library-page library-app-shell mobile-library-mode">
       <LibraryTopNav
         active="storyline"
         bookId={bookId || ''}
@@ -433,6 +434,43 @@ export default function StorylineManagementPage() {
         }}
       />
 
+      <MobileStorylineSurface
+        books={books}
+        currentBookId={bookId || ''}
+        onSwitchBook={switchCurrentBook}
+        onNavigate={(key) => {
+          if (key === 'list') openBooksSummaryPage('');
+          else if (key === 'summary') openBooksSummaryPage(bookId);
+          else if (key === 'outline') openBooksOutlinePage(bookId);
+          else if (key === 'characters') openBooksCharacterPage(bookId);
+          else if (key === 'chapters') openBooksChapterPage(bookId);
+        }}
+        book={book}
+        volumePlans={volumePlans}
+        selectedVolumeNumber={selectedVolumeNumber}
+        setSelectedVolumeNumber={setSelectedVolumeNumber}
+        selectedVolumePlan={selectedVolumePlan}
+        selectedVolumeStorylines={selectedVolumeStorylines}
+        storylines={storylines}
+        aiGoal={aiGoal}
+        setAiGoal={setAiGoal}
+        actionLoading={actionLoading}
+        actionError={actionError}
+        notice={notice}
+        editorOpen={editorOpen}
+        storylineDraft={storylineDraft}
+        updateStorylineDraft={updateStorylineDraft}
+        openCreateEditor={openCreateEditor}
+        openEditEditor={openEditEditor}
+        handleSaveStoryline={handleSaveStoryline}
+        handleGenerateVolumeStorylines={handleGenerateVolumeStorylines}
+        handleGenerateStoryline={handleGenerateStoryline}
+        handleDeleteStoryline={handleDeleteStoryline}
+        setEditorOpen={setEditorOpen}
+        setNodeDetailStoryline={setNodeDetailStoryline}
+      />
+
+      <div className="library-legacy-surface">
       <main className="library-main">
         <div className="books-page-header">
           <div>
@@ -650,24 +688,27 @@ export default function StorylineManagementPage() {
                                       <button type="button" className="ghost-btn" onClick={() => handleDeleteStoryline(storyline)} disabled={actionLoading === `delete-${storyline.id}`}>删除</button>
                                     </div>
                                   </div>
-                                  {storyline.coreConflict ? (
-                                    <p className="excerpt-text"><b>核心冲突：</b>{storyline.coreConflict}</p>
-                                  ) : null}
-                                  {storyline.description ? (
-                                    <p className="excerpt-text"><b>说明：</b>{storyline.description}</p>
-                                  ) : null}
-                                  {storyline.structuredContent?.summary ? (
-                                    <p className="excerpt-text"><b>AI 大纲：</b>{storyline.structuredContent.summary}</p>
-                                  ) : null}
-                                  {Array.isArray(storyline.structuredContent?.keyBeats) ? (
-                                    <div className="storyline-node-summary">
-                                      <span>正式节点 {storyline.structuredContent?.keyBeats?.length || 0} 个</span>
-                                      <button type="button" className="ghost-btn" onClick={() => setNodeDetailStoryline(storyline)}>查看节点内容</button>
-                                    </div>
-                                  ) : null}
-                                  {completedStorylineId === storyline.id ? (
-                                    <p className="excerpt-text"><b>本次操作：</b>AI 重新生成已完成，以上大纲和节点统计已刷新。</p>
-                                  ) : null}
+                                  <details className="detail-storyline-details">
+                                    <summary>查看脉络详情</summary>
+                                    {storyline.coreConflict ? (
+                                      <p className="excerpt-text"><b>核心冲突：</b>{storyline.coreConflict}</p>
+                                    ) : null}
+                                    {storyline.description ? (
+                                      <p className="excerpt-text"><b>说明：</b>{storyline.description}</p>
+                                    ) : null}
+                                    {storyline.structuredContent?.summary ? (
+                                      <p className="excerpt-text"><b>AI 大纲：</b>{storyline.structuredContent.summary}</p>
+                                    ) : null}
+                                    {Array.isArray(storyline.structuredContent?.keyBeats) ? (
+                                      <div className="storyline-node-summary">
+                                        <span>正式节点 {storyline.structuredContent?.keyBeats?.length || 0} 个</span>
+                                        <button type="button" className="ghost-btn" onClick={() => setNodeDetailStoryline(storyline)}>查看节点内容</button>
+                                      </div>
+                                    ) : null}
+                                    {completedStorylineId === storyline.id ? (
+                                      <p className="excerpt-text"><b>本次操作：</b>AI 重新生成已完成，以上大纲和节点统计已刷新。</p>
+                                    ) : null}
+                                  </details>
                                 </article>
                               ))}
                             </div>
@@ -691,6 +732,7 @@ export default function StorylineManagementPage() {
         </section>
       )}
       </main>
+      </div>
 
       {nodeDetailStoryline ? (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {

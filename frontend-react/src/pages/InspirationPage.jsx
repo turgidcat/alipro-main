@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
+  createBook,
   createCharacterCard,
   fetchBookCharacters,
   fetchBookChapterPlans,
-  fetchBookChapters,
+  fetchBookChapterSummaries,
   fetchBookList,
   fetchBookVolumePlans,
   generateInspiration,
+  initializeInspirationBook,
   persistCurrentBookId,
   saveBookPlan,
   saveChapterPlan,
@@ -15,14 +18,6 @@ import {
 import '../styles.css';
 import '../app-shell.css';
 import './inspiration-page.css';
-
-const APP_BASE_PATH = String(import.meta.env.BASE_URL || '/');
-
-function buildAppPath(pathname = '/') {
-  const cleanPath = pathname.startsWith('/') ? pathname.slice(1) : pathname;
-  const cleanBase = APP_BASE_PATH.endsWith('/') ? APP_BASE_PATH : `${APP_BASE_PATH}/`;
-  return cleanPath ? `${cleanBase}${cleanPath}` : cleanBase;
-}
 
 function parseStructured(value) {
   if (value && typeof value === 'object') return value;
@@ -70,6 +65,13 @@ function formatWorldRules(candidate) {
   ].filter(Boolean).join('\n');
 }
 
+function inferRoleTier(character = {}, index = 0) {
+  const role = String(character.role || '').toLowerCase();
+  if (/反派|敌手|宿敌|antagonist|villain/.test(role)) return 'antagonist_major';
+  if (/主角|男主|女主|主人公|protagonist|lead/.test(role) || index === 0) return 'protagonist';
+  return index <= 2 ? 'supporting_major' : 'supporting_secondary';
+}
+
 function getNextChapterNumber(chapters = [], chapterPlans = []) {
   const numbers = [...(Array.isArray(chapters) ? chapters : []), ...(Array.isArray(chapterPlans) ? chapterPlans : [])]
     .map((chapter) => Number(chapter.chapter_number || 0))
@@ -87,7 +89,26 @@ function joinClasses(...values) {
   return values.filter(Boolean).join(' ');
 }
 
+function inferBookGenre(value = '') {
+  const genre = String(value || '').toLowerCase();
+  const mappings = [
+    [/科幻|末世|赛博|sci-?fi/, 'scifi'],
+    [/悬疑|推理|惊悚|mystery|thriller/, 'mystery'],
+    [/仙侠|修仙|xianxia/, 'xianxia'],
+    [/玄幻|奇幻|fantasy/, 'fantasy'],
+    [/历史|古代|history/, 'history'],
+    [/都市|现实|职场|urban/, 'urban'],
+    [/轻小说|校园|light/, 'lightnovel'],
+    [/游戏|电竞|game/, 'game'],
+    [/军事|战争|military/, 'military'],
+    [/体育|篮球|足球|sports/, 'sports'],
+    [/同人|fanfic/, 'fanfic']
+  ];
+  return mappings.find(([pattern]) => pattern.test(genre))?.[1] || 'fantasy';
+}
+
 export default function InspirationPage() {
+  const navigate = useNavigate();
   const [books, setBooks] = useState([]);
   const [mode, setMode] = useState('general');
   const [scope, setScope] = useState('volume');
@@ -104,6 +125,7 @@ export default function InspirationPage() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
   const [saving, setSaving] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -136,12 +158,22 @@ export default function InspirationPage() {
   }, []);
 
   useEffect(() => {
+    if (!generating) return undefined;
+    const startedAt = Date.now();
+    setGenerationElapsedSeconds(0);
+    const timer = window.setInterval(() => {
+      setGenerationElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [generating]);
+
+  useEffect(() => {
     if (!selectedBookId) {
       setVolumePlans([]); setChapterPlans([]); setChapters([]); setVolumeNumber(1); setChapterNumber(1);
       return undefined;
     }
     let alive = true;
-    Promise.all([fetchBookVolumePlans(selectedBookId), fetchBookChapterPlans(selectedBookId), fetchBookChapters(selectedBookId)])
+    Promise.all([fetchBookVolumePlans(selectedBookId), fetchBookChapterPlans(selectedBookId), fetchBookChapterSummaries(selectedBookId)])
       .then(([nextVolumes, nextChapterPlans, nextChapters]) => {
         if (!alive) return;
         setVolumePlans(nextVolumes);
@@ -159,7 +191,6 @@ export default function InspirationPage() {
     setSelectedBookId(bookId);
     persistCurrentBookId(bookId);
     setNotice('');
-    setCandidates([]);
   }
 
   function changeScope(nextScope) {
@@ -170,6 +201,7 @@ export default function InspirationPage() {
 
   async function handleGenerate() {
     if (generating) return;
+    const startedAt = Date.now();
     setGenerating(true); setError(''); setNotice('');
     try {
       const result = await generateInspiration({
@@ -180,46 +212,100 @@ export default function InspirationPage() {
       const nextCandidates = Array.isArray(result?.candidates) ? result.candidates.map(normalizeCandidate) : [];
       if (nextCandidates.length === 0) throw new Error('没有得到可用的灵感方案');
       setCandidates(nextCandidates); setActiveIndex(0);
-      setNotice(`已生成 3 个${scope === 'book' ? '全书' : scope === 'volume' ? '分卷' : '章节'}灵感方案，可以先挑一个继续展开。`);
+      const elapsedSeconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+      setNotice(`已生成 3 个${scope === 'book' ? '全书' : scope === 'volume' ? '分卷' : '章节'}方向，用时 ${elapsedSeconds} 秒。`);
     } catch (generateError) {
       setError(generateError.message || '灵感生成失败');
     } finally { setGenerating(false); }
   }
 
-  async function saveCharacters() {
-    const existingCharacters = await fetchBookCharacters(selectedBookId);
+  async function ensureTargetBook() {
+    if (selectedBookId) return { id: selectedBookId, title: selectedBook?.title || '当前作品', created: false };
+    if (!activeCandidate) throw new Error('请先选择一个灵感方向');
+
+    setNotice('正在把当前方向创建为新作品…');
+    const created = await createBook({
+      title: String(activeCandidate.title || '灵感新作').trim().slice(0, 100),
+      genre: inferBookGenre(activeCandidate.genre),
+      description: activeCandidate.premise || activeCandidate.storyDirection || '',
+      status: 'writing'
+    });
+    if (!created?.id) throw new Error('新作品创建成功，但没有返回作品编号');
+
+    const target = { id: created.id, title: created.title || activeCandidate.title || '灵感新作', created: true };
+    persistCurrentBookId(target.id);
+    setSelectedBookId(target.id);
+    try {
+      const nextBooks = await fetchBookList();
+      setBooks(Array.isArray(nextBooks) ? nextBooks : []);
+    } catch (_) {
+      setBooks((current) => [...current.filter((book) => book.id !== target.id), created]);
+    }
+    return target;
+  }
+
+  async function saveCharacters(bookId) {
+    const existingCharacters = await fetchBookCharacters(bookId);
     const existingNames = new Set(existingCharacters.map((item) => String(item.name || '').trim()).filter(Boolean));
     const newCharacters = activeCandidate.characters.filter((character) => character?.name && !existingNames.has(String(character.name).trim()));
-    await Promise.all(newCharacters.map((character) => createCharacterCard(selectedBookId, {
+    const results = await Promise.allSettled(newCharacters.map((character) => {
+      const candidateIndex = activeCandidate.characters.findIndex((item) => item === character || item?.name === character?.name);
+      return createCharacterCard(bookId, {
       name: character.name,
       appearance: character.appearance || '',
       personality: character.personality || '',
       background: character.background || '',
-      notes: formatCharacterNotes(character)
-    })));
-    return newCharacters.length;
+      notes: formatCharacterNotes(character),
+      role_tier: inferRoleTier(character, Math.max(0, candidateIndex))
+      });
+    }));
+    return {
+      saved: results.filter((result) => result.status === 'fulfilled').length,
+      failed: results.filter((result) => result.status === 'rejected').length
+    };
+  }
+
+  async function ensureCreationFoundation(targetBook) {
+    const result = await initializeInspirationBook(targetBook.id, {
+      candidate: activeCandidate,
+      scope,
+      volumeNumber,
+      chapterNumber,
+      prompt,
+      creativeFocus,
+      constraints
+    });
+    return {
+      mainStorylineId: result?.mainStorylineId || '',
+      characterResult: { saved: Number(result?.created?.characters || 0), failed: 0 },
+      targetVolume: Math.max(1, Number(result?.volumeNumber || volumeNumber || 1)),
+      targetChapter: Math.max(1, Number(result?.chapterNumber || chapterNumber || 1))
+    };
   }
 
   async function handleSaveToLibrary() {
-    if (!activeCandidate || !selectedBookId || saving) return;
+    if (!activeCandidate || saving) return;
     setSaving('library'); setError('');
+    setNotice(selectedBookId ? '正在写入资料库…' : '正在创建作品并写入资料库…');
     const record = {
       inspiration_source: 'inspiration_explorer', scope, volume_number: volumeNumber, chapter_number: chapterNumber,
       user_prompt: prompt, creative_focus: creativeFocus, constraints, inspiration_card: activeCandidate,
       key_scenes: activeCandidate.keyScenes, opening_hook: activeCandidate.openingHook, ending_hook: activeCandidate.endingHook
     };
     try {
+      const targetBook = await ensureTargetBook();
+      const foundation = targetBook.created ? await ensureCreationFoundation(targetBook) : null;
       let message = '';
       if (scope === 'book') {
-        await saveBookPlan(selectedBookId, {
+        await saveBookPlan(targetBook.id, {
           premise: activeCandidate.premise, main_goal: activeCandidate.storyDirection,
           core_conflict: activeCandidate.centralConflict, world_rules: formatWorldRules(activeCandidate),
-          main_outline: activeCandidate.plotOutline, structured_content: record, source: 'inspiration'
+          main_outline: activeCandidate.plotOutline, structured_content: record, source: 'ai'
         });
         message = '全书规划已更新';
       } else if (scope === 'volume') {
         const existingStructured = parseStructured(selectedVolumePlan?.structured_content);
-        await saveVolumePlan(selectedBookId, volumeNumber, {
+        await saveVolumePlan(targetBook.id, volumeNumber, {
           volume_name: selectedVolumePlan?.volume_name || activeCandidate.title,
           volume_theme: selectedVolumePlan?.volume_theme || activeCandidate.tone,
           stage_goal: activeCandidate.storyDirection,
@@ -233,7 +319,7 @@ export default function InspirationPage() {
         });
         message = `第 ${volumeNumber} 卷规划已更新`;
       } else {
-        await saveChapterPlan(selectedBookId, chapterNumber, {
+        await saveChapterPlan(targetBook.id, chapterNumber, {
           volume_number: volumeNumber, chapter_name: activeCandidate.title, summary: activeCandidate.premise,
           chapter_mission: activeCandidate.storyDirection, emotion_target: activeCandidate.tone,
           outline_text: activeCandidate.plotOutline, scene_outline: activeCandidate.keyScenes,
@@ -244,30 +330,40 @@ export default function InspirationPage() {
         });
         message = `第 ${volumeNumber} 卷第 ${chapterNumber} 章细纲已保存`;
       }
-      const newCharacterCount = await saveCharacters();
-      setNotice(`已写入《${selectedBook?.title || '当前作品'}》资料库：${message}${newCharacterCount ? `，新增 ${newCharacterCount} 张角色卡` : ''}。`);
+      const characterResult = foundation?.characterResult || await saveCharacters(targetBook.id);
+      const characterMessage = characterResult.saved ? `，新增 ${characterResult.saved} 张角色卡` : '';
+      const warningMessage = characterResult.failed ? `；另有 ${characterResult.failed} 张角色卡未保存` : '';
+      setNotice(`${targetBook.created ? '已新建作品并' : '已'}写入《${targetBook.title}》资料库：${message}${characterMessage}${warningMessage}。`);
     } catch (saveError) {
       setError(`保存到资料库失败：${saveError.message}`);
     } finally { setSaving(''); }
   }
 
   async function handleApplyToWorkbench() {
-    if (!activeCandidate || !selectedBookId || saving) return;
+    if (!activeCandidate || saving) return;
     setSaving('workbench'); setError('');
+    setNotice(selectedBookId ? '正在准备创作台…' : '正在创建作品并准备创作台…');
     try {
-      await saveChapterPlan(selectedBookId, chapterNumber, {
-        volume_number: volumeNumber, chapter_name: activeCandidate.title, summary: activeCandidate.premise,
+      const targetBook = await ensureTargetBook();
+      setNotice('正在补齐全书大纲、卷纲和叙事脉络…');
+      const foundation = await ensureCreationFoundation(targetBook);
+      await saveChapterPlan(targetBook.id, foundation.targetChapter, {
+        volume_number: foundation.targetVolume, chapter_name: activeCandidate.title, summary: activeCandidate.premise,
         chapter_mission: activeCandidate.storyDirection, emotion_target: activeCandidate.tone,
         outline_text: activeCandidate.plotOutline, scene_outline: activeCandidate.keyScenes,
         character_notes: [formatWorldRules(activeCandidate), activeCandidate.centralConflict, activeCandidate.fitReason].filter(Boolean).join('\n\n'),
         appearing_roles: activeCandidate.characters.map((character) => character?.name).filter(Boolean),
+        main_storyline_id: foundation.mainStorylineId,
+        target_storylines: foundation.mainStorylineId ? [foundation.mainStorylineId] : [],
         previous_hook: activeCandidate.openingHook, ending_hook: activeCandidate.endingHook,
-        structured_content: { inspiration_scope: scope, volume_number: volumeNumber, chapter_number: chapterNumber, inspiration_card: activeCandidate },
+        structured_content: { inspiration_scope: scope, volume_number: foundation.targetVolume, chapter_number: foundation.targetChapter, inspiration_card: activeCandidate },
         source: 'ai'
       });
-      persistCurrentBookId(selectedBookId);
-      try { localStorage.setItem('alipro-workbench-pending-chapter', JSON.stringify({ bookId: selectedBookId, chapterNumber })); } catch (_) {}
-      window.location.href = buildAppPath('/workbench');
+      persistCurrentBookId(targetBook.id);
+      try { localStorage.setItem('alipro-workbench-pending-chapter', JSON.stringify({ bookId: targetBook.id, chapterNumber: foundation.targetChapter })); } catch (_) {}
+      setNotice(`已补齐创作资料并应用到《${targetBook.title}》第 ${foundation.targetChapter} 章，正在打开创作台…`);
+      setSaving('');
+      navigate('/workbench');
     } catch (saveError) {
       setError(`加载到创作台失败：${saveError.message}`); setSaving('');
     }
@@ -277,35 +373,35 @@ export default function InspirationPage() {
 
   return (
     <div className="inspiration-page page-shell">
-      <header className="inspiration-header">
-        <div><div className="inspiration-kicker">INSPIRATION EXPLORER</div><h1>灵感探索</h1><p>先选择灵感要服务的层级，再让故事长出三条不同的路。</p></div>
-        <div className="inspiration-header-note"><span className="inspiration-note-mark">✦</span><span>全书定方向，分卷搭引擎，章节落成戏；结果可以回写资料库，也可以直接送入创作台。</span></div>
-      </header>
-
       <section className="inspiration-control-panel">
+        <div className="inspiration-studio-head">
+          <span className="inspiration-studio-mark" aria-hidden="true">✦</span>
+          <div><span>IDEA STUDIO</span><strong>捕捉一个念头</strong></div>
+          <em>{scopeLabel}</em>
+        </div>
         <div className="inspiration-mode-tabs" role="tablist" aria-label="灵感模式">
-          <button type="button" className={joinClasses('inspiration-mode-tab', mode === 'general' && 'is-active')} onClick={() => setMode('general')}><strong>自由探索</strong><span>高自由度发散，允许提出新假设</span></button>
-          <button type="button" className={joinClasses('inspiration-mode-tab', mode === 'latest_chapter' && 'is-active')} onClick={() => { setMode('latest_chapter'); if (scope === 'volume') setScope('chapter'); }}><strong>强承接已有内容</strong><span>优先遵守当前剧情和最新章节</span></button>
+          <button type="button" className={joinClasses('inspiration-mode-tab', mode === 'general' && 'is-active')} onClick={() => setMode('general')}><span aria-hidden="true">✦</span><strong>自由探索</strong></button>
+          <button type="button" className={joinClasses('inspiration-mode-tab', mode === 'latest_chapter' && 'is-active')} onClick={() => { setMode('latest_chapter'); if (scope === 'volume') setScope('chapter'); }}><span aria-hidden="true">↳</span><strong>承接剧情</strong></button>
         </div>
         <div className="inspiration-scope-tabs" role="tablist" aria-label="探索层级">
-          {['book', 'volume', 'chapter'].map((item) => <button key={item} type="button" className={joinClasses('inspiration-scope-tab', scope === item && 'is-active')} onClick={() => changeScope(item)}><strong>{item === 'book' ? '全书灵感' : item === 'volume' ? '分卷灵感' : '章节灵感'}</strong><span>{item === 'book' ? '长期方向与世界支点' : item === 'volume' ? '阶段目标与剧情引擎' : '可直接落成章节细纲'}</span></button>)}
+          {['book', 'volume', 'chapter'].map((item) => <button key={item} type="button" className={joinClasses('inspiration-scope-tab', scope === item && 'is-active')} onClick={() => changeScope(item)}><strong>{item === 'book' ? '全书' : item === 'volume' ? '分卷' : '章节'}</strong></button>)}
         </div>
+        <label className="inspiration-idea-composer"><span>此刻的想法 <em>可留空</em></span><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="一个画面、一场冲突，或一种情绪…" rows={3} /></label>
         <div className="inspiration-form-grid">
           <label className="inspiration-field inspiration-field-book"><span>关联作品 <em>可选</em></span><select value={selectedBookId} onChange={(event) => changeBook(event.target.value)} disabled={loading}><option value="">不关联作品，完全自由探索</option>{books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}</select></label>
           {selectedBookId ? <label className="inspiration-field"><span>目标分卷</span><select value={String(volumeNumber)} onChange={(event) => { const nextVolume = Math.max(1, Number(event.target.value) || 1); setVolumeNumber(nextVolume); setChapterNumber(getNextChapterNumberForVolume(nextVolume, chapters, chapterPlans)); setNotice(''); }}><option value="1">第 1 卷</option>{volumeOptions.filter((value) => value !== 1).map((value) => <option key={value} value={value}>第 {value} 卷{volumePlans.some((plan) => Number(plan.volume_number || plan.volumeNumber) === value) ? '' : '（新建目标）'}</option>)}</select></label> : null}
           {scope === 'chapter' ? <label className="inspiration-field"><span>目标章节</span><input type="number" min="1" value={chapterNumber} onChange={(event) => setChapterNumber(Math.max(1, Number(event.target.value) || 1))} /></label> : null}
           <label className="inspiration-field inspiration-field-focus"><span>创作焦点 <em>可选</em></span><input value={creativeFocus} onChange={(event) => setCreativeFocus(event.target.value)} placeholder="例如：信息差、心理博弈、阵营互设陷阱" /></label>
-          <label className="inspiration-field inspiration-field-prompt"><span>你现在想探索什么？ <em>可以留空</em></span><textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="例如：我想在第二卷加入智斗的情节，但是没有什么思路。" rows={3} /></label>
           <label className="inspiration-field inspiration-field-constraints"><span>硬性约束 <em>可选</em></span><textarea value={constraints} onChange={(event) => setConstraints(event.target.value)} placeholder="例如：不引入超自然能力；林逸不能直接透露未来；保留李承乾和李泰的既有性格。" rows={2} /></label>
         </div>
-        <div className="inspiration-control-footer"><span>当前目标：{scopeLabel}。不填焦点也没关系，AI 会结合当前层级自动发散。</span><button type="button" className="inspiration-primary-btn" onClick={handleGenerate} disabled={generating || loading}>{generating ? '正在寻找灵感…' : '生成 3 个灵感方案'}</button></div>
+        <div className="inspiration-control-footer"><span>{generating ? '正在同时构思三个方向，请稍候…' : '将生成三个不同方向'}</span><button type="button" className="inspiration-primary-btn inspiration-generate-btn" onClick={handleGenerate} disabled={generating || loading}><span aria-hidden="true">✦</span>{generating ? `生成中 ${generationElapsedSeconds}s` : '开始探索'}</button></div>
       </section>
 
       {error ? <div className="inspiration-banner is-error">{error}</div> : null}
       {notice ? <div className="inspiration-banner is-success">{notice}</div> : null}
 
       {candidates.length > 0 ? <section className="inspiration-results">
-        <div className="inspiration-section-head"><div><div className="inspiration-section-kicker">THREE DIRECTIONS · {scopeLabel}</div><h2>挑一条，让它继续生长</h2></div><span>{selectedBook ? `已关联：${selectedBook.title}` : '独立灵感草稿'}</span></div>
+        <div className="inspiration-section-head"><div><h2>选择一个方向</h2></div><span>{selectedBook ? selectedBook.title : '独立草稿'}</span></div>
         <div className="inspiration-candidate-grid">{candidates.map((candidate, index) => <button type="button" key={candidate.id} className={joinClasses('inspiration-candidate-card', index === activeIndex && 'is-active')} onClick={() => setActiveIndex(index)}><span className="inspiration-card-index">0{index + 1}</span><strong>{candidate.title}</strong><span className="inspiration-card-meta">{candidate.genre} · {candidate.tone}</span><p>{candidate.premise}</p><span className="inspiration-card-world">适配：{candidate.fitReason || candidate.worldview.summary}</span></button>)}</div>
         {activeCandidate ? <article className="inspiration-detail-card">
           <div className="inspiration-detail-head"><div><span className="inspiration-detail-label">SELECTED DIRECTION · {scopeLabel}</span><h3>{activeCandidate.title}</h3></div><div className="inspiration-tag-list">{activeCandidate.tags.map((tag) => <span key={tag}>{tag}</span>)}</div></div>
@@ -317,9 +413,15 @@ export default function InspirationPage() {
             <section className="inspiration-detail-block"><h4>长期价值</h4><p>{activeCandidate.strategicValue}</p><h4>风险提示</h4>{activeCandidate.risks.length > 0 ? <ul>{activeCandidate.risks.map((risk) => <li key={risk}>{risk}</li>)}</ul> : <p>暂无</p>}<h4>下一步</h4>{activeCandidate.nextSteps.length > 0 ? <ol>{activeCandidate.nextSteps.map((step) => <li key={step}>{step}</li>)}</ol> : <p>暂无</p>}</section>
             <section className="inspiration-detail-block inspiration-detail-hooks"><div><h4>开场钩子</h4><p>{activeCandidate.openingHook || '待补'}</p></div><div><h4>结尾钩子</h4><p>{activeCandidate.endingHook || '待补'}</p></div></section>
           </div>
-          <div className="inspiration-detail-actions"><span>写入资料库会保存到当前层级；应用到创作台会写入第 {volumeNumber} 卷第 {chapterNumber} 章。</span><div><button type="button" className="inspiration-secondary-btn" onClick={handleSaveToLibrary} disabled={!selectedBookId || Boolean(saving)}>{saving === 'library' ? '保存中…' : `写入${scope === 'book' ? '全书' : scope === 'volume' ? '分卷' : '章节'}资料库`}</button><button type="button" className="inspiration-primary-btn" onClick={handleApplyToWorkbench} disabled={!selectedBookId || Boolean(saving)}>{saving === 'workbench' ? '正在加载…' : '应用到创作台'}</button></div></div>
+          <div className="inspiration-detail-actions">
+            <span>{selectedBookId ? `将应用到《${selectedBook?.title || '当前作品'}》` : '未关联作品，应用时会自动创建新作品'}</span>
+            <div>
+              <button type="button" className="inspiration-secondary-btn" onClick={handleSaveToLibrary} disabled={Boolean(saving)}>{saving === 'library' ? '写入中…' : selectedBookId ? '存入资料库' : '存为新作品'}</button>
+              <button type="button" className="inspiration-primary-btn" onClick={handleApplyToWorkbench} disabled={Boolean(saving)}>{saving === 'workbench' ? '准备中…' : selectedBookId ? '去创作' : '新建并创作'}</button>
+            </div>
+          </div>
         </article> : null}
-      </section> : <section className="inspiration-empty-state"><div className="inspiration-empty-orbit">✦</div><h2>先从一个模糊念头开始</h2><p>先选书、卷、章，也可以留空完全自由探索。一个画面、一种情绪，甚至一句“我想写点不一样的”，都可以成为入口。</p></section>}
+      </section> : <section className="inspiration-empty-state"><div className="inspiration-empty-orbit"><i>✦</i><span>·</span><b>✦</b></div><p>灵感会在这里生长</p></section>}
     </div>
   );
 }

@@ -63,6 +63,70 @@ export function applyRevisionSuggestionToDraft({
   };
 }
 
+export function applyRevisionSuggestionsToDraft({
+  revisionDraft,
+  revisionOriginal,
+  suggestions = []
+}) {
+  const currentParagraphs = normalizeParagraphs(revisionDraft || revisionOriginal);
+  const originalParagraphs = normalizeParagraphs(revisionOriginal);
+  const entries = Array.isArray(suggestions) ? suggestions : [];
+  if (!currentParagraphs.length || !entries.length) {
+    return { nextDraft: currentParagraphs.join('\n\n'), appliedIndexes: [], skippedIndexes: entries.map((_, index) => index) };
+  }
+
+  const usedCurrentIndexes = new Set();
+  const originalToCurrent = new Map();
+  originalParagraphs.forEach((paragraph, originalIndex) => {
+    const candidates = currentParagraphs
+      .map((current, currentIndex) => (current === paragraph && !usedCurrentIndexes.has(currentIndex) ? currentIndex : -1))
+      .filter((currentIndex) => currentIndex >= 0)
+      .sort((left, right) => Math.abs(left - originalIndex) - Math.abs(right - originalIndex));
+    if (!candidates.length) return;
+    originalToCurrent.set(originalIndex + 1, candidates[0]);
+    usedCurrentIndexes.add(candidates[0]);
+  });
+
+  const replaceAt = new Map();
+  const deleteAt = new Set();
+  const insertAfter = new Map();
+  const appliedIndexes = [];
+  const skippedIndexes = [];
+
+  entries.forEach((suggestion, suggestionIndex) => {
+    const action = String(suggestion?.action || '').trim();
+    const paragraph = Number(suggestion?.paragraph || 0);
+    const afterParagraph = Number(suggestion?.afterParagraph || suggestion?.paragraph || 0);
+    const suggestedText = String(suggestion?.suggested_text || '').trim();
+    const originalNumber = action === 'insert_after' ? afterParagraph : paragraph;
+    const currentIndex = originalToCurrent.get(originalNumber);
+    if (currentIndex == null) {
+      skippedIndexes.push(suggestionIndex);
+      return;
+    }
+    if (action === 'replace' && suggestedText) {
+      replaceAt.set(currentIndex, suggestedText);
+    } else if (action === 'delete') {
+      deleteAt.add(currentIndex);
+    } else if (action === 'insert_after' && suggestedText) {
+      if (!insertAfter.has(currentIndex)) insertAfter.set(currentIndex, []);
+      insertAfter.get(currentIndex).push(suggestedText);
+    } else {
+      skippedIndexes.push(suggestionIndex);
+      return;
+    }
+    appliedIndexes.push(suggestionIndex);
+  });
+
+  const nextParagraphs = [];
+  currentParagraphs.forEach((paragraph, currentIndex) => {
+    if (!deleteAt.has(currentIndex)) nextParagraphs.push(replaceAt.get(currentIndex) || paragraph);
+    (insertAfter.get(currentIndex) || []).forEach((text) => nextParagraphs.push(text));
+  });
+
+  return { nextDraft: nextParagraphs.join('\n\n'), appliedIndexes, skippedIndexes };
+}
+
 export function buildRevisionDraftFromSuggestions(original, suggestions = []) {
   const paragraphs = splitRevisionParagraphs(original).filter(Boolean);
   if (!paragraphs.length || !Array.isArray(suggestions) || suggestions.length === 0) {
@@ -153,7 +217,8 @@ export function buildRevisionParagraphDiffRows(original, suggestions = []) {
         afterNumber: '',
         before: paragraph,
         after: '',
-        reason: deleteSuggestion.reason || ''
+        reason: deleteSuggestion.reason || '',
+        suggestion: deleteSuggestion
       });
     } else if (replaceSuggestion) {
       rows.push({
@@ -164,7 +229,8 @@ export function buildRevisionParagraphDiffRows(original, suggestions = []) {
         afterNumber: paragraphNumber,
         before: paragraph,
         after: String(replaceSuggestion.suggested_text || '').trim(),
-        reason: replaceSuggestion.reason || ''
+        reason: replaceSuggestion.reason || '',
+        suggestion: replaceSuggestion
       });
     } else {
       rows.push({
@@ -189,7 +255,8 @@ export function buildRevisionParagraphDiffRows(original, suggestions = []) {
         afterNumber: '+',
         before: '',
         after: String(suggestion.suggested_text || '').trim(),
-        reason: suggestion.reason || ''
+        reason: suggestion.reason || '',
+        suggestion
       });
     });
   });
@@ -281,6 +348,136 @@ export function buildRevisionDiff(original, draft) {
       after
     };
   });
+}
+
+export function revertRevisionSuggestionFromDraft({
+  revisionDraft,
+  revisionOriginal,
+  suggestion
+}) {
+  const paragraphs = normalizeParagraphs(revisionDraft);
+  const originalParagraphs = normalizeParagraphs(revisionOriginal);
+  const action = String(suggestion?.action || '').trim();
+  const paragraphNumber = Number(suggestion?.paragraph || suggestion?.afterParagraph || 0);
+  const originalText = String(suggestion?.original_text || originalParagraphs[paragraphNumber - 1] || '').trim();
+  const suggestedText = String(suggestion?.suggested_text || '').trim();
+  let nextParagraphs = [...paragraphs];
+
+  if (action === 'replace') {
+    let index = suggestedText ? nextParagraphs.indexOf(suggestedText) : -1;
+    if (index < 0) index = paragraphNumber - 1;
+    if (index < 0 || index >= nextParagraphs.length || !originalText) return { error: '无法定位这条修改，请手动恢复。' };
+    nextParagraphs[index] = originalText;
+  } else if (action === 'insert_after') {
+    let index = suggestedText ? nextParagraphs.indexOf(suggestedText) : -1;
+    if (index < 0) index = paragraphNumber;
+    if (index < 0 || index >= nextParagraphs.length) return { error: '无法定位这条新增，请手动删除。' };
+    nextParagraphs.splice(index, 1);
+  } else if (action === 'delete') {
+    if (!originalText) return { error: '无法找到被删除的原文，请手动恢复。' };
+    if (!nextParagraphs.includes(originalText)) {
+      let index = -1;
+      for (let nextNumber = paragraphNumber + 1; nextNumber <= originalParagraphs.length; nextNumber += 1) {
+        const nextIndex = nextParagraphs.indexOf(originalParagraphs[nextNumber - 1]);
+        if (nextIndex >= 0) { index = nextIndex; break; }
+      }
+      if (index < 0) {
+        for (let previousNumber = paragraphNumber - 1; previousNumber >= 1; previousNumber -= 1) {
+          const previousIndex = nextParagraphs.indexOf(originalParagraphs[previousNumber - 1]);
+          if (previousIndex >= 0) { index = previousIndex + 1; break; }
+        }
+      }
+      if (index < 0) index = Math.max(0, Math.min(paragraphNumber - 1, nextParagraphs.length));
+      nextParagraphs.splice(index, 0, originalText);
+    }
+  } else {
+    return { error: '不支持撤回这类建议。' };
+  }
+
+  return { nextDraft: nextParagraphs.join('\n\n') };
+}
+
+export function revertRevisionSuggestionsFromDraft({
+  revisionDraft,
+  revisionOriginal,
+  suggestions = []
+}) {
+  const originalParagraphs = normalizeParagraphs(revisionOriginal);
+  let nextParagraphs = normalizeParagraphs(revisionDraft);
+  const entries = (Array.isArray(suggestions) ? suggestions : []).map((suggestion, index) => ({
+    suggestion,
+    index,
+    action: String(suggestion?.action || '').trim(),
+    paragraphNumber: Number(suggestion?.paragraph || suggestion?.afterParagraph || 0),
+    originalText: String(
+      suggestion?.original_text
+      || originalParagraphs[Number(suggestion?.paragraph || suggestion?.afterParagraph || 0) - 1]
+      || ''
+    ).trim(),
+    suggestedText: String(suggestion?.suggested_text || '').trim()
+  }));
+  const revertedIndexes = new Set();
+
+  const closestExactIndex = (text, expectedIndex) => {
+    if (!text) return -1;
+    return nextParagraphs
+      .map((paragraph, index) => (paragraph === text ? index : -1))
+      .filter((index) => index >= 0)
+      .sort((left, right) => Math.abs(left - expectedIndex) - Math.abs(right - expectedIndex))[0] ?? -1;
+  };
+
+  entries.filter((entry) => entry.action === 'replace').forEach((entry) => {
+    const targetIndex = closestExactIndex(entry.suggestedText, entry.paragraphNumber - 1);
+    if (targetIndex < 0 || !entry.originalText) return;
+    nextParagraphs[targetIndex] = entry.originalText;
+    revertedIndexes.add(entry.index);
+  });
+
+  entries.filter((entry) => entry.action === 'insert_after').forEach((entry) => {
+    const targetIndex = closestExactIndex(entry.suggestedText, entry.paragraphNumber);
+    if (targetIndex < 0) return;
+    nextParagraphs.splice(targetIndex, 1);
+    revertedIndexes.add(entry.index);
+  });
+
+  entries.filter((entry) => entry.action === 'delete').forEach((entry) => {
+    if (!entry.originalText) return;
+    const originalCopies = originalParagraphs.filter((paragraph) => paragraph === entry.originalText).length;
+    const currentCopies = nextParagraphs.filter((paragraph) => paragraph === entry.originalText).length;
+    if (currentCopies >= originalCopies) {
+      revertedIndexes.add(entry.index);
+      return;
+    }
+
+    let restoreIndex = -1;
+    for (let nextNumber = entry.paragraphNumber + 1; nextNumber <= originalParagraphs.length; nextNumber += 1) {
+      const nextIndex = closestExactIndex(originalParagraphs[nextNumber - 1], nextNumber - 1);
+      if (nextIndex >= 0) {
+        restoreIndex = nextIndex;
+        break;
+      }
+    }
+    if (restoreIndex < 0) {
+      for (let previousNumber = entry.paragraphNumber - 1; previousNumber >= 1; previousNumber -= 1) {
+        const previousIndex = closestExactIndex(originalParagraphs[previousNumber - 1], previousNumber - 1);
+        if (previousIndex >= 0) {
+          restoreIndex = previousIndex + 1;
+          break;
+        }
+      }
+    }
+    if (restoreIndex < 0 && originalParagraphs.length === 1) restoreIndex = 0;
+    if (restoreIndex < 0) return;
+    nextParagraphs.splice(restoreIndex, 0, entry.originalText);
+    revertedIndexes.add(entry.index);
+  });
+
+  const reverted = [...revertedIndexes].sort((left, right) => left - right);
+  return {
+    nextDraft: nextParagraphs.join('\n\n'),
+    revertedIndexes: reverted,
+    skippedIndexes: entries.map((entry) => entry.index).filter((index) => !revertedIndexes.has(index))
+  };
 }
 
 /**

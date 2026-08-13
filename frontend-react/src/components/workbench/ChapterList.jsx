@@ -8,6 +8,7 @@ function joinClasses(...values) {
 const STATUS_DOT_CLASS = {
   'has-content': 'bg-[color:var(--brand)]',
   'plan-only': 'border border-[color:var(--brand)] bg-transparent',
+  'history-only': 'bg-[#9b7bc4]',
   empty: 'bg-[color:var(--line-strong)]'
 };
 

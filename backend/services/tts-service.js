@@ -305,7 +305,7 @@ function publicEntry(entry) {
     textLength: entry.textLength,
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
-    audioUrl: `/api/tts/audio/${entry.id}`
+    audioUrl: `/tts/audio/${entry.id}`
   };
 }
 
@@ -413,7 +413,8 @@ async function createChapterAudio({
   rate = 0,
   volume = 0,
   pitch = 0,
-  outputFormat = OUTPUT_FORMAT_DEFAULT
+  outputFormat = OUTPUT_FORMAT_DEFAULT,
+  ownerUserId = ''
 }) {
   // 'custom' 是「直接传文本」模式的固定书籍 ID（不落库，仅用于归档目录）。
   if (bookId !== 'custom' && !isValidBookId(bookId)) {
@@ -451,6 +452,7 @@ async function createChapterAudio({
     entry.volume = settings.volume;
     entry.pitch = settings.pitch;
     entry.outputFormat = settings.outputFormat;
+    entry.ownerUserId = ownerUserId || entry.ownerUserId || '';
     entry.textLength = String(text).length;
     entry.updatedAt = now;
     entries[existingIndex] = entry;
@@ -467,6 +469,7 @@ async function createChapterAudio({
       volume: settings.volume,
       pitch: settings.pitch,
       outputFormat: settings.outputFormat,
+      ownerUserId,
       textLength: String(text).length,
       file: '',
       createdAt: now,

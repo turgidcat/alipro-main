@@ -346,6 +346,7 @@
 }
 .chapter-list-dot.has-content { background: var(--accent); }
 .chapter-list-dot.plan-only { background: transparent; border: 1.5px solid var(--brand); }
+.chapter-list-dot.history-only { background: #9b7bc4; box-shadow: 0 0 0 2px color-mix(in srgb, #9b7bc4 18%, transparent); }
 .chapter-list-dot.empty { background: var(--line-strong); }
 
 /* === 双栏布局 === */
@@ -2667,8 +2668,87 @@
   gap: 12px;
   flex-wrap: nowrap;
 }
-.role-execution-editor-item-head > .ghost-btn {
-  flex-shrink: 0;
+
+.role-execution-summary-button {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.role-execution-avatar {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--accent-soft) 72%, var(--panel));
+  color: var(--accent-deep);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.role-execution-summary-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.role-execution-summary-copy small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-execution-summary-button > em,
+.role-execution-custom-badge {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.role-execution-custom-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.role-execution-remove-button {
+  display: grid;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 18px;
+}
+
+.role-execution-editor-fields {
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
 }
 @media (max-width: 900px) {
   .chapter-character-panel {

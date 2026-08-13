@@ -8,6 +8,9 @@ import HomePage from './pages/HomePage.jsx';
 import AudiobookPage from './pages/AudiobookPage.jsx';
 import ComingSoonPage from './pages/ComingSoonPage.jsx';
 import InspirationPage from './pages/InspirationPage.jsx';
+import DashboardPage from './pages/DashboardPage.jsx';
+import MePage from './pages/MePage.jsx';
+import AuthCallbackPage from './pages/AuthCallbackPage.jsx';
 
 const appBaseName = (() => {
   const base = String(import.meta.env.BASE_URL || '/').replace(/\/+$/, '');
@@ -20,6 +23,9 @@ export const router = createBrowserRouter([
     element: <AppLayout />,
     children: [
       { index: true, element: <HomePage /> },
+      { path: 'dashboard', element: <DashboardPage /> },
+      { path: 'me', element: <MePage /> },
+      { path: 'auth/callback', element: <AuthCallbackPage /> },
       { path: 'books', element: <BooksPage /> },
       { path: 'books/outlines', element: <BooksPage /> },
       { path: 'books/storylines', element: <StorylineManagementPage /> },

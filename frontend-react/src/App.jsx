@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   createBook,
   confirmChapterReview,
   deleteChapterContentByNumber,
+  fetchDatabaseBackups,
+  fetchChapterVersions,
   fetchChapterSetupBundle,
   fetchPromptPreview,
   generateChapterContent,
@@ -11,6 +14,8 @@ import {
   generateChapterOutline,
   persistCurrentBookId,
   polishChapterContent,
+  restoreChapterVersion,
+  scheduleDatabaseRestore,
   saveChapterPlan,
   saveStoryline,
   streamChapterContent,
@@ -34,12 +39,16 @@ import {
   hasText
 } from './lib/chapterPlan.js';
 import {
-  buildRevisionDraftFromSuggestions,
   buildRevisionParagraphDiffRows,
   buildRevisionDiffRows,
+  applyRevisionSuggestionToDraft,
+  applyRevisionSuggestionsToDraft,
+  revertRevisionSuggestionFromDraft,
+  revertRevisionSuggestionsFromDraft,
+  buildRevisionDraftFromSuggestions,
   normalizeParagraphs,
-  summarizeRevisionSuggestions,
-  splitRevisionParagraphs
+  normalizeRevisionText,
+  summarizeRevisionSuggestions
 } from './lib/revisionDiff.js';
 import { normalizeChapterBundle } from './lib/chapterBundle.js';
 import { persistChapterResultCycle } from './lib/chapterResult.js';
@@ -54,12 +63,13 @@ import GlobalBar from './components/workbench/GlobalBar.jsx';
 import PromptManagerPage from './components/workbench/PromptManagerPage.jsx';
 import ChapterConfigPanel from './components/workbench/ChapterConfigPanel.jsx';
 import ContentWorkspace from './components/workbench/ContentWorkspace.jsx';
+import MobileWorkbenchFlow from './components/workbench/MobileWorkbenchFlow.jsx';
 import RevisionEditor from './components/workbench/RevisionEditor.jsx';
 import StatusNotice from './components/workbench/StatusNotice.jsx';
 import ContextDrawer from './components/workbench/ContextDrawer.jsx';
 import MetaCode from './components/workbench/MetaCode.jsx';
 import IndentedTextBlock from './components/IndentedTextBlock.jsx';
-import ProjectEntry from './components/app/ProjectEntry.jsx';
+import WorkbenchEntryState from './components/workbench/WorkbenchEntryState.jsx';
 import BookSettingDrawer from './components/workbench/drawers/BookSettingDrawer.jsx';
 import StorylineDrawer from './components/workbench/drawers/StorylineDrawer.jsx';
 import CharacterDrawer from './components/workbench/drawers/CharacterDrawer.jsx';
@@ -293,6 +303,19 @@ function buildRoleExecutionFromLibraryCharacter(character = {}) {
   };
 }
 
+function getRoleExecutionPreview(item = {}) {
+  const candidates = [
+    ['性格', item.personality || item.baseline],
+    ['作用', item.background || item.chapter_function],
+    ['特征', item.appearance || item.appearance_marker]
+  ];
+  const [label, value] = candidates.find(([, candidate]) => String(candidate || '').trim()) || [];
+  const preview = String(value || '').trim();
+  if (!preview) return '资料待补充';
+  const concise = preview.length > 36 ? `${preview.slice(0, 36)}…` : preview;
+  return `${label} · ${concise}`;
+}
+
 function getFeedbackChapterSummary(plan = {}) {
   const structuredContent = getChapterStructuredContent(plan);
   return String(
@@ -371,6 +394,7 @@ function getDrawerMemoryKey(bookId, chapterNumber) {
 }
 
 export default function App() {
+  const navigate = useNavigate();
   const {
     books,
     currentBook,
@@ -417,6 +441,7 @@ export default function App() {
   const [activeSurface, setActiveSurface] = useState(getStoredWorkspacePage);
   const [workbenchSidebarCollapsed, setWorkbenchSidebarCollapsed] = useState(false);
   const [workbenchSidebarPeek, setWorkbenchSidebarPeek] = useState(false);
+  const [mobileWorkbenchPanel, setMobileWorkbenchPanel] = useState('center');
   const [createDraft, setCreateDraft] = useState({
     title: '',
     genre: 'urban',
@@ -430,6 +455,7 @@ export default function App() {
   const [chapterEntryMenuOpen, setChapterEntryMenuOpen] = useState(false);
   const [chapterDeleteLoading, setChapterDeleteLoading] = useState(false);
   const [selectedLibraryCharacterName, setSelectedLibraryCharacterName] = useState('');
+  const [expandedChapterRoleIndex, setExpandedChapterRoleIndex] = useState(null);
   const [promptManagerState, setPromptManagerState] = useState({
     loading: false,
     error: '',
@@ -439,6 +465,21 @@ export default function App() {
   const generationAbortRef = useRef(null);
   const revisionSessionChapterRef = useRef(null);
   const [reviewConfirming, setReviewConfirming] = useState(false);
+  const [versionHistoryState, setVersionHistoryState] = useState({
+    open: false,
+    loading: false,
+    error: '',
+    restoringId: '',
+    versions: []
+  });
+  const [dataSafetyState, setDataSafetyState] = useState({
+    open: false,
+    loading: false,
+    error: '',
+    restoringFile: '',
+    restartRequired: false,
+    backups: []
+  });
 
   useEffect(() => () => {
     generationAbortRef.current?.abort();
@@ -805,6 +846,9 @@ export default function App() {
     successTitle,
     successText,
     generationAudit,
+    snapshotReason = 'ai_generation',
+    versionType = 'generation',
+    revisionTarget = '',
     openResultModal = false,
     keepRevisionOriginal = false
   }) {
@@ -821,7 +865,10 @@ export default function App() {
       generationAudit,
       generateChapterFeedback,
       saveChapterPlan,
-      upsertGeneratedChapter
+      upsertGeneratedChapter,
+      snapshotReason,
+      versionType,
+      revisionTarget
     });
 
     if (cycleResult.feedbackSaved && cycleResult.feedbackPlan) {
@@ -901,6 +948,104 @@ export default function App() {
     }
   }
 
+  async function loadChapterVersions() {
+    if (!selectedBookId) return [];
+    setVersionHistoryState((current) => ({ ...current, loading: true, error: '' }));
+    try {
+      const versions = await fetchChapterVersions(selectedBookId, chapterNumber);
+      setVersionHistoryState((current) => ({
+        ...current,
+        loading: false,
+        error: '',
+        versions
+      }));
+      return versions;
+    } catch (versionError) {
+      setVersionHistoryState((current) => ({
+        ...current,
+        loading: false,
+        error: versionError.message,
+        versions: []
+      }));
+      return [];
+    }
+  }
+
+  function openChapterVersionHistory() {
+    setVersionHistoryState((current) => ({ ...current, open: true, error: '' }));
+    loadChapterVersions();
+  }
+
+  async function handleRestoreChapterVersion(version) {
+    if (!selectedBookId || !version?.id) return;
+    const versionTime = version.created_at
+      ? new Date(version.created_at.replace(' ', 'T') + 'Z').toLocaleString('zh-CN')
+      : '所选时间';
+    const confirmed = window.confirm(
+      `确定恢复 ${versionTime} 的正文吗？\n当前正文也会先自动留档，恢复后仍然可以撤回。`
+    );
+    if (!confirmed) return;
+
+    setVersionHistoryState((current) => ({ ...current, restoringId: version.id, error: '' }));
+    try {
+      await restoreChapterVersion(selectedBookId, chapterNumber, version.id);
+      await reloadBooks(selectedBookId);
+      await reloadPlanning(selectedBookId);
+      await reloadChapterSetup();
+      await loadChapterVersions();
+      pushPlanningNotice('success', '历史正文已恢复', '恢复前的正文也已自动留档，可以随时再次切换。');
+    } catch (restoreError) {
+      setVersionHistoryState((current) => ({ ...current, error: restoreError.message }));
+      pushPlanningNotice('error', '恢复历史正文失败', restoreError.message);
+    } finally {
+      setVersionHistoryState((current) => ({ ...current, restoringId: '' }));
+    }
+  }
+
+  async function loadDatabaseBackups() {
+    setDataSafetyState((current) => ({ ...current, loading: true, error: '' }));
+    try {
+      const backups = await fetchDatabaseBackups();
+      setDataSafetyState((current) => ({ ...current, loading: false, backups }));
+    } catch (backupError) {
+      setDataSafetyState((current) => ({
+        ...current,
+        loading: false,
+        error: backupError.message,
+        backups: []
+      }));
+    }
+  }
+
+  function openDataSafetyCenter() {
+    setDataSafetyState((current) => ({ ...current, open: true, error: '' }));
+    loadDatabaseBackups();
+  }
+
+  async function handleScheduleDatabaseRestore(backup) {
+    if (!backup?.fileName) return;
+    const modifiedAt = backup.modifiedAt
+      ? new Date(backup.modifiedAt).toLocaleString('zh-CN')
+      : '所选时间';
+    const confirmed = window.confirm(
+      `确定安排恢复 ${modifiedAt} 的整库备份吗？\n恢复会在下次启动应用时生效。安排后请立即关闭并重新打开应用；如果继续写作，系统会自动取消本次恢复，避免覆盖新内容。`
+    );
+    if (!confirmed) return;
+
+    setDataSafetyState((current) => ({ ...current, restoringFile: backup.fileName, error: '' }));
+    try {
+      const result = await scheduleDatabaseRestore(backup.fileName);
+      setDataSafetyState((current) => ({
+        ...current,
+        restoringFile: '',
+        restartRequired: Boolean(result?.restartRequired)
+      }));
+      pushPlanningNotice('success', '整库恢复已安排', '请立即关闭并重新打开应用。继续写作会自动取消恢复，保护新内容。');
+    } catch (restoreError) {
+      setDataSafetyState((current) => ({ ...current, restoringFile: '', error: restoreError.message }));
+    }
+  }
+
   function openRevisionEditor() {
     const currentContent = generationState.content || '';
     revisionParagraphRefs.current = new Map();
@@ -977,57 +1122,106 @@ export default function App() {
   }
 
   function applyRevisionSuggestion(suggestion, changeKey) {
-    const baseContent = String(revisionDraft || revisionOriginal || '').trim();
-    if (!baseContent) {
-      setRevisionError('没有可编辑的正文。');
+    const result = applyRevisionSuggestionToDraft({ revisionDraft, revisionOriginal, suggestion });
+    if (result.error) {
+      setRevisionError(result.error);
       return;
     }
-
-    const paragraphs = splitRevisionParagraphs(baseContent);
-    const mode = suggestion?.action;
-    const replacement = String(suggestion?.suggested_text || '').trim();
-
-    let nextParagraphs = [...paragraphs];
-    if (mode === 'replace') {
-      if (!replacement) {
-        setRevisionError('这条修改没有可写入的正文。');
-        return;
-      }
-      const paragraphIndex = Number(suggestion?.paragraph || 0) - 1;
-      if (paragraphIndex < 0 || paragraphIndex >= nextParagraphs.length) {
-        setRevisionError('替换段落编号超出范围。');
-        return;
-      }
-      nextParagraphs[paragraphIndex] = replacement;
-    } else if (mode === 'insert_after') {
-      if (!replacement) {
-        setRevisionError('这条新增没有可写入的正文。');
-        return;
-      }
-      const anchorIndex = Number(suggestion?.afterParagraph || suggestion?.paragraph || 0) - 1;
-      if (anchorIndex < 0 || anchorIndex >= nextParagraphs.length) {
-        setRevisionError('鎻掑叆浣嶇疆瓒呭嚭鑼冨洿銆?');
-        return;
-      }
-      nextParagraphs.splice(anchorIndex + 1, 0, replacement);
-    } else if (mode === 'delete') {
-      const paragraphIndex = Number(suggestion?.paragraph || 0) - 1;
-      if (paragraphIndex < 0 || paragraphIndex >= nextParagraphs.length) {
-        setRevisionError('删除段落编号超出范围。');
-        return;
-      }
-      nextParagraphs[paragraphIndex] = '';
-    } else {
-      setRevisionError('涓嶆敮鎸佺殑寤鸿绫诲瀷銆?');
-      return;
-    }
-
-    setRevisionDraft(nextParagraphs.join('\n\n'));
+    setRevisionDraft(result.nextDraft);
+    setRevisionError('');
     if (changeKey) {
       setRevisionAppliedChangeKeys((current) => (current.includes(changeKey) ? current : [...current, changeKey]));
     }
     setRevisionNotice(`已应用第 ${suggestion?.paragraph || suggestion?.afterParagraph || '?'} 条建议到校改稿。`);
     window.setTimeout(() => focusRevisionParagraph(suggestion?.paragraph || suggestion?.afterParagraph || 1), 0);
+  }
+
+  function undoRevisionSuggestion(suggestion, changeKey) {
+    const result = revertRevisionSuggestionFromDraft({ revisionDraft, revisionOriginal, suggestion });
+    if (result.error) {
+      setRevisionError(result.error);
+      return;
+    }
+    setRevisionDraft(result.nextDraft);
+    setRevisionAppliedChangeKeys((current) => current.filter((key) => key !== changeKey));
+    setRevisionError('');
+    setRevisionNotice(`已撤回第 ${suggestion?.paragraph || suggestion?.afterParagraph || '?'} 段建议。`);
+  }
+
+  function applyAllRevisionSuggestions() {
+    const pendingEntries = revisionSuggestionItems
+      .map((suggestion, index) => ({ suggestion, key: getRevisionSuggestionKey(suggestion, index) }))
+      .filter((entry) => !revisionAppliedChangeKeys.includes(entry.key));
+    if (!pendingEntries.length) {
+      setRevisionNotice('所有建议都已应用。');
+      return;
+    }
+
+    const appliedEntries = revisionSuggestionItems
+      .map((suggestion, index) => ({ suggestion, key: getRevisionSuggestionKey(suggestion, index) }))
+      .filter((entry) => revisionAppliedChangeKeys.includes(entry.key));
+    const expectedDraft = buildRevisionDraftFromSuggestions(revisionOriginal, appliedEntries.map((entry) => entry.suggestion));
+    const hasManualChanges = String(expectedDraft || '').replace(/\r\n?/g, '\n').trim()
+      !== String(revisionDraft || '').replace(/\r\n?/g, '\n').trim();
+
+    if (!hasManualChanges) {
+      const allEntries = revisionSuggestionItems.map((suggestion, index) => ({
+        suggestion,
+        key: getRevisionSuggestionKey(suggestion, index)
+      }));
+      setRevisionDraft(buildRevisionDraftFromSuggestions(revisionOriginal, allEntries.map((entry) => entry.suggestion)));
+      setRevisionAppliedChangeKeys(allEntries.map((entry) => entry.key));
+      setRevisionError('');
+      setRevisionNotice(`已应用全部 ${pendingEntries.length} 条建议。`);
+      return;
+    }
+
+    const result = applyRevisionSuggestionsToDraft({
+      revisionDraft,
+      revisionOriginal,
+      suggestions: pendingEntries.map((entry) => entry.suggestion)
+    });
+    const appliedKeys = result.appliedIndexes.map((index) => pendingEntries[index].key);
+    setRevisionDraft(result.nextDraft);
+    setRevisionAppliedChangeKeys((current) => [...new Set([...current, ...appliedKeys])]);
+    setRevisionError('');
+    setRevisionNotice(result.skippedIndexes.length
+      ? `已应用 ${appliedKeys.length} 条，另有 ${result.skippedIndexes.length} 条因正文已手动修改而跳过。`
+      : `已应用全部 ${appliedKeys.length} 条建议。`);
+  }
+
+  function undoAllRevisionSuggestions() {
+    const appliedEntries = revisionSuggestionItems
+      .map((suggestion, index) => ({ suggestion, key: getRevisionSuggestionKey(suggestion, index) }))
+      .filter((entry) => revisionAppliedChangeKeys.includes(entry.key));
+    if (!appliedEntries.length) {
+      setRevisionNotice('当前没有已应用的建议。');
+      return;
+    }
+
+    const expectedDraft = buildRevisionDraftFromSuggestions(revisionOriginal, appliedEntries.map((entry) => entry.suggestion));
+    const hasManualChanges = String(expectedDraft || '').replace(/\r\n?/g, '\n').trim()
+      !== String(revisionDraft || '').replace(/\r\n?/g, '\n').trim();
+    if (!hasManualChanges) {
+      setRevisionDraft(revisionOriginal);
+      setRevisionAppliedChangeKeys([]);
+      setRevisionError('');
+      setRevisionNotice(`已撤回全部 ${appliedEntries.length} 条建议。`);
+      return;
+    }
+
+    const result = revertRevisionSuggestionsFromDraft({
+      revisionDraft,
+      revisionOriginal,
+      suggestions: appliedEntries.map((entry) => entry.suggestion)
+    });
+    const appliedKeys = new Set(appliedEntries.map((entry) => entry.key));
+    setRevisionDraft(result.nextDraft);
+    setRevisionAppliedChangeKeys((current) => current.filter((key) => !appliedKeys.has(key)));
+    setRevisionError('');
+    setRevisionNotice(result.skippedIndexes.length
+      ? `已撤回全部建议；其中 ${result.skippedIndexes.length} 处手动调整已保留。`
+      : `已撤回全部 ${appliedEntries.length} 条建议。`);
   }
 
   async function handlePolishRevision() {
@@ -1041,6 +1235,7 @@ export default function App() {
     setRevisionError('');
     setRevisionNotice('');
     setRevisionSuggestions(null);
+    setRevisionAppliedChangeKeys([]);
     try {
       const response = await polishChapterContent(sourceContent, revisionRequirement, {
         mode: 'revision_suggestions',
@@ -1060,12 +1255,9 @@ export default function App() {
         return;
       }
       setRevisionSuggestions(response);
-      if (suggestions.length > 0) {
-        setRevisionDraft(buildRevisionDraftFromSuggestions(sourceContent, suggestions));
-      }
       setRevisionNotice(
         suggestions.length > 0
-          ? '已生成逐段校改稿。'
+          ? '建议已生成，可逐条应用或直接编辑校改稿。'
           : '本轮没有逐段建议，可以直接在校改稿里编辑。'
       );
     } catch (polishError) {
@@ -1096,6 +1288,9 @@ export default function App() {
         targetWordCount: getPlanWordCount(normalizedPlan),
         successTitle: '正文已校改',
         successText: '校改后的正文、摘要和创作审校都已写回。',
+        snapshotReason: 'revision_save',
+        versionType: 'revision',
+        revisionTarget: revisionRequirement,
         keepRevisionOriginal: true
       });
       pushPlanningNotice(
@@ -1192,6 +1387,9 @@ export default function App() {
     const autoOutline = String(normalizedPlan.outline_text || '').trim();
     const requiredItems = [{ key: 'outline', label: '章节细纲', value: autoOutline }];
     const missingItems = requiredItems.filter((item) => !hasText(item.value));
+    const snapshotReason = generationState.hasContent && String(generationState.content || '').trim()
+      ? 'ai_regeneration'
+      : 'ai_generation';
 
     if (missingItems.length > 0) {
       setGenerationState({
@@ -1308,6 +1506,8 @@ export default function App() {
         successTitle: '正文已生成',
         successText: '正文、摘要和创作审校都已写回，下一章会自动读取这份承接信息。',
         generationAudit: response?.metadata?.continuityAudit || response?.audit?.audit || null,
+        snapshotReason,
+        versionType: 'generation',
         openResultModal: true
       });
       pushPlanningNotice(
@@ -1376,6 +1576,7 @@ export default function App() {
       return feedbackRoles.length > 0 ? { ...prev, role_execution: feedbackRoles } : prev;
     });
     setSelectedLibraryCharacterName('');
+    setExpandedChapterRoleIndex(null);
     setChapterModal('character');
   }
 
@@ -1398,6 +1599,7 @@ export default function App() {
   }
 
   function addRoleExecutionItem() {
+    const nextIndex = Array.isArray(draftChapterPlan.role_execution) ? draftChapterPlan.role_execution.length : 0;
     setDraftChapterPlan((prev) => ({
       ...prev,
       role_execution: [
@@ -1410,6 +1612,7 @@ export default function App() {
         }
       ]
     }));
+    setExpandedChapterRoleIndex(nextIndex);
   }
 
   function addLibraryCharacterToChapter() {
@@ -1418,6 +1621,9 @@ export default function App() {
     const libraryCharacters = Array.isArray(planningState?.bookPlanning?.characters) ? planningState.bookPlanning.characters : [];
     const selectedCharacter = libraryCharacters.find((item) => String(item?.name || '').trim() === selectedName);
     if (!selectedCharacter) return;
+    const currentRoleExecution = Array.isArray(draftChapterPlan.role_execution) ? draftChapterPlan.role_execution : [];
+    const currentIndex = currentRoleExecution.findIndex((item) => createRoleNameKey(item?.role || '') === createRoleNameKey(selectedName));
+    setExpandedChapterRoleIndex(currentIndex >= 0 ? currentIndex : currentRoleExecution.length);
 
     setDraftChapterPlan((prev) => {
       const currentRoleExecution = Array.isArray(prev.role_execution) ? prev.role_execution : [];
@@ -1487,6 +1693,10 @@ export default function App() {
       ...prev,
       role_execution: (Array.isArray(prev.role_execution) ? prev.role_execution : []).filter((_, itemIndex) => itemIndex !== index)
     }));
+    setExpandedChapterRoleIndex((current) => {
+      if (current === index) return null;
+      return Number.isInteger(current) && current > index ? current - 1 : current;
+    });
   }
 
   async function handleGenerateCurrentChapterOutline() {
@@ -1634,7 +1844,15 @@ export default function App() {
   }
 
   function handleGenerateWithGuards() {
-    if (!confirmDiscardUnsavedChanges('生成正文')) return;
+    const hasExistingContent = generationState.hasContent && String(generationState.content || '').trim();
+    const actionLabel = hasExistingContent ? '重新生成正文' : '生成正文';
+    if (!confirmDiscardUnsavedChanges(actionLabel)) return;
+    if (hasExistingContent) {
+      const confirmed = window.confirm(
+        `当前第 ${chapterNumber} 章已经有正文。\n重新生成会产生一次新的模型调用，但不会直接丢失旧稿：旧正文会在保存新稿前自动进入历史版本。\n\n确定继续重新生成吗？`
+      );
+      if (!confirmed) return;
+    }
     handleGenerateChapter();
   }
 
@@ -1765,7 +1983,8 @@ export default function App() {
     distinctOutlineText
     || ''
   ).trim() || '尚未建立章节细纲。';
-  const generationRequiredItems = [{ key: 'outline', label: '章节细纲', value: drawerOutlineText }];
+  // 生成门槛必须读取真实细纲，不能把“尚未建立章节细纲”的展示占位语当成已填写内容。
+  const generationRequiredItems = [{ key: 'outline', label: '章节细纲', value: distinctOutlineText }];
   const generationRecommendedItems = [
     { key: 'storyline', label: '叙事脉络承接', value: selectedTargetStorylines.length > 0 ? selectedTargetStorylineLabel : '' }
   ];
@@ -1876,8 +2095,11 @@ export default function App() {
   const currentChapterEntryModeItem = chapterEntryModeItems.find((item) => item.value === chapterEntryMode) || chapterEntryModeItems[0];
   const revisionOriginalParagraphs = normalizeParagraphs(revisionOriginal);
   const revisionSuggestionItems = Array.isArray(revisionSuggestions?.suggestions) ? revisionSuggestions.suggestions : [];
-  const revisionDiffRows = revisionSuggestionItems.length > 0
-    ? buildRevisionParagraphDiffRows(revisionOriginal, revisionSuggestionItems)
+  const getRevisionSuggestionKey = (suggestion, index) => suggestion?.id || `${suggestion?.action || 'change'}-${suggestion?.paragraph || suggestion?.afterParagraph || index + 1}-${index}`;
+  const revisionAppliedSuggestionItems = revisionSuggestionItems.filter((suggestion, index) => revisionAppliedChangeKeys.includes(getRevisionSuggestionKey(suggestion, index)));
+  const appliedSuggestionDraft = buildRevisionDraftFromSuggestions(revisionOriginal, revisionAppliedSuggestionItems);
+  const revisionDiffRows = revisionAppliedSuggestionItems.length > 0 && normalizeRevisionText(appliedSuggestionDraft) === normalizeRevisionText(revisionDraft)
+    ? buildRevisionParagraphDiffRows(revisionOriginal, revisionAppliedSuggestionItems)
     : buildRevisionDiffRows(revisionOriginal, revisionDraft);
   const revisionSummaryStats = summarizeRevisionSuggestions(revisionSuggestionItems);
   const revisionSummaryText = revisionSuggestionItems.length > 0
@@ -2060,19 +2282,15 @@ export default function App() {
   const currentWorkbenchPath = getCurrentAppPathname();
   const isPromptManagerSurface = currentWorkbenchPath === '/prompts';
   const currentWorkbenchSurface = isPromptManagerSurface ? 'prompts' : 'workbench';
-  const isEntryPath = currentWorkbenchPath === '/';
 
-  if (!currentBook || isEntryPath) {
+  if (!currentBook) {
     return (
-      <ProjectEntry
+      <WorkbenchEntryState
         books={books}
-        loadingBooks={loadingBooks}
+        loading={loadingBooks || Boolean(selectedBookId && loadingPlanning)}
         error={error}
-        createDraft={createDraft}
-        createState={createState}
-        onCreateDraftChange={updateCreateDraft}
-        onCreateBook={handleCreateBook}
-        onSelectBook={selectBookForSurface}
+        onSelectBook={(bookId) => selectBookForSurface(bookId, 'workbench')}
+        onOpenLibrary={() => navigate('/books')}
       />
     );
   }
@@ -2090,7 +2308,36 @@ export default function App() {
         />
       ) : null}
       <>
-          <section className="workbench-stage workbench-app-shell">
+          <MobileWorkbenchFlow
+            chapterNumber={chapterNumber}
+            chapterName={draftChapterPlan.chapter_name}
+            bookTitle={currentBookTitle}
+            selectedBookId={selectedBookId}
+            bookSelectItems={bookSelectItems}
+            onSelectBook={(bookId) => selectBookForSurface(bookId, 'workbench')}
+            generationChecklistItems={generationChecklistItems}
+            chapterCharacterCount={addedRoleKeys.size}
+            generationState={generationState}
+            canGenerate={canGenerate}
+            isGenerating={isGenerating}
+            loadingChapter={loadingChapter}
+            onOpenOutlineModal={() => setChapterModal('outline')}
+            onOpenStorylinePicker={() => setChapterModal('storyline-picker')}
+            onGenerateChapter={handleGenerateWithGuards}
+            onStopGeneration={handleStopGeneration}
+            onOpenReader={() => {
+              if (!selectedBookId) return;
+              persistBookContext(selectedBookId);
+              navigate(`/books/chapters/${chapterNumber}`);
+            }}
+            onOpenRevisionEditor={openRevisionEditor}
+            onOpenVersionHistory={openChapterVersionHistory}
+            onSetPromptPreview={() => setPromptPreviewOpen(true)}
+            onOpenCharacterModal={openCharacterEditor}
+            onPrevChapter={goToPreviousChapter}
+            onNextChapter={goToNextChapter}
+          />
+          <section className={`workbench-stage workbench-app-shell mobile-workbench-panel-${mobileWorkbenchPanel}`}>
             <div className="workbench-worktop">
               <div className="workbench-surface-tabs" aria-label="当前作品区域切换">
                 <button
@@ -2111,6 +2358,23 @@ export default function App() {
                   <strong>资料库</strong>
                 </button>
               </div>
+              <div className="mobile-workbench-context">
+                <div className="mobile-workbench-context-copy">
+                  <span>正在写作</span>
+                  <strong>{normalizeChapterName(draftChapterPlan.chapter_name) || `第 ${chapterNumber} 章`}</strong>
+                  <small>{planningState?.currentBook?.title || currentBook?.title || '未选择作品'} · 第 {chapterNumber} 章</small>
+                </div>
+                <div className="mobile-workbench-context-actions">
+                  <button type="button" onClick={goToPreviousChapter} disabled={chapterNumber <= 1} aria-label="上一章">‹</button>
+                  <button type="button" onClick={() => setMobileWorkbenchPanel('settings')} aria-label="打开章节导航">章节</button>
+                  <button type="button" onClick={goToNextChapter} aria-label="下一章">›</button>
+                </div>
+              </div>
+              <div className="mobile-workbench-switcher" role="tablist" aria-label="创作台移动端区域">
+                <button type="button" className={mobileWorkbenchPanel === 'center' ? 'is-active' : ''} onClick={() => setMobileWorkbenchPanel('center')} role="tab" aria-selected={mobileWorkbenchPanel === 'center'}>当前写作</button>
+                <button type="button" className={mobileWorkbenchPanel === 'settings' ? 'is-active' : ''} onClick={() => setMobileWorkbenchPanel('settings')} role="tab" aria-selected={mobileWorkbenchPanel === 'settings'}>章节导航</button>
+                <button type="button" className={mobileWorkbenchPanel === 'context' ? 'is-active' : ''} onClick={() => setMobileWorkbenchPanel('context')} role="tab" aria-selected={mobileWorkbenchPanel === 'context'}>作品资料</button>
+              </div>
               <GlobalBar
                 bookTitle={planningState?.currentBook?.title || currentBook?.title || ''}
                 volumeLabel={chapterView.volumeLabel || '第 1 卷'}
@@ -2123,6 +2387,7 @@ export default function App() {
                 onNextChapter={goToNextChapter}
                 onSelectChapter={requestChapterChange}
                 onSwitchBook={handleSwitchBook}
+                onOpenDataSafety={openDataSafetyCenter}
                 showNavigation={false}
               />
             </div>
@@ -2283,6 +2548,11 @@ export default function App() {
               }
               chapterNumber={chapterNumber}
               bookId={selectedBookId}
+              onOpenReader={() => {
+                if (!selectedBookId) return;
+                persistBookContext(selectedBookId);
+                navigate(`/books/chapters/${chapterNumber}`);
+              }}
               draftChapterPlan={draftChapterPlan}
               chapterContext={chapterContext}
               generationRiskReview={generationRiskReview}
@@ -2300,6 +2570,7 @@ export default function App() {
               onStopGeneration={handleStopGeneration}
               onSaveGenerationSettings={handleSaveGenerationSettings}
               onOpenRevisionEditor={openRevisionEditor}
+              onOpenVersionHistory={openChapterVersionHistory}
               onSetPromptPreview={() => setPromptPreviewOpen(true)}
               onPrevChapter={goToPreviousChapter}
               onNextChapter={goToNextChapter}
@@ -2582,7 +2853,8 @@ export default function App() {
       {chapterModal === 'outline' ? (
         <Modal
           title={'第 ' + chapterNumber + ' 章章节细纲'}
-          description="用一段连贯的剧情摘要写清本章从开头到结尾具体发生什么。"
+          description=""
+          className="modal-panel-chapter-outline"
           onClose={() => setChapterModal(null)}
           actions={
             <>
@@ -2594,7 +2866,7 @@ export default function App() {
             </>
           }
         >
-          <div className="chapter-task-editor">
+          <div className="chapter-task-editor chapter-outline-modal-editor">
             <section className="chapter-outline-heading-row editor-field-full">
               <label className="editor-field chapter-outline-title-field">
                 <span>章节名</span>
@@ -2631,39 +2903,29 @@ export default function App() {
 
       {chapterModal === 'character' ? (
         <Modal
-          title={'编辑第 ' + chapterNumber + ' 章角色'}
-          description="只写这一章真正会出场、会影响推进的人物。"
+          title={'第 ' + chapterNumber + ' 章 · 出场角色'}
+          description=""
+          className="modal-panel-chapter-characters"
           onClose={() => setChapterModal(null)}
           actions={
             <>
               {savingState.error ? <div className="modal-error">{savingState.error}</div> : null}
               <button type="button" className="ghost-btn" onClick={() => setChapterModal(null)}>取消</button>
               <button type="button" className="ghost-btn" onClick={() => handleSaveChapterCharacters(true)} disabled={savingState.loading || isGenerating}>
-                保存并重生成本章
+                保存并重生成
               </button>
               <button type="button" className="solid-btn" onClick={() => handleSaveChapterCharacters(false)} disabled={savingState.loading}>
-                {savingState.loading ? '正在保存...' : '仅保存角色设置'}
+                {savingState.loading ? '正在保存...' : '保存'}
               </button>
             </>
           }
         >
-          <div className="outline-preview-stack">
-            <textarea
-              className="modal-textarea"
-              value={draftChapterPlan.character_notes}
-              onChange={(event) => updateDraftChapterPlanField('character_notes', event.target.value)}
-              placeholder="例如：主角当前状态、关键配角立场、新增人物的作用。"
-            />
-            <section className="outline-preview-block editor-field-full">
+          <div className="chapter-character-modal-content">
+            <section className="outline-preview-block editor-field-full chapter-character-modal-main">
               <div className="chapter-character-panel">
-                <div className="chapter-character-panel-copy">
-                  <span className="chapter-character-panel-eyebrow">章节角色执行层</span>
-                  <strong>先挂载已有角色，再补充本章临时人物</strong>
-                  <small>这里只保留本章真的会出场、会影响推进的人物。</small>
-                </div>
                 <div className="chapter-character-toolbar">
                   <label className="chapter-character-picker">
-                    <span>从资料库挂载</span>
+                    <span>从资料库选择</span>
                     <select
                       value={selectedLibraryCharacterName}
                       onChange={(event) => setSelectedLibraryCharacterName(event.target.value)}
@@ -2683,48 +2945,69 @@ export default function App() {
                 </div>
               </div>
               <div className="role-execution-editor-head">
-                <strong>本章已加入角色</strong>
+                <strong>已加入</strong>
                 <span>{Array.isArray(draftChapterPlan.role_execution) ? draftChapterPlan.role_execution.length : 0} 人</span>
               </div>
               <div className="role-execution-editor">
-                {(Array.isArray(draftChapterPlan.role_execution) ? draftChapterPlan.role_execution : []).map((item, index) => (
-                  <article key={`role-execution-${index}`} className="role-execution-editor-item">
+                {(Array.isArray(draftChapterPlan.role_execution) ? draftChapterPlan.role_execution : []).map((item, index) => {
+                  const libraryRole = libraryCharacterByKey.get(createRoleNameKey(item.role || ''));
+                  const isExpanded = expandedChapterRoleIndex === index;
+                  return (
+                  <article key={`role-execution-${index}`} className={`role-execution-editor-item${isExpanded ? ' is-expanded' : ''}`}>
                     <div className="role-execution-editor-item-head">
-                      <div className="role-execution-item-head">
-                        <strong>{item.role || `人物 ${index + 1}`}</strong>
-                        {libraryCharacterByKey.get(createRoleNameKey(item.role || ''))?.role_tier ? (
-                          <span className={`workbench-role-tier-badge ${getRoleTierTone(libraryCharacterByKey.get(createRoleNameKey(item.role || ''))?.role_tier)}`}>
-                            {getRoleTierShortLabel(libraryCharacterByKey.get(createRoleNameKey(item.role || ''))?.role_tier)}
+                      <button type="button" className="role-execution-summary-button" onClick={() => setExpandedChapterRoleIndex(isExpanded ? null : index)} aria-expanded={isExpanded}>
+                        <span className="role-execution-avatar" aria-hidden="true">{String(item.role || '角').slice(0, 1)}</span>
+                        <span className="role-execution-summary-copy">
+                          <span className="role-execution-item-head">
+                            <strong>{item.role || `新角色 ${index + 1}`}</strong>
+                            {libraryRole?.role_tier ? (
+                              <span className={`workbench-role-tier-badge ${getRoleTierTone(libraryRole.role_tier)}`}>
+                                {getRoleTierShortLabel(libraryRole.role_tier)}
+                              </span>
+                            ) : <span className="role-execution-custom-badge">临时角色</span>}
                           </span>
-                        ) : null}
-                      </div>
-                      <button type="button" className="ghost-btn" onClick={() => removeRoleExecutionItem(index)}>移除</button>
+                          <small>{getRoleExecutionPreview(item)}</small>
+                        </span>
+                        <em>{isExpanded ? '收起' : '编辑'}</em>
+                      </button>
+                      <button type="button" className="role-execution-remove-button" onClick={() => removeRoleExecutionItem(index)} aria-label={`移除${item.role || `角色 ${index + 1}`}`}>×</button>
                     </div>
-                    <label className="editor-field">
-                      <span>人物名</span>
-                      <input
-                        list={`chapter-role-library-${index}`}
-                        value={item.role || ''}
-                        onChange={(event) => updateRoleExecutionField(index, 'role', event.target.value)}
-                      />
-                      <datalist id={`chapter-role-library-${index}`}>
-                        {libraryCharacters.map((character) => (
-                          <option key={character.id || character.name} value={character.name || ''}>
-                            {getRoleTierShortLabel(character.role_tier)}
-                          </option>
-                        ))}
-                      </datalist>
-                    </label>
-                    <label className="editor-field"><span>核心性格</span><textarea className="modal-textarea modal-textarea-compact" value={item.personality || item.baseline || ''} onChange={(event) => updateRoleExecutionField(index, 'personality', event.target.value)} placeholder="长期稳定的性格底色" /></label>
-                    <label className="editor-field"><span>身份背景</span><textarea className="modal-textarea modal-textarea-compact" value={item.background || item.chapter_function || ''} onChange={(event) => updateRoleExecutionField(index, 'background', event.target.value)} placeholder="出身、阵营、身份位置" /></label>
-                    <label className="editor-field"><span>外形标记</span><textarea className="modal-textarea modal-textarea-compact" value={item.appearance || item.appearance_marker || ''} onChange={(event) => updateRoleExecutionField(index, 'appearance', event.target.value)} placeholder="最有辨识度的外观特征" /></label>
+                    {isExpanded ? <div className="role-execution-editor-fields">
+                      <label className="editor-field">
+                        <span>姓名</span>
+                        <input
+                          list={`chapter-role-library-${index}`}
+                          value={item.role || ''}
+                          onChange={(event) => updateRoleExecutionField(index, 'role', event.target.value)}
+                        />
+                        <datalist id={`chapter-role-library-${index}`}>
+                          {libraryCharacters.map((character) => (
+                            <option key={character.id || character.name} value={character.name || ''}>
+                              {getRoleTierShortLabel(character.role_tier)}
+                            </option>
+                          ))}
+                        </datalist>
+                      </label>
+                      <label className="editor-field"><span>性格底色</span><textarea className="modal-textarea modal-textarea-compact" value={item.personality || item.baseline || ''} onChange={(event) => updateRoleExecutionField(index, 'personality', event.target.value)} placeholder="本章应保持的人物性格" /></label>
+                      <label className="editor-field"><span>身份与作用</span><textarea className="modal-textarea modal-textarea-compact" value={item.background || item.chapter_function || ''} onChange={(event) => updateRoleExecutionField(index, 'background', event.target.value)} placeholder="身份、立场或本章承担的作用" /></label>
+                      <label className="editor-field"><span>辨识特征</span><textarea className="modal-textarea modal-textarea-compact" value={item.appearance || item.appearance_marker || ''} onChange={(event) => updateRoleExecutionField(index, 'appearance', event.target.value)} placeholder="需要保持一致的外形特征" /></label>
+                    </div> : null}
                   </article>
-                ))}
+                );})}
                 {(!Array.isArray(draftChapterPlan.role_execution) || draftChapterPlan.role_execution.length === 0) ? (
-                  <p className="excerpt-text">还没有本章人物，点击“添加人物”建立速查资料。</p>
+                  <p className="excerpt-text">尚未添加角色。</p>
                 ) : null}
               </div>
             </section>
+            <details className="chapter-character-notes">
+              <summary><span>本章角色备注</span><em>可选</em></summary>
+              <textarea
+                className="modal-textarea modal-textarea-compact"
+                value={draftChapterPlan.character_notes}
+                onChange={(event) => updateDraftChapterPlanField('character_notes', event.target.value)}
+                placeholder="记录临时状态或特殊立场。"
+              />
+            </details>
           </div>
         </Modal>
       ) : null}
@@ -2904,6 +3187,157 @@ export default function App() {
         </Modal>
       ) : null}
 
+      {dataSafetyState.open ? (
+        <Modal
+          title="数据安全"
+          description="系统会在启动和持续写作期间轮转保存整库备份；这里恢复的是全部作品、规划和正文。"
+          onClose={() => setDataSafetyState((current) => ({ ...current, open: false }))}
+          actions={
+            <button
+              type="button"
+              className="solid-btn"
+              onClick={() => setDataSafetyState((current) => ({ ...current, open: false }))}
+            >
+              完成
+            </button>
+          }
+        >
+          {dataSafetyState.restartRequired ? (
+            <StatusNotice
+              kind="warning"
+              title="整库恢复已安排"
+              text="请立即关闭并重新打开应用。若继续写作，系统会自动取消恢复，避免覆盖新内容。"
+            />
+          ) : null}
+          {dataSafetyState.loading ? (
+            <StatusNotice kind="info" title="正在读取整库备份" />
+          ) : dataSafetyState.error ? (
+            <StatusNotice kind="error" title={dataSafetyState.error} />
+          ) : dataSafetyState.backups.length === 0 ? (
+            <div className="chapter-version-empty">
+              <strong>暂时还没有整库备份</strong>
+              <span>首次启动和后续写作保存时会自动建立轮转备份。</span>
+            </div>
+          ) : (
+            <div className="chapter-version-list">
+              {dataSafetyState.backups.map((backup) => {
+                const modifiedAt = backup.modifiedAt
+                  ? new Date(backup.modifiedAt).toLocaleString('zh-CN')
+                  : '时间未知';
+                const sizeMb = Number(backup.size || 0) / 1024 / 1024;
+                const reasonLabels = {
+                  startup: '启动前自动备份',
+                  automatic: '写作期间自动备份',
+                  'before-book-delete': '删除作品前备份',
+                  'before-restore': '整库恢复前备份'
+                };
+                return (
+                  <article className="chapter-version-card" key={backup.fileName}>
+                    <div className="chapter-version-card-head">
+                      <div>
+                        <strong>{modifiedAt}</strong>
+                        <span>{reasonLabels[backup.reason] || '自动安全备份'}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        disabled={Boolean(dataSafetyState.restoringFile) || dataSafetyState.restartRequired}
+                        onClick={() => handleScheduleDatabaseRestore(backup)}
+                      >
+                        {dataSafetyState.restoringFile === backup.fileName ? '安排中…' : '下次启动恢复'}
+                      </button>
+                    </div>
+                    <div className="chapter-version-meta">
+                      <span>完整项目数据库</span>
+                      <span>{sizeMb >= 0.1 ? `${sizeMb.toFixed(1)} MB` : `${Math.max(1, Math.round(Number(backup.size || 0) / 1024))} KB`}</span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </Modal>
+      ) : null}
+
+      {versionHistoryState.open ? (
+        <Modal
+          title={`第 ${chapterNumber} 章历史版本`}
+          description="版本分为生成和校改两类：生成稿自动编号，校改稿保留本轮校改目标。"
+          onClose={() => setVersionHistoryState((current) => ({ ...current, open: false }))}
+          actions={
+            <button
+              type="button"
+              className="solid-btn"
+              onClick={() => setVersionHistoryState((current) => ({ ...current, open: false }))}
+            >
+              完成
+            </button>
+          }
+        >
+          {versionHistoryState.loading ? (
+            <StatusNotice kind="info" title="正在读取历史版本" />
+          ) : versionHistoryState.error ? (
+            <StatusNotice kind="error" title={versionHistoryState.error} />
+          ) : versionHistoryState.versions.length === 0 ? (
+            <div className="chapter-version-empty">
+              <strong>当前还没有历史版本</strong>
+              <span>生成正文或保存校改稿后，系统会自动创建版本记录。</span>
+            </div>
+          ) : (
+            <div className="chapter-version-list">
+              {versionHistoryState.versions.map((version, versionIndex) => {
+                const createdAt = version.created_at
+                  ? new Date(version.created_at.replace(' ', 'T') + 'Z').toLocaleString('zh-CN')
+                  : '时间未知';
+                const versionType = version.version_type === 'revision' ? 'revision' : 'generation';
+                const fallbackGenerationNumber = Math.max(1, versionHistoryState.versions.length - versionIndex);
+                const generationNumber = Math.max(1, Number(version.version_number || fallbackGenerationNumber));
+                const isCurrentVersion = Boolean(Number(version.is_current || 0));
+                return (
+                  <article className="chapter-version-card" key={version.id}>
+                    <div className="chapter-version-card-head">
+                      <div>
+                        <div className="chapter-version-identity">
+                          <span className={`chapter-version-type is-${versionType}`}>
+                            {versionType === 'revision' ? '校改' : '生成'}
+                          </span>
+                          <strong>
+                            {versionType === 'revision' ? '校改版本' : `生成第 ${generationNumber} 版`}
+                            {isCurrentVersion ? ' · 当前版本' : ''}
+                          </strong>
+                        </div>
+                        <span>{createdAt} · {version.reason || '正文已保存'}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        disabled={Boolean(versionHistoryState.restoringId) || isCurrentVersion}
+                        onClick={() => handleRestoreChapterVersion(version)}
+                      >
+                        {isCurrentVersion
+                          ? '当前版本'
+                          : (versionHistoryState.restoringId === version.id ? '恢复中…' : '恢复此版本')}
+                      </button>
+                    </div>
+                    {versionType === 'revision' ? (
+                      <div className="chapter-version-target">
+                        <strong>校改目标</strong>
+                        <span>{version.revision_target || '旧版本未记录校改目标'}</span>
+                      </div>
+                    ) : null}
+                    <div className="chapter-version-meta">
+                      <span>{version.title || `第 ${chapterNumber} 章`}</span>
+                      <span>{formatExactWordCount(version.word_count || 0)}</span>
+                    </div>
+                    <p>{version.preview || '这个版本没有正文内容。'}</p>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </Modal>
+      ) : null}
+
       {resultModalOpen ? (
         <RevisionEditor
           chapterNumber={chapterNumber}
@@ -2930,6 +3364,9 @@ export default function App() {
           onSave={handleSaveRevision}
           onFocusRevisionChange={focusRevisionChange}
           onApplyRevisionSuggestion={applyRevisionSuggestion}
+          onApplyAllRevisionSuggestions={applyAllRevisionSuggestions}
+          onUndoRevisionSuggestion={undoRevisionSuggestion}
+          onUndoAllRevisionSuggestions={undoAllRevisionSuggestions}
           registerRevisionChangeRef={registerRevisionChangeRef}
           registerRevisionParagraphRef={registerRevisionParagraphRef}
         />

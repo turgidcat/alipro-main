@@ -1,19 +1,44 @@
 const express = require('express');
 const router = express.Router();
-const { BookService, ChapterService, TemplateService, ForeshadowingService, CharacterService, ChapterPlanService, BookPlanService, execQuery, execQueryOne, saveDatabase } = require('../services/database');
+const { BookService, ChapterService, ChapterVersionService, TemplateService, ForeshadowingService, CharacterService, ChapterPlanService, BookPlanService, execQuery, execQueryOne, saveDatabase, listChapterFeedbackRecords, upsertChapterFeedbackRecord } = require('../services/database');
 const dbPromise = require('../database/init');
 const logger = require('../utils/logger');
 const { validateRequest } = require('../middleware/validation');
 const { authenticateToken } = require('../middleware/auth');
+const { bookIdParamAccess } = require('../middleware/book-access');
 const aiService = require('../services/ai');
+const { resolveDatabasePath } = require('../config/runtime');
+const { listDatabaseBackups, scheduleDatabaseRestore } = require('../services/database-storage');
 
 const bookService = new BookService();
 const chapterService = new ChapterService();
+const chapterVersionService = new ChapterVersionService();
 const templateService = new TemplateService();
 const foreshadowingService = new ForeshadowingService();
 const characterService = new CharacterService();
 const chapterPlanService = new ChapterPlanService();
 const bookPlanService = new BookPlanService();
+
+router.use(['/books', '/chapters', '/characters', '/foreshadowing', '/templates', '/database'], authenticateToken);
+router.param('bookId', bookIdParamAccess);
+
+function describeChapterSnapshotReason(source = '') {
+  const labels = {
+    ai_generation: 'AI 生成正文前自动留档',
+    ai_regeneration: 'AI 重新生成前自动留档',
+    revision_save: '保存校改稿前自动留档',
+    manual_save: '人工保存前自动留档',
+    delete: '删除正文前自动留档'
+  };
+  return labels[source] || '正文更新前自动留档';
+}
+
+function isLoopbackRequest(req) {
+  const address = String(req.socket?.remoteAddress || req.ip || '').toLowerCase();
+  return address === '127.0.0.1'
+    || address === '::1'
+    || address === '::ffff:127.0.0.1';
+}
 
 const ROLE_TIER_VALUES = ['protagonist', 'supporting_major', 'supporting_secondary', 'supporting_minor', 'antagonist_major', 'antagonist_minor'];
 const ROLE_TIER_LABELS = {
@@ -58,23 +83,23 @@ function buildRoleTierPromptSection() {
   ].join('\n');
 }
 
-async function buildCharacterGenerationContext(bookId) {
+async function buildCharacterGenerationContext(bookId, userId = '') {
   const db = await dbPromise;
   const [book, bookPlan, characters] = await Promise.all([
     bookService.getById(bookId),
-    bookPlanService.getByBookId(bookId, '').catch(() => null),
-    characterService.getByBookId(bookId, '')
+    bookPlanService.getByBookId(bookId, userId).catch(() => null),
+    characterService.getByBookId(bookId, userId)
   ]);
 
   const volumePlans = execQuery(
     db,
-    "SELECT volume_number, volume_name, volume_theme, stage_goal, core_conflict, notes FROM volume_plans WHERE book_id = ? ORDER BY volume_number ASC, CASE WHEN user_id = '' THEN 0 ELSE 1 END",
-    [bookId]
+    "SELECT volume_number, volume_name, volume_theme, stage_goal, core_conflict, notes FROM volume_plans WHERE book_id = ? AND (user_id = ? OR user_id = '') ORDER BY volume_number ASC, CASE WHEN user_id = '' THEN 0 ELSE 1 END",
+    [bookId, userId]
   );
   const storylines = execQuery(
     db,
-    "SELECT volume_number, storyline_number, storyline_name, storyline_type, description, core_conflict, involved_characters FROM storylines WHERE book_id = ? ORDER BY volume_number ASC, storyline_number ASC, CASE WHEN user_id = '' THEN 0 ELSE 1 END",
-    [bookId]
+    "SELECT volume_number, storyline_number, storyline_name, storyline_type, description, core_conflict, involved_characters FROM storylines WHERE book_id = ? AND (user_id = ? OR user_id = '') ORDER BY volume_number ASC, storyline_number ASC, CASE WHEN user_id = '' THEN 0 ELSE 1 END",
+    [bookId, userId]
   );
 
   const existingCharacters = Array.isArray(characters)
@@ -156,7 +181,7 @@ async function buildCharacterGenerationContext(bookId) {
  */
 router.get('/books', async (req, res) => {
   try {
-    const userId = ''; // 纯前端应用，显示所有书籍
+    const userId = req.user.userId;
     const books = await bookService.getAll(userId);
     res.json({
       success: true,
@@ -190,7 +215,7 @@ router.post('/books',
   }),
   async (req, res) => {
   try {
-    const userId = ''; // 纯前端应用，不关联用户
+    const userId = req.user.userId;
     const { title, genre, subgenre = '', description, author, cover_image = '', status } = req.body;
 
     if (!title || !genre) {
@@ -234,34 +259,38 @@ router.post('/books',
 router.get('/books/stats', async (req, res) => {
   try {
     const db = await dbPromise;
+    const userId = req.user.userId;
+    const userWhere = userId ? ' WHERE user_id = ?' : '';
+    const userParams = userId ? [userId] : [];
 
-    const totalBooksResult = execQueryOne(db, 'SELECT COUNT(*) as count FROM books');
+    const totalBooksResult = execQueryOne(db, `SELECT COUNT(*) as count FROM books${userWhere}`, userParams);
     const totalBooks = totalBooksResult ? totalBooksResult.count : 0;
 
-    const totalChaptersResult = execQueryOne(db, 'SELECT COUNT(*) as count FROM chapters');
+    const totalChaptersResult = execQueryOne(db, `SELECT COUNT(*) as count FROM chapters${userWhere}`, userParams);
     const totalChapters = totalChaptersResult ? totalChaptersResult.count : 0;
 
-    const totalWordsResult = execQueryOne(db, 'SELECT COALESCE(SUM(word_count), 0) as total FROM chapters');
+    const totalWordsResult = execQueryOne(db, `SELECT COALESCE(SUM(word_count), 0) as total FROM chapters${userWhere}`, userParams);
     const totalWords = totalWordsResult ? totalWordsResult.total : 0;
 
-    const totalCharactersResult = execQueryOne(db, `SELECT COUNT(*) as count FROM novel_characters`);
+    const totalCharactersResult = execQueryOne(db, `SELECT COUNT(*) as count FROM novel_characters${userWhere}`, userParams);
     const totalCharacters = totalCharactersResult ? totalCharactersResult.count : 0;
 
-    const statusResult = execQuery(db, 'SELECT status, COUNT(*) as count FROM books GROUP BY status');
+    const statusResult = execQuery(db, `SELECT status, COUNT(*) as count FROM books${userWhere} GROUP BY status`, userParams);
     const statusBreakdown = { writing: 0, completed: 0, paused: 0 };
     statusResult.forEach(row => { statusBreakdown[row.status] = row.count; });
 
-    const recentResult = execQueryOne(db, "SELECT COUNT(*) as count FROM books WHERE updated_at >= datetime('now', '-7 days')");
+    const recentResult = execQueryOne(db, `SELECT COUNT(*) as count FROM books WHERE updated_at >= datetime('now', '-7 days')${userId ? ' AND user_id = ?' : ''}`, userParams);
     const recent7Days = recentResult ? recentResult.count : 0;
 
     const topBooksResult = execQuery(db, `
       SELECT b.id, b.title, b.status, COUNT(c.id) as chapter_count, COALESCE(SUM(c.word_count), 0) as word_count
       FROM books b
       LEFT JOIN chapters c ON b.id = c.book_id
+      ${userId ? 'WHERE b.user_id = ?' : ''}
       GROUP BY b.id
       ORDER BY word_count DESC
       LIMIT 5
-    `);
+    `, userParams);
 
     res.json({
       success: true,
@@ -293,7 +322,7 @@ router.get('/books/stats', async (req, res) => {
  */
 router.get('/books/:id', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const book = await bookService.getById(req.params.id);
 
     if (!book) {
@@ -304,7 +333,7 @@ router.get('/books/:id', async (req, res) => {
     }
 
     // 验证用户权限
-    if (userId && book.user_id !== userId) {
+    if (userId && book.user_id !== userId && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         error: '无权访问此书籍'
@@ -333,7 +362,11 @@ router.get('/books/:id', async (req, res) => {
  */
 router.put('/books/:id', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
+    const existingBook = await bookService.getById(req.params.id);
+    if (userId && existingBook?.user_id !== userId && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, error: '无权修改此书籍' });
+    }
     const book = await bookService.update(req.params.id, req.body);
 
     if (!book) {
@@ -344,7 +377,7 @@ router.put('/books/:id', async (req, res) => {
     }
 
     // 验证用户权限
-    if (userId && book.user_id !== userId) {
+    if (userId && book.user_id !== userId && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         error: '无权修改此书籍'
@@ -373,7 +406,7 @@ router.put('/books/:id', async (req, res) => {
  */
 router.delete('/books/:id', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
 
     // 先检查书籍是否存在及权限
     const book = await bookService.getById(req.params.id);
@@ -385,7 +418,7 @@ router.delete('/books/:id', async (req, res) => {
     }
 
     // 验证用户权限
-    if (userId && book.user_id !== userId) {
+    if (userId && book.user_id !== userId && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         error: '无权删除此书籍'
@@ -429,6 +462,11 @@ router.post('/books/batch-delete', async (req, res) => {
 
     for (const id of ids) {
       try {
+        const book = await bookService.getById(id);
+        if (!book || (req.user.role !== 'admin' && String(book.user_id || '') !== String(req.user.userId || ''))) {
+          failedIds.push(id);
+          continue;
+        }
         const success = await bookService.delete(id);
         if (success) {
           deletedCount++;
@@ -467,12 +505,17 @@ router.post('/books/batch-delete', async (req, res) => {
  */
 router.get('/books/:bookId/chapters', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const chapters = await chapterService.getByBookId(req.params.bookId, userId);
+
+    const includeContent = String(req.query.includeContent || '').toLowerCase() !== 'false';
+    const data = includeContent
+      ? chapters
+      : chapters.map(({ content: _content, ...chapter }) => chapter);
 
     res.json({
       success: true,
-      data: chapters
+      data
     });
   } catch (error) {
     logger.error('获取章节列表失败', {
@@ -499,7 +542,7 @@ router.post('/books/:bookId/chapters',
   }),
   async (req, res) => {
   try {
-    const userId = ''; // 纯前端应用，不关联用户
+    const userId = req.user.userId;
     const { title, chapterName, content, chapterNumber } = req.body;
 
     if (!title) {
@@ -528,12 +571,97 @@ router.post('/books/:bookId/chapters',
 });
 
 /**
+ * GET /api/books/:bookId/chapters/:chapterNumber
+ * 按需读取单章正文，供移动端阅读器使用。
+ */
+router.get('/books/:bookId/chapters/:chapterNumber', async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const chapterNumber = Number.parseInt(req.params.chapterNumber, 10);
+    if (!Number.isFinite(chapterNumber) || chapterNumber < 1) {
+      return res.status(400).json({ success: false, error: '章节编号无效' });
+    }
+
+    const chapter = await chapterService.getByBookAndChapterNumber(
+      req.params.bookId,
+      chapterNumber,
+      userId
+    );
+    if (!chapter) {
+      return res.status(404).json({ success: false, error: '章节不存在' });
+    }
+    return res.json({ success: true, data: chapter });
+  } catch (error) {
+    logger.error('获取单章正文失败', { error: error.message, stack: error.stack });
+    return res.status(500).json({ success: false, error: '服务器内部错误' });
+  }
+});
+
+/**
+ * GET /api/books/:bookId/chapter-versions
+ * 返回有历史正文的章号，删除正文后仍可从章节导航进入恢复。
+ */
+router.get('/books/:bookId/chapter-versions', async (req, res) => {
+  try {
+    const summaries = await chapterVersionService.listChapterSummaries(req.params.bookId);
+    res.json({ success: true, data: summaries });
+  } catch (error) {
+    logger.error('获取章节历史摘要失败', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: '获取章节历史摘要失败' });
+  }
+});
+
+/**
+ * GET /api/books/:bookId/chapters/:chapterNumber/versions
+ * 获取本章可恢复的历史正文版本。
+ */
+router.get('/books/:bookId/chapters/:chapterNumber/versions', async (req, res) => {
+  try {
+    const chapterNumber = Number.parseInt(req.params.chapterNumber, 10);
+    if (!Number.isFinite(chapterNumber) || chapterNumber < 1) {
+      return res.status(400).json({ success: false, error: '章节编号无效' });
+    }
+    const versions = await chapterVersionService.list(req.params.bookId, chapterNumber);
+    res.json({ success: true, data: versions });
+  } catch (error) {
+    logger.error('获取章节历史版本失败', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: '获取章节历史版本失败' });
+  }
+});
+
+/**
+ * POST /api/books/:bookId/chapters/:chapterNumber/versions/:versionId/restore
+ * 恢复历史正文；恢复前会先为当前正文再留一份快照。
+ */
+router.post('/books/:bookId/chapters/:chapterNumber/versions/:versionId/restore', async (req, res) => {
+  try {
+    const chapterNumber = Number.parseInt(req.params.chapterNumber, 10);
+    if (!Number.isFinite(chapterNumber) || chapterNumber < 1) {
+      return res.status(400).json({ success: false, error: '章节编号无效' });
+    }
+    const chapter = await chapterVersionService.restore(
+      req.params.bookId,
+      chapterNumber,
+      req.params.versionId,
+      ''
+    );
+    if (!chapter) {
+      return res.status(404).json({ success: false, error: '历史版本不存在' });
+    }
+    res.json({ success: true, data: chapter });
+  } catch (error) {
+    logger.error('恢复章节历史版本失败', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: '恢复章节历史版本失败' });
+  }
+});
+
+/**
  * DELETE /api/books/:bookId/chapters/:chapterNumber
  * 删除单章正文与对应细纲（纯前端应用，无需认证）
  */
 router.delete('/books/:bookId/chapters/:chapterNumber', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const { bookId } = req.params;
     const chapterNumber = Number.parseInt(req.params.chapterNumber, 10);
 
@@ -557,7 +685,10 @@ router.delete('/books/:bookId/chapters/:chapterNumber', async (req, res) => {
     }
 
     const deletedChapter = chapter
-      ? await chapterService.deleteByBookAndChapterNumber(bookId, chapterNumber, userId)
+      ? await chapterService.deleteByBookAndChapterNumber(bookId, chapterNumber, userId, {
+          snapshotSource: 'delete',
+          snapshotReason: '删除章节前自动留档'
+        })
       : false;
     const deletedPlanCount = await chapterPlanService.deleteByBookAndChapterNumber(bookId, chapterNumber, userId);
 
@@ -587,7 +718,7 @@ router.delete('/books/:bookId/chapters/:chapterNumber', async (req, res) => {
  */
 router.delete('/books/:bookId/chapters/:chapterNumber/content', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const { bookId } = req.params;
     const chapterNumber = Number.parseInt(req.params.chapterNumber, 10);
 
@@ -600,7 +731,10 @@ router.delete('/books/:bookId/chapters/:chapterNumber/content', async (req, res)
       return res.status(404).json({ success: false, error: '本章没有可删除的正文' });
     }
 
-    const deletedChapter = await chapterService.deleteByBookAndChapterNumber(bookId, chapterNumber, userId);
+    const deletedChapter = await chapterService.deleteByBookAndChapterNumber(bookId, chapterNumber, userId, {
+      snapshotSource: 'delete',
+      snapshotReason: '删除正文前自动留档'
+    });
     res.json({ success: true, data: { chapterNumber, deletedChapter } });
   } catch (error) {
     logger.error('删除章节正文失败', { error: error.message, stack: error.stack });
@@ -614,7 +748,7 @@ router.delete('/books/:bookId/chapters/:chapterNumber/content', async (req, res)
  */
 router.delete('/books/:bookId/chapters', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const { bookId } = req.params;
     const book = await bookService.getById(bookId);
     if (!book) {
@@ -790,6 +924,52 @@ router.get('/books/:bookId/export', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/database/backups
+ * 返回自动轮转备份列表。恢复操作会在下次启动时应用，避免运行中替换数据库。
+ */
+router.get('/database/backups', async (_req, res) => {
+  try {
+    if (!isLoopbackRequest(_req)) {
+      return res.status(403).json({ success: false, error: '数据库备份仅允许在本机管理' });
+    }
+    const backups = listDatabaseBackups(resolveDatabasePath()).map((backup) => ({
+      fileName: backup.fileName,
+      reason: backup.reason,
+      size: backup.size,
+      createdAt: backup.createdAt,
+      modifiedAt: backup.modifiedAt
+    }));
+    res.json({ success: true, data: backups });
+  } catch (error) {
+    logger.error('读取数据库备份失败', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: '读取数据库备份失败' });
+  }
+});
+
+/**
+ * POST /api/database/backups/:fileName/restore
+ * 安排下次启动恢复，当前运行中的写作进程不会被突然替换。
+ */
+router.post('/database/backups/:fileName/restore', async (req, res) => {
+  try {
+    if (!isLoopbackRequest(req)) {
+      return res.status(403).json({ success: false, error: '数据库恢复仅允许在本机执行' });
+    }
+    const request = scheduleDatabaseRestore(resolveDatabasePath(), req.params.fileName);
+    res.json({
+      success: true,
+      data: {
+        ...request,
+        restartRequired: true
+      }
+    });
+  } catch (error) {
+    logger.error('安排数据库恢复失败', { error: error.message, stack: error.stack });
+    res.status(400).json({ success: false, error: error.message || '安排数据库恢复失败' });
+  }
+});
+
 // ==================== 模板管理 ====================
 
 /**
@@ -911,7 +1091,7 @@ router.delete('/templates/:id', authenticateToken, async (req, res) => {
  */
 router.get('/books/:bookId/foreshadowing', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const { status } = req.query;
     const foreshadows = await foreshadowingService.getByBookId(req.params.bookId, status, userId);
 
@@ -1072,7 +1252,7 @@ router.delete('/foreshadowing/:id', authenticateToken, async (req, res) => {
  */
 router.get('/books/:bookId/characters', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const characterType = req.query.type || null; // 可选的类型筛选参数
     // 兼容旧作品：历史摘要会在首次读取时拆成独立角色卡，原摘要记录保留给生成链路使用。
     await characterService.ensureLegacySummarySplit(req.params.bookId, userId);
@@ -1111,7 +1291,7 @@ router.post('/books/:bookId/characters',
   }),
   async (req, res) => {
   try {
-    const userId = ''; // 纯前端应用，不关联用户
+    const userId = req.user.userId;
     const { name, appearance = '', personality = '', background = '', notes = '', avatar_image = '', character_type = 'main_character', role_tier = 'supporting_major' } = req.body;
     // 与生成卡片/批量生成保持一致：role_tier 只接受合法枚举，非法值回落为重要配角
     const safeRoleTier = ROLE_TIER_VALUES.includes(role_tier) ? role_tier : 'supporting_major';
@@ -1251,7 +1431,7 @@ router.post('/books/:bookId/characters/generate-card',
       const name = normalizeJsonText(req.body.name) || '新角色';
       const hint = normalizeJsonText(req.body.hint);
       const roleTier = ROLE_TIER_VALUES.includes(req.body.role_tier) ? req.body.role_tier : 'supporting_major';
-      const { book, bookPlan, existingCharacters, volumePlanLines, storylineLines, characterPoolLines } = await buildCharacterGenerationContext(bookId);
+      const { book, bookPlan, existingCharacters, volumePlanLines, storylineLines, characterPoolLines } = await buildCharacterGenerationContext(bookId, req.user.userId);
 
       if (!book) {
         return res.status(404).json({
@@ -1357,7 +1537,7 @@ router.post('/books/:bookId/characters/generate-batch',
         });
       }
 
-      const { book, bookPlan, existingCharacters, volumePlanLines, storylineLines, characterPoolLines } = await buildCharacterGenerationContext(bookId);
+      const { book, bookPlan, existingCharacters, volumePlanLines, storylineLines, characterPoolLines } = await buildCharacterGenerationContext(bookId, req.user.userId);
 
       if (!book) {
         return res.status(404).json({
@@ -1782,7 +1962,7 @@ router.post('/books/:bookId/characters/auto-classify',
  */
 router.get('/books/:bookId/outline', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const bookPlan = await bookPlanService.getByBookId(req.params.bookId, userId);
     res.json({
       success: true,
@@ -1812,7 +1992,7 @@ router.post('/books/:bookId/outline',
   }),
   async (req, res) => {
   try {
-    const userId = ''; // 纯前端应用，不关联用户
+    const userId = req.user.userId;
     const { main_outline = '', volume_outline = '', detailed_outline = '' } = req.body;
 
     const outline = await bookPlanService.upsert(req.params.bookId, {
@@ -1848,12 +2028,23 @@ router.post('/books/:bookId/chapters/upsert',
     title: { type: 'string', required: true, minLength: 1, maxLength: 200 },
     chapterName: { type: 'string', required: false, maxLength: 200 },
     content: { type: 'string', required: false, maxLength: 50000 },
-    chapterNumber: { type: 'number', required: true, min: 1 }
+    chapterNumber: { type: 'number', required: true, min: 1 },
+    snapshotReason: { type: 'string', required: false, maxLength: 64 },
+    versionType: { type: 'string', required: false, enum: ['generation', 'revision'] },
+    revisionTarget: { type: 'string', required: false, maxLength: 500 }
   }),
   async (req, res) => {
   try {
-    const userId = '';
-    const { title, chapterName, content, chapterNumber } = req.body;
+    const userId = req.user.userId;
+    const {
+      title,
+      chapterName,
+      content,
+      chapterNumber,
+      snapshotReason = 'manual_save',
+      versionType = 'generation',
+      revisionTarget = ''
+    } = req.body;
 
     const chapter = await chapterService.upsertByChapterNumber(
       req.params.bookId,
@@ -1863,7 +2054,13 @@ router.post('/books/:bookId/chapters/upsert',
         chapter_name: chapterName || '',
         content: content || ''
       },
-      userId
+      userId,
+      {
+        snapshotSource: snapshotReason,
+        snapshotReason: describeChapterSnapshotReason(snapshotReason),
+        nextVersionType: versionType,
+        nextRevisionTarget: revisionTarget
+      }
     );
 
     res.json({
@@ -1892,7 +2089,7 @@ router.post('/books/:bookId/character-summary',
   }),
   async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const bookId = req.params.bookId;
     const summary = String(req.body.summary || '').trim();
     const legacyNames = ['全书角色设定', '本章新增角色'];
@@ -1943,7 +2140,7 @@ router.post('/books/:bookId/character-summary',
  */
 router.get('/books/:bookId/chapter-plans', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const plans = await chapterPlanService.getByBookId(req.params.bookId, userId);
     res.json({
       success: true,
@@ -1967,7 +2164,7 @@ router.get('/books/:bookId/chapter-plans', async (req, res) => {
  */
 router.get('/books/:bookId/chapter-plans/:chapterNumber', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const chapterNumber = Number.parseInt(req.params.chapterNumber, 10);
     const plan = await chapterPlanService.getByBookAndChapterNumber(req.params.bookId, chapterNumber, userId);
     res.json({
@@ -1983,6 +2180,23 @@ router.get('/books/:bookId/chapter-plans/:chapterNumber', async (req, res) => {
       success: false,
       error: '服务器内部错误'
     });
+  }
+});
+
+/**
+ * GET /api/books/:bookId/chapter-feedback
+ * 章节反馈正式主表；chapter_plans 中的反馈 JSON 仅作为兼容镜像。
+ */
+router.get('/books/:bookId/chapter-feedback', async (req, res) => {
+  try {
+    const db = await dbPromise;
+    res.json({
+      success: true,
+      data: listChapterFeedbackRecords(db, req.params.bookId)
+    });
+  } catch (error) {
+    logger.error('获取章节反馈失败', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: '获取章节反馈失败' });
   }
 });
 
@@ -2011,7 +2225,7 @@ router.post('/books/:bookId/chapter-plans/:chapterNumber',
   }),
   async (req, res) => {
     try {
-      const userId = '';
+    const userId = req.user.userId;
       const chapterNumber = Number.parseInt(req.params.chapterNumber, 10);
       const plan = await chapterPlanService.upsert(req.params.bookId, chapterNumber, req.body, userId);
       res.json({
@@ -2038,7 +2252,7 @@ router.post('/books/:bookId/chapter-plans/:chapterNumber',
  */
 router.post('/books/:bookId/chapter-plans/:chapterNumber/review-confirm', async (req, res) => {
   try {
-    const userId = '';
+    const userId = req.user.userId;
     const chapterNumber = Number.parseInt(req.params.chapterNumber, 10);
     if (!Number.isFinite(chapterNumber) || chapterNumber < 1) {
       return res.status(400).json({ success: false, error: 'chapterNumber 必须大于 0' });
@@ -2068,6 +2282,13 @@ router.post('/books/:bookId/chapter-plans/:chapterNumber/review-confirm', async 
     }
     structuredContent.chapter_feedback.quality_check.human_confirmed = true;
     structuredContent.chapter_feedback.quality_check.human_confirmed_at = new Date().toISOString();
+
+    upsertChapterFeedbackRecord(db, {
+      bookId: req.params.bookId,
+      chapterId: plan.chapter_id || '',
+      chapterNumber,
+      feedback: structuredContent.chapter_feedback
+    });
 
     db.run(
       'UPDATE chapter_plans SET structured_content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',

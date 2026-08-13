@@ -1,7 +1,20 @@
+const CHAPTER_NUMBER_PREFIX = /^第\s*[0-9０-９一二三四五六七八九十百千万零〇两]+\s*章(?:\s*[·:：\-—]\s*|\s+|(?=\S)|$)/i;
+
+function cleanChapterNameText(value) {
+  let normalized = String(value || '').trim();
+  if (normalized === '[object Object]' || normalized === '[object Array]') return '';
+
+  let previous = '';
+  while (normalized && normalized !== previous && CHAPTER_NUMBER_PREFIX.test(normalized)) {
+    previous = normalized;
+    normalized = normalized.replace(CHAPTER_NUMBER_PREFIX, '').trim();
+  }
+  return normalized;
+}
+
 export function normalizeChapterName(value) {
   if (typeof value === 'string') {
-    const normalized = value.trim();
-    return normalized === '[object Object]' || normalized === '[object Array]' ? '' : normalized;
+    return cleanChapterNameText(value);
   }
   if (typeof value === 'number') return String(value);
   if (Array.isArray(value)) {
@@ -23,7 +36,7 @@ export function normalizeChapterName(value) {
     value.text,
     value.summary
   ]
-    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .map((item) => (typeof item === 'string' ? cleanChapterNameText(item) : ''))
     .find(Boolean);
 
   if (direct) return direct;

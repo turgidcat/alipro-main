@@ -13,6 +13,7 @@ export default function GlobalBar({
   onNextChapter,
   onSelectChapter,
   onSwitchBook,
+  onOpenDataSafety,
   showNavigation = true
 }) {
   const normalizedChapterName = normalizeChapterName(chapterName);
@@ -36,23 +37,32 @@ export default function GlobalBar({
         <h1 className="wgb-title">
           {normalizedChapterName || `第 ${chapterNumber} 章`}
         </h1>
-        {showNavigation ? (
+        {showNavigation || onOpenDataSafety ? (
           <div className="wgb-actions">
-            <button type="button" className="wgb-icon-btn" onClick={onPrevChapter} disabled={chapterNumber <= 1} title="上一章">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
-            </button>
-            <span className="wgb-counter">{chapterNumber} / {totalChapterCount || '–'}</span>
-            <button type="button" className="wgb-icon-btn" onClick={onNextChapter} disabled={false} title="下一章">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
-            </button>
-            <ChapterList
-              currentChapter={chapterNumber}
-              items={chapterListItems}
-              onSelect={onSelectChapter}
-            />
-            {onSwitchBook && (
-              <button type="button" className="wgb-text-btn" onClick={onSwitchBook}>
-                切换作品
+            {showNavigation ? (
+              <>
+                <button type="button" className="wgb-icon-btn" onClick={onPrevChapter} disabled={chapterNumber <= 1} title="上一章">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
+                </button>
+                <span className="wgb-counter">{chapterNumber} / {totalChapterCount || '–'}</span>
+                <button type="button" className="wgb-icon-btn" onClick={onNextChapter} disabled={false} title="下一章">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+                </button>
+                <ChapterList
+                  currentChapter={chapterNumber}
+                  items={chapterListItems}
+                  onSelect={onSelectChapter}
+                />
+                {onSwitchBook && (
+                  <button type="button" className="wgb-text-btn" onClick={onSwitchBook}>
+                    切换作品
+                  </button>
+                )}
+              </>
+            ) : null}
+            {onOpenDataSafety && (
+              <button type="button" className="wgb-text-btn" onClick={onOpenDataSafety}>
+                数据安全
               </button>
             )}
           </div>

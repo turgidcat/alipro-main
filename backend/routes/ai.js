@@ -3,7 +3,7 @@ const router = express.Router();
 const deepseekService = require('../services/deepseek');
 const logger = require('../utils/logger');
 const dbPromise = require('../database/init');
-const { execQuery, execQueryOne, saveDatabase, syncStorylineProgressFromChapterPlan, ChapterPlanService } = require('../services/database');
+const { execQuery, execQueryOne, saveDatabase, syncStorylineProgressFromChapterPlan, getChapterFeedbackRecord, upsertChapterFeedbackRecord, ChapterPlanService } = require('../services/database');
 const { recordGenerationRun } = require('../services/generation-run-service');
 const {
   WORD_COUNT_POLICY,
@@ -21,10 +21,18 @@ const { resolveDeepSeekModel, resolveDeepSeekJudgeModel, resolveDeepSeekRepairMo
 const { inspectDeterministicContent } = require('../harness/deterministic-judge');
 const { loadRelevantLedgerSnapshot, syncFeedbackLedgers } = require('../services/continuity-ledger-service');
 const { collectLedgerDenialConflicts, collectOpeningLocationCandidates, evaluateChapterPlanQuality, evaluatePreviousChapterRelease, formatAuditLedgerSnapshot, isAffirmativeAuditRisk, isNoisyCountFactNoun, shouldAcceptQualityRepair } = require('../services/chapter-quality-policy');
+const { authenticateToken } = require('../middleware/auth');
+const { requestedBookAccess } = require('../middleware/book-access');
 
 const CHAPTER_PROMPT_VERSION = 'chapter.v2';
 
 const chapterPlanService = new ChapterPlanService();
+
+router.use(
+  ['/generate', '/polish', '/continue', '/check-character', '/check-plot', '/detect-foreshadowing', '/optimize-plot', '/translate'],
+  authenticateToken,
+  requestedBookAccess
+);
 
 function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -3293,6 +3301,12 @@ async function saveChapterFeedback({ bookId, chapterNumber, feedback, content = 
     chapterPlan: existingPlan,
     content
   });
+  const feedbackRecord = upsertChapterFeedbackRecord(db, {
+    bookId,
+    chapterId: existingPlan.chapter_id || '',
+    chapterNumber,
+    feedback: enrichedFeedback
+  });
   structuredContent.chapter_feedback = enrichedFeedback;
   structuredContent.character_feedback = {
     summary: normalizeText(enrichedFeedback.character_progress || ''),
@@ -3360,6 +3374,7 @@ async function saveChapterFeedback({ bookId, chapterNumber, feedback, content = 
   });
   return {
     feedback: enrichedFeedback,
+    feedbackRecord,
     storylineProgressUpdated,
     requiresStorylineReview,
     storylineProgressError
@@ -3484,7 +3499,12 @@ async function loadBookGenerationContext(bookId, chapterNumber, options = {}) {
     ? [...chapterPlanRows].reverse().find((row) => Number(row.chapter_number || 0) < currentChapterNumber) || null
     : null;
 
-  const previousChapterFeedback = parseStructuredContent(previousChapterPlan?.structured_content)?.chapter_feedback || null;
+  const previousFeedbackRecord = previousChapterPlan
+    ? getChapterFeedbackRecord(db, bookId, previousChapterPlan.chapter_number)
+    : null;
+  const previousChapterFeedback = previousFeedbackRecord?.feedback
+    || parseStructuredContent(previousChapterPlan?.structured_content)?.chapter_feedback
+    || null;
   const previousChapterOutline = normalizeText(buildOutlineFromChapterPlan(previousChapterPlan));
   const bookPremise = normalizeText(bookPlanRow?.premise || '');
   const bookMainGoal = normalizeText(bookPlanRow?.main_goal || '');

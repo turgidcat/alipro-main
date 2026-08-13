@@ -1,5 +1,7 @@
 const initDatabase = require('../database/init');
 const { countPlatformEffectiveWords } = require('./word-count-policy');
+const { createDatabaseBackup, writeDatabaseAtomically } = require('./database-storage');
+const { resolveDatabasePath } = require('../config/runtime');
 
 // UUID生成函数（不依赖uuid包）
 function generateId() {
@@ -15,12 +17,10 @@ let dbPromise = initDatabase.then(db => db);
 
 // 保存数据库到文件
 function saveDatabase(db) {
-  const fs = require('fs');
-  const { resolveDatabasePath } = require('../config/runtime');
   const data = db.export();
   const buffer = Buffer.from(data);
   const dbPath = resolveDatabasePath();
-  fs.writeFileSync(dbPath, buffer);
+  writeDatabaseAtomically(dbPath, buffer);
 }
 
 // 辅助函数：执行查询并返回结果数组
@@ -59,6 +59,75 @@ function parseJsonObject(value) {
 
 function normalizeText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeChapterFeedbackRecord(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    feedback: parseJsonObject(row.feedback_json)
+  };
+}
+
+function getChapterFeedbackRecord(db, bookId, chapterNumber) {
+  const row = execQueryOne(
+    db,
+    'SELECT * FROM chapter_feedback WHERE book_id = ? AND chapter_number = ? LIMIT 1',
+    [bookId, Number(chapterNumber || 0)]
+  );
+  return normalizeChapterFeedbackRecord(row);
+}
+
+function listChapterFeedbackRecords(db, bookId) {
+  return execQuery(
+    db,
+    'SELECT * FROM chapter_feedback WHERE book_id = ? ORDER BY chapter_number ASC',
+    [bookId]
+  ).map(normalizeChapterFeedbackRecord);
+}
+
+function upsertChapterFeedbackRecord(db, {
+  bookId,
+  chapterId = '',
+  chapterNumber,
+  feedback = {}
+} = {}) {
+  const normalizedFeedback = feedback && typeof feedback === 'object' && !Array.isArray(feedback)
+    ? feedback
+    : {};
+  const qualityCheck = parseJsonObject(normalizedFeedback.quality_check);
+  const qualityStatus = normalizeText(qualityCheck.status || qualityCheck.verdict || '');
+  const needsHumanReview = qualityCheck.needs_human_review || qualityCheck.needsHumanReview ? 1 : 0;
+  const source = normalizeText(normalizedFeedback.source || 'model_feedback') || 'model_feedback';
+  const existing = execQueryOne(
+    db,
+    'SELECT id FROM chapter_feedback WHERE book_id = ? AND chapter_number = ? LIMIT 1',
+    [bookId, Number(chapterNumber || 0)]
+  );
+
+  if (existing) {
+    db.run(`
+      UPDATE chapter_feedback
+      SET chapter_id = ?, feedback_json = ?, quality_status = ?,
+          needs_human_review = ?, source = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [
+      chapterId || '', JSON.stringify(normalizedFeedback), qualityStatus,
+      needsHumanReview, source, existing.id
+    ]);
+  } else {
+    db.run(`
+      INSERT INTO chapter_feedback (
+        id, book_id, chapter_id, chapter_number, feedback_json,
+        quality_status, needs_human_review, source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      generateId(), bookId, chapterId || '', Number(chapterNumber || 0),
+      JSON.stringify(normalizedFeedback), qualityStatus, needsHumanReview, source
+    ]);
+  }
+
+  return getChapterFeedbackRecord(db, bookId, chapterNumber);
 }
 
 function sanitizeGeneratedText(value) {
@@ -897,31 +966,280 @@ class BookService {
    */
   async delete(id) {
     const db = await dbPromise;
+    const existing = execQueryOne(db, 'SELECT id FROM books WHERE id = ?', [id]);
+    if (!existing) return false;
 
-    // sql.js 对外键 CASCADE 支持不稳定，全部手动删除
+    // 书籍删除会跨多张表，先强制保留整库快照，再在事务内完整级联清理。
+    createDatabaseBackup(resolveDatabasePath(), { reason: 'before-book-delete', force: true });
+    const childTables = [
+      'chapter_characters',
+      'chapter_versions',
+      'chapter_plans',
+      'chapters',
+      'novel_characters',
+      'book_plans',
+      'volume_plans',
+      'volume_settings',
+      'storylines',
+      'volume_timelines',
+      'foreshadowing',
+      'generation_runs',
+      'calibration_reviews',
+      'continuity_events',
+      'character_state_ledger',
+      'foreshadow_ledger'
+    ];
 
-    // 1. 删除章节
-    db.run('DELETE FROM chapters WHERE book_id = ?', [id]);
+    db.run('BEGIN TRANSACTION');
+    try {
+      childTables.forEach((tableName) => {
+        db.run(`DELETE FROM ${tableName} WHERE book_id = ?`, [id]);
+      });
+      db.run('DELETE FROM books WHERE id = ?', [id]);
+      db.run('COMMIT');
+      saveDatabase(db);
+      return true;
+    } catch (error) {
+      try {
+        db.run('ROLLBACK');
+      } catch (_) {}
+      throw error;
+    }
+  }
+}
 
-    // 2. 删除角色
-    db.run('DELETE FROM novel_characters WHERE book_id = ?', [id]);
+function normalizeChapterVersionType(value = '') {
+  return String(value || '').trim() === 'revision' ? 'revision' : 'generation';
+}
 
-    // 3. 删除规划
-    db.run('DELETE FROM book_plans WHERE book_id = ?', [id]);
-    db.run('DELETE FROM volume_plans WHERE book_id = ?', [id]);
-    db.run('DELETE FROM chapter_plans WHERE book_id = ?', [id]);
+function getNextGenerationVersionNumber(db, bookId, chapterNumber) {
+  const archived = execQueryOne(db, `
+    SELECT MAX(version_number) AS max_number
+    FROM chapter_versions
+    WHERE book_id = ? AND chapter_number = ? AND version_type = 'generation'
+  `, [bookId, Number(chapterNumber)]);
+  const current = execQueryOne(db, `
+    SELECT content_version_number AS version_number
+    FROM chapters
+    WHERE book_id = ? AND chapter_number = ? AND content_version_type = 'generation'
+    LIMIT 1
+  `, [bookId, Number(chapterNumber)]);
+  return Math.max(
+    0,
+    Number(archived?.max_number || 0),
+    Number(current?.version_number || 0)
+  ) + 1;
+}
 
-    // 4. 删除伏笔
-    db.run('DELETE FROM foreshadowing WHERE book_id = ?', [id]);
+function createChapterVersionSnapshot(db, chapter, options = {}) {
+  if (!chapter || !chapter.book_id || !Number(chapter.chapter_number)) return null;
+  if (!String(chapter.content || '').trim()) return null;
+  const source = String(options.source || 'automatic').trim().slice(0, 64) || 'automatic';
+  const reason = String(options.reason || 'content_replaced').trim().slice(0, 200);
+  const versionType = normalizeChapterVersionType(
+    options.versionType || chapter.content_version_type || 'generation'
+  );
+  const revisionTarget = versionType === 'revision'
+    ? String(options.revisionTarget ?? chapter.content_revision_target ?? '').trim().slice(0, 500)
+    : '';
+  const requestedVersionNumber = Number(options.versionNumber ?? chapter.content_version_number ?? 0);
+  const versionNumber = versionType === 'generation'
+    ? (requestedVersionNumber > 0
+      ? requestedVersionNumber
+      : getNextGenerationVersionNumber(db, chapter.book_id, chapter.chapter_number))
+    : 0;
 
-    // 5. 删除书籍
-    db.run('DELETE FROM books WHERE id = ?', [id]);
+  const existing = execQueryOne(db, `
+    SELECT id
+    FROM chapter_versions
+    WHERE book_id = ? AND chapter_number = ? AND content = ?
+      AND version_type = ? AND version_number = ?
+      AND COALESCE(revision_target, '') = ?
+    ORDER BY datetime(created_at) DESC, rowid DESC
+    LIMIT 1
+  `, [
+    chapter.book_id,
+    Number(chapter.chapter_number),
+    chapter.content || '',
+    versionType,
+    versionNumber,
+    revisionTarget
+  ]);
+  if (existing?.id) return existing.id;
 
-    saveDatabase(db);
+  const id = generateId();
+  db.run(`
+    INSERT INTO chapter_versions (
+      id, chapter_id, book_id, chapter_number, title, chapter_name,
+      content, word_count, status, source, reason,
+      version_type, version_number, revision_target
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [
+    id,
+    chapter.id || '',
+    chapter.book_id,
+    Number(chapter.chapter_number),
+    chapter.title || '',
+    chapter.chapter_name || '',
+    chapter.content || '',
+    Number(chapter.word_count || countPlatformEffectiveWords(chapter.content || '')),
+    chapter.status || 'draft',
+    source,
+    reason,
+    versionType,
+    versionNumber,
+    revisionTarget
+  ]);
 
-    // 检查是否删除成功
-    const result = execQueryOne(db, 'SELECT changes() as changes');
-    return result && result.changes > 0;
+  // 单章保留最近 30 份，避免长时间使用后数据库无限膨胀。
+  db.run(`
+    DELETE FROM chapter_versions
+    WHERE id IN (
+      SELECT id FROM chapter_versions
+      WHERE book_id = ? AND chapter_number = ?
+      ORDER BY datetime(created_at) DESC, rowid DESC
+      LIMIT -1 OFFSET 30
+    )
+  `, [chapter.book_id, Number(chapter.chapter_number)]);
+  return id;
+}
+
+class ChapterVersionService {
+  async listChapterSummaries(bookId) {
+    const db = await dbPromise;
+    return execQuery(db, `
+      SELECT
+        chapter_number,
+        COUNT(*) AS version_count,
+        MAX(created_at) AS latest_version_at,
+        (
+          SELECT latest.chapter_name
+          FROM chapter_versions latest
+          WHERE latest.book_id = chapter_versions.book_id
+            AND latest.chapter_number = chapter_versions.chapter_number
+          ORDER BY datetime(latest.created_at) DESC, latest.rowid DESC
+          LIMIT 1
+        ) AS chapter_name,
+        (
+          SELECT latest.title
+          FROM chapter_versions latest
+          WHERE latest.book_id = chapter_versions.book_id
+            AND latest.chapter_number = chapter_versions.chapter_number
+          ORDER BY datetime(latest.created_at) DESC, latest.rowid DESC
+          LIMIT 1
+        ) AS title
+      FROM chapter_versions
+      WHERE book_id = ?
+      GROUP BY chapter_number
+      ORDER BY chapter_number ASC
+    `, [bookId]);
+  }
+
+  async list(bookId, chapterNumber, limit = 30) {
+    const db = await dbPromise;
+    const safeLimit = Math.max(1, Math.min(100, Number(limit || 30)));
+    return execQuery(db, `
+      SELECT
+        id, chapter_id, book_id, chapter_number, title, chapter_name,
+        word_count, status, source, reason, version_type, version_number,
+        revision_target, created_at,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM chapters current
+          WHERE current.book_id = chapter_versions.book_id
+            AND current.chapter_number = chapter_versions.chapter_number
+            AND current.content = chapter_versions.content
+            AND current.content_version_type = chapter_versions.version_type
+            AND current.content_version_number = chapter_versions.version_number
+            AND COALESCE(current.content_revision_target, '') = COALESCE(chapter_versions.revision_target, '')
+        ) THEN 1 ELSE 0 END AS is_current,
+        SUBSTR(REPLACE(REPLACE(content, CHAR(13), ' '), CHAR(10), ' '), 1, 220) AS preview
+      FROM chapter_versions
+      WHERE book_id = ? AND chapter_number = ?
+      ORDER BY datetime(created_at) DESC, rowid DESC
+      LIMIT ?
+    `, [bookId, Number(chapterNumber), safeLimit]);
+  }
+
+  async restore(bookId, chapterNumber, versionId, userId = '') {
+    const db = await dbPromise;
+    const safeChapterNumber = Number(chapterNumber);
+    const version = execQueryOne(db, `
+      SELECT * FROM chapter_versions
+      WHERE id = ? AND book_id = ? AND chapter_number = ?
+      LIMIT 1
+    `, [versionId, bookId, safeChapterNumber]);
+    if (!version) return null;
+
+    const current = execQueryOne(db, `
+      SELECT * FROM chapters
+      WHERE book_id = ? AND chapter_number = ?
+      LIMIT 1
+    `, [bookId, safeChapterNumber]);
+
+    db.run('BEGIN TRANSACTION');
+    try {
+      if (current) {
+        createChapterVersionSnapshot(db, current, {
+          source: 'restore',
+          reason: `恢复版本 ${versionId} 前自动留档`,
+          versionType: current.content_version_type,
+          versionNumber: current.content_version_number,
+          revisionTarget: current.content_revision_target
+        });
+        db.run(`
+          UPDATE chapters
+          SET title = ?, chapter_name = ?, content = ?, word_count = ?, status = ?,
+              content_version_type = ?, content_version_number = ?, content_revision_target = ?,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `, [
+          version.title || `第${safeChapterNumber}章`,
+          version.chapter_name || '',
+          version.content || '',
+          Number(version.word_count || countPlatformEffectiveWords(version.content || '')),
+          version.status || 'draft',
+          normalizeChapterVersionType(version.version_type),
+          Number(version.version_number || 0),
+          String(version.revision_target || ''),
+          current.id
+        ]);
+      } else {
+        db.run(`
+          INSERT INTO chapters (
+            id, book_id, user_id, chapter_number, chapter_name, title,
+            content, word_count, status,
+            content_version_type, content_version_number, content_revision_target
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          generateId(),
+          bookId,
+          userId,
+          safeChapterNumber,
+          version.chapter_name || '',
+          version.title || `第${safeChapterNumber}章`,
+          version.content || '',
+          Number(version.word_count || countPlatformEffectiveWords(version.content || '')),
+          version.status || 'draft',
+          normalizeChapterVersionType(version.version_type),
+          Number(version.version_number || 0),
+          String(version.revision_target || '')
+        ]);
+      }
+      db.run('UPDATE books SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [bookId]);
+      db.run('COMMIT');
+      saveDatabase(db);
+    } catch (error) {
+      try {
+        db.run('ROLLBACK');
+      } catch (_) {}
+      throw error;
+    }
+
+    return execQueryOne(db, `
+      SELECT * FROM chapters
+      WHERE book_id = ? AND chapter_number = ?
+      LIMIT 1
+    `, [bookId, safeChapterNumber]);
   }
 }
 
@@ -929,7 +1247,7 @@ class ChapterService {
   /**
    * 创建新章节（关联用户）
    */
-  async create(bookId, title, content = '', chapterNumber = null, chapterName = '', userId = '', outline = '') {
+  async create(bookId, title, content = '', chapterNumber = null, chapterName = '', userId = '', outline = '', options = {}) {
     const db = await dbPromise;
     const id = generateId();
 
@@ -946,17 +1264,40 @@ class ChapterService {
     }
 
     const wordCount = countPlatformEffectiveWords(content);
+    const versionType = normalizeChapterVersionType(options.nextVersionType || options.versionType);
+    const versionNumber = versionType === 'generation' && String(content || '').trim()
+      ? getNextGenerationVersionNumber(db, bookId, chapterNumber)
+      : 0;
+    const revisionTarget = versionType === 'revision'
+      ? String(options.nextRevisionTarget || options.revisionTarget || '').trim().slice(0, 500)
+      : '';
 
     db.run(`
-      INSERT INTO chapters (id, book_id, user_id, chapter_number, chapter_name, title, content, word_count, outline)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, bookId, userId, chapterNumber, chapterName, title, content, wordCount, outline || '']);
+      INSERT INTO chapters (
+        id, book_id, user_id, chapter_number, chapter_name, title,
+        content, word_count, outline,
+        content_version_type, content_version_number, content_revision_target
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      id, bookId, userId, chapterNumber, chapterName, title,
+      content, wordCount, outline || '', versionType, versionNumber, revisionTarget
+    ]);
 
     // 更新书籍的更新时间
     db.run('UPDATE books SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [bookId]);
+    const created = execQueryOne(db, 'SELECT * FROM chapters WHERE id = ?', [id]);
+    if (created && String(created.content || '').trim()) {
+      createChapterVersionSnapshot(db, created, {
+        source: options.snapshotSource || (versionType === 'revision' ? 'revision_save' : 'ai_generation'),
+        reason: versionType === 'revision' ? '校改稿已保存' : 'AI 生成稿已保存',
+        versionType,
+        versionNumber,
+        revisionTarget
+      });
+    }
     saveDatabase(db);
 
-    return this.getById(id);
+    return created;
   }
 
   /**
@@ -1005,7 +1346,7 @@ class ChapterService {
     return execQueryOne(db, sql, params);
   }
 
-  async upsertByChapterNumber(bookId, chapterNumber, data = {}, userId = '') {
+  async upsertByChapterNumber(bookId, chapterNumber, data = {}, userId = '', options = {}) {
     const existing = await this.getByBookAndChapterNumber(bookId, chapterNumber, userId);
 
     if (existing) {
@@ -1013,7 +1354,7 @@ class ChapterService {
         title: data.title || existing.title,
         chapter_name: data.chapter_name !== undefined ? data.chapter_name : existing.chapter_name,
         content: data.content !== undefined ? data.content : existing.content
-      });
+      }, options);
     }
 
     return this.create(
@@ -1023,18 +1364,43 @@ class ChapterService {
       chapterNumber,
       data.chapter_name || '',
       userId,
-      data.outline || ''
+      data.outline || '',
+      options
     );
   }
 
   /**
    * 更新章节内容
    */
-  async update(id, updates) {
+  async update(id, updates, options = {}) {
     const db = await dbPromise;
     const allowedFields = ['title', 'chapter_name', 'content', 'status'];
     const fields = [];
     const values = [];
+    const existing = await this.getById(id);
+    if (!existing) return null;
+    const contentWillChange = Object.prototype.hasOwnProperty.call(updates, 'content')
+      && String(updates.content ?? '') !== String(existing.content ?? '');
+
+    if (contentWillChange && options.createSnapshot !== false) {
+      createChapterVersionSnapshot(db, existing, {
+        source: options.snapshotSource || 'automatic',
+        reason: options.snapshotReason || '正文被新版本替换',
+        versionType: existing.content_version_type,
+        versionNumber: existing.content_version_number,
+        revisionTarget: existing.content_revision_target
+      });
+    }
+
+    const nextVersionType = contentWillChange
+      ? normalizeChapterVersionType(options.nextVersionType || options.versionType || existing.content_version_type)
+      : normalizeChapterVersionType(existing.content_version_type);
+    const nextVersionNumber = contentWillChange && nextVersionType === 'generation'
+      ? getNextGenerationVersionNumber(db, existing.book_id, existing.chapter_number)
+      : (nextVersionType === 'generation' ? Number(existing.content_version_number || 0) : 0);
+    const nextRevisionTarget = nextVersionType === 'revision'
+      ? String(options.nextRevisionTarget ?? options.revisionTarget ?? existing.content_revision_target ?? '').trim().slice(0, 500)
+      : '';
 
     for (const [key, value] of Object.entries(updates)) {
       if (allowedFields.includes(key)) {
@@ -1051,6 +1417,15 @@ class ChapterService {
 
     if (fields.length === 0) return this.getById(id);
 
+    if (contentWillChange) {
+      fields.push('content_version_type = ?');
+      values.push(nextVersionType);
+      fields.push('content_version_number = ?');
+      values.push(nextVersionNumber);
+      fields.push('content_revision_target = ?');
+      values.push(nextRevisionTarget);
+    }
+
     fields.push('updated_at = CURRENT_TIMESTAMP');
     values.push(id);
 
@@ -1060,6 +1435,15 @@ class ChapterService {
     const chapter = await this.getById(id);
     if (chapter) {
       db.run('UPDATE books SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [chapter.book_id]);
+      if (contentWillChange && options.createSnapshot !== false) {
+        createChapterVersionSnapshot(db, chapter, {
+          source: options.snapshotSource || (nextVersionType === 'revision' ? 'revision_save' : 'ai_generation'),
+          reason: nextVersionType === 'revision' ? '校改稿已保存' : 'AI 生成稿已保存',
+          versionType: nextVersionType,
+          versionNumber: nextVersionNumber,
+          revisionTarget: nextRevisionTarget
+        });
+      }
     }
     saveDatabase(db);
 
@@ -1069,10 +1453,15 @@ class ChapterService {
   /**
    * 删除章节
    */
-  async delete(id) {
+  async delete(id, options = {}) {
     const db = await dbPromise;
     const chapter = await this.getById(id);
     if (!chapter) return false;
+
+    createChapterVersionSnapshot(db, chapter, {
+      source: options.snapshotSource || 'delete',
+      reason: options.snapshotReason || '删除正文前自动留档'
+    });
 
     db.run('DELETE FROM chapters WHERE id = ?', [id]);
     const result = execQueryOne(db, 'SELECT changes() as changes');
@@ -1087,14 +1476,21 @@ class ChapterService {
     return false;
   }
 
-  async deleteByBookAndChapterNumber(bookId, chapterNumber, userId = '') {
+  async deleteByBookAndChapterNumber(bookId, chapterNumber, userId = '', options = {}) {
     const existing = await this.getByBookAndChapterNumber(bookId, chapterNumber, userId);
     if (!existing) return false;
-    return this.delete(existing.id);
+    return this.delete(existing.id, options);
   }
 
   async deleteByBookId(bookId, userId = '') {
     const db = await dbPromise;
+    const chapters = await this.getByBookId(bookId, userId);
+    chapters.forEach((chapter) => {
+      createChapterVersionSnapshot(db, chapter, {
+        source: 'delete',
+        reason: '清空全部正文前自动留档'
+      });
+    });
     let sql = 'DELETE FROM chapters WHERE book_id = ?';
     const params = [bookId];
     if (userId) {
@@ -1983,6 +2379,7 @@ class ChapterPlanService {
 module.exports = {
   BookService,
   ChapterService,
+  ChapterVersionService,
   TemplateService,
   ForeshadowingService,
   CharacterService,
@@ -1991,7 +2388,11 @@ module.exports = {
   ChapterPlanService,
   syncStorylineProgressFromChapterPlan,
   syncChapterRolesToCharacterLibrary,
+  getChapterFeedbackRecord,
+  listChapterFeedbackRecords,
+  upsertChapterFeedbackRecord,
   generateId,
+  createChapterVersionSnapshot,
   saveDatabase,
   execQuery,
   execQueryOne,

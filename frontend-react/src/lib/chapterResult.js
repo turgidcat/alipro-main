@@ -143,7 +143,10 @@ export async function persistChapterResultCycle({
   generationAudit,
   generateChapterFeedback,
   saveChapterPlan,
-  upsertGeneratedChapter
+  upsertGeneratedChapter,
+  snapshotReason = 'ai_generation',
+  versionType = 'generation',
+  revisionTarget = ''
 }) {
   const cycleResult = {
     contentSaved: false,
@@ -165,7 +168,10 @@ export async function persistChapterResultCycle({
     title: chapterTitle,
     chapterName: normalizeChapterName(normalizedPlan.chapter_name || ''),
     chapterNumber,
-    content
+    content,
+    snapshotReason,
+    versionType,
+    revisionTarget
   });
   cycleResult.contentSaved = true;
 

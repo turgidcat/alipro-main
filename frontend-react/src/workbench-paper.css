@@ -436,3 +436,81 @@ html body .context-drawer-head {
   background: var(--paper-glass-strong) !important;
   border-color: var(--paper-border) !important;
 }
+
+/* 移动校改只保留一个纵向滚动容器，避免 Android WebView 截获 textarea 手势。 */
+@media (max-width: 820px) {
+  html body .modal-panel-revision .modal-body {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  html body .modal-panel-revision .revision-editor {
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    height: 100% !important;
+  }
+
+  html body .modal-panel-revision .revision-review-layout {
+    display: block !important;
+    width: 100% !important;
+    height: calc(100dvh - 238px) !important;
+    max-height: calc(100dvh - 238px) !important;
+    min-height: 0 !important;
+    overflow-x: hidden !important;
+    overflow-y: scroll !important;
+    touch-action: none !important;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  html body .modal-panel-revision .revision-review-layout.is-mobile-draft .revision-draft-panel,
+  html body .modal-panel-revision .revision-review-layout.is-mobile-suggestions .revision-mobile-suggestions,
+  html body .modal-panel-revision .revision-review-layout.is-mobile-original .revision-original-compare {
+    height: auto !important;
+    min-height: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  html body .modal-panel-revision .revision-review-layout.is-mobile-draft .revision-draft-panel {
+    display: block !important;
+  }
+
+  html body .modal-panel-revision .revision-draft-panel .modal-textarea-revision {
+    display: none !important;
+  }
+
+  html body .modal-panel-revision .revision-mobile-prose-editor {
+    display: block !important;
+    width: 100% !important;
+    min-height: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    touch-action: pan-y !important;
+  }
+
+  html body .modal-panel-revision .revision-mobile-prose-reader {
+    display: block !important;
+    width: 100% !important;
+    min-height: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    touch-action: none !important;
+  }
+
+  html body .modal-panel-revision .revision-mobile-locator {
+    color: var(--paper-text) !important;
+    background: var(--paper-glass-strong) !important;
+    border-color: var(--paper-border) !important;
+  }
+
+  html body .modal-panel-revision .revision-mobile-suggestion-list,
+  html body .modal-panel-revision .revision-original-compare .revision-diff-list-main {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}

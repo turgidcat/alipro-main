@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">alipro</string>
+    <string name="title_activity_main">alipro</string>
+    <string name="package_name">com.alipro.longformstudio</string>
+    <string name="custom_url_scheme">com.alipro.longformstudio</string>
+</resources>

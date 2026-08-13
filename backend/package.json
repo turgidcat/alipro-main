@@ -26,6 +26,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@alicloud/credentials": "^2.4.5",
+    "@alicloud/dypnsapi20170525": "^2.0.0",
+    "@alicloud/openapi-client": "^0.4.15",
     "axios": "^1.6.2",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",

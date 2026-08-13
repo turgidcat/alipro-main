@@ -551,6 +551,13 @@ html body .books-admin-page.library-app-shell .chapter-reader-note {
   border-radius: var(--paper-radius-sm);
 }
 
+html body .books-admin-page.library-app-shell .chapter-reader-note summary {
+  cursor: pointer;
+  color: var(--paper-accent-deep);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 html body .books-admin-page.library-app-shell .chapter-reader-prose {
   color: var(--paper-text) !important;
   background: var(--paper-surface-raised) !important;
@@ -719,4 +726,73 @@ html body .books-admin-page.library-app-shell .ghost-btn:hover {
   border-color: var(--paper-accent-border) !important;
   background: var(--paper-accent-hover) !important;
   color: var(--paper-accent-deep) !important;
+}
+
+/* 阅读时常驻的迷你朗读控制条，不占正文布局空间。 */
+html body .books-admin-page.library-app-shell .chapter-reader-audio-float {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 30;
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  padding: 4px;
+  border: 1px solid var(--paper-border);
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--paper-surface-raised) 92%, var(--paper-tint-warm));
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--paper-text) 13%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio-float.is-playing {
+  border-color: var(--paper-accent-border);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--paper-accent) 22%, transparent);
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio-float-toggle {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 0;
+  border-radius: 11px;
+  background: var(--paper-primary);
+  color: var(--paper-surface-raised);
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio-float-toggle:hover {
+  background: var(--paper-accent-deep);
+  transform: translateY(-1px);
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio-float-toggle:active {
+  transform: scale(.94);
+}
+
+html body .books-admin-page.library-app-shell .chapter-reader-audio-float-toggle svg {
+  width: 17px;
+  height: 17px;
+  fill: currentColor;
+}
+
+@media (max-width: 640px) {
+  html body .books-admin-page.library-app-shell .chapter-reader-audio-float {
+    right: 12px;
+    bottom: 14px;
+    right: 16px;
+    bottom: 18px;
+    width: 46px;
+    height: 46px;
+  }
+
+  html body .books-admin-page.library-app-shell .chapter-reader-audio-float-toggle {
+    width: 36px;
+    height: 36px;
+  }
 }
