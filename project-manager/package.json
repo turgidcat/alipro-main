@@ -1,0 +1,25 @@
+{
+  "name": "alipro-project-manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ALIPRO 本地项目与开发进度管理工具",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "package:win": "electron-builder --win nsis zip"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.alipro.projectmanager",
+    "productName": "ALIPRO 项目管理台",
+    "asar": true,
+    "directories": { "output": "release" },
+    "files": ["src/**/*", "package.json"],
+    "win": { "target": ["nsis", "zip"] },
+    "nsis": { "oneClick": true, "perMachine": false, "allowToChangeInstallationDirectory": false }
+  }
+}

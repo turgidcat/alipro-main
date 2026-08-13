@@ -5,6 +5,8 @@ frontend-react/node_modules/
 desktop-ide/node_modules/
 desktop-ide/backend-runtime/
 desktop-ide/release*/
+project-manager/node_modules/
+project-manager/release*/
 
 # 数据库文件
 backend/database/*.db
