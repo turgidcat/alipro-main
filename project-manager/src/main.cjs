@@ -14,6 +14,18 @@ let mainWindow;
 let db;
 const operationQueue = [];
 let operationRunning = false;
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
 
 function dbPath() { return path.join(app.getPath('userData'), 'project-manager.sqlite'); }
 function openDb() {
@@ -169,7 +181,7 @@ async function processOperationQueue() {
   operationRunning = false; processOperationQueue();
 }
 
-app.whenReady().then(() => {
+if (gotSingleInstanceLock) app.whenReady().then(() => {
   openDb();
   ipcMain.handle('pm:bootstrap', async () => ({ projects: await listProjects(), tasks: rows('SELECT * FROM tasks ORDER BY position, id'), settings: { theme: setting('theme'), scanRoots: JSON.parse(setting('scanRoots') || '[]') }, candidates: candidates() }));
   ipcMain.handle('pm:refresh', async () => ({ projects: await listProjects(), candidates: candidates() }));
