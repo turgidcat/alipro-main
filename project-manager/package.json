@@ -8,7 +8,8 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "package:win": "electron-builder --win nsis zip"
+    "package:win": "electron-builder --win nsis zip",
+    "package:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-portable.ps1"
   },
   "devDependencies": {
     "electron": "^37.2.0",
