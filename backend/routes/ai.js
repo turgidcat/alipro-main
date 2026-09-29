@@ -1076,6 +1076,97 @@ function createFallbackLedgerItem(name = '', role = '', relation = '', note = ''
   };
 }
 
+function normalizeFeedbackCompatTextArray(items = []) {
+  return normalizeJsonArray(items)
+    .map((item) => {
+      if (typeof item === 'string') return normalizeText(item);
+      if (item && typeof item === 'object') {
+        return normalizeText(item.note || item.summary || item.name || '');
+      }
+      return '';
+    })
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function buildChapterFeedbackCompat(feedback = {}, options = {}) {
+  const continuityReport = parseStructuredContent(feedback.continuity_report);
+  const feedbackFallbackUsed = options.feedbackFallbackUsed !== undefined
+    ? !!options.feedbackFallbackUsed
+    : !!feedback.feedback_fallback_used;
+  const feedbackGenerationStatus = normalizeText(
+    options.feedbackGenerationStatus
+    || feedback.feedback_generation_status
+    || (feedbackFallbackUsed ? 'fallback_generated' : 'ai_generated')
+  ) || (feedbackFallbackUsed ? 'fallback_generated' : 'ai_generated');
+  const feedbackUpdatedAt = normalizeText(
+    options.feedbackUpdatedAt
+    || feedback.feedback_updated_at
+    || feedback.generated_at
+    || feedback.updated_at
+    || ''
+  );
+  const hostPlanUpdatedAt = normalizeText(
+    options.hostPlanUpdatedAt
+    || options.planUpdatedAt
+    || feedback.host_plan_updated_at
+    || feedback.plan_updated_at
+    || ''
+  );
+  const timestampSource = normalizeText(
+    options.timestampSource
+    || feedback.timestamp_source
+    || (feedbackUpdatedAt && hostPlanUpdatedAt
+      ? 'feedback_object_updated_at_and_host_plan_updated_at'
+      : (feedbackUpdatedAt ? 'feedback_object_updated_at' : (hostPlanUpdatedAt ? 'host_plan_updated_at' : 'unavailable')))
+  );
+
+  return {
+    feedback_summary: normalizeText(feedback.feedback_summary || feedback.chapter_summary || ''),
+    feedback_next_chapter_focus: normalizeText(feedback.feedback_next_chapter_focus || feedback.next_chapter_focus || ''),
+    next_chapter_carry_forward: normalizeFeedbackCompatTextArray(
+      feedback.next_chapter_carry_forward || continuityReport.must_carry_forward
+    ),
+    continuity_risks: normalizeFeedbackCompatTextArray(
+      feedback.continuity_risks || continuityReport.continuity_risks
+    ),
+    feedback_fallback_used: feedbackFallbackUsed,
+    feedback_generation_status: feedbackGenerationStatus,
+    feedback_updated_at: feedbackUpdatedAt,
+    plan_updated_at: hostPlanUpdatedAt,
+    host_plan_updated_at: hostPlanUpdatedAt,
+    timestamp_source: timestampSource
+  };
+}
+
+function buildChapterFeedbackResponsePayload(feedback = {}, options = {}) {
+  const compat = buildChapterFeedbackCompat(feedback, options);
+  return {
+    feedback: {
+      ...feedback,
+      feedback_fallback_used: compat.feedback_fallback_used,
+      feedback_generation_status: compat.feedback_generation_status,
+      feedback_updated_at: compat.feedback_updated_at,
+      timestamp_source: compat.timestamp_source
+    },
+    feedbackCompat: compat,
+    feedbackTimestamps: {
+      feedback_updated_at: compat.feedback_updated_at,
+      plan_updated_at: compat.plan_updated_at,
+      host_plan_updated_at: compat.host_plan_updated_at,
+      timestamp_source: compat.timestamp_source
+    },
+    feedbackMetadata: {
+      feedbackFallbackUsed: compat.feedback_fallback_used,
+      feedbackGenerationStatus: compat.feedback_generation_status,
+      feedbackUpdatedAt: compat.feedback_updated_at,
+      planUpdatedAt: compat.plan_updated_at,
+      hostPlanUpdatedAt: compat.host_plan_updated_at,
+      timestampSource: compat.timestamp_source
+    }
+  };
+}
+
 function isLikelyNamedEntityTerm(term = '') {
   const normalized = normalizeText(term);
   if (!normalized || normalized.length < 2 || normalized.length > 14) return false;
@@ -3418,6 +3509,12 @@ async function saveChapterFeedback({ bookId, chapterNumber, feedback, content = 
     [JSON.stringify(structuredContent), existingPlan.id]
   );
 
+  const refreshedPlan = execQueryOne(
+    db,
+    'SELECT updated_at FROM chapter_plans WHERE id = ? LIMIT 1',
+    [existingPlan.id]
+  );
+
   try {
     const updatedCount = syncStorylineProgressFromChapterPlan(db, {
       bookId,
@@ -3461,7 +3558,9 @@ async function saveChapterFeedback({ bookId, chapterNumber, feedback, content = 
     feedbackRecord,
     storylineProgressUpdated,
     requiresStorylineReview,
-    storylineProgressError
+    storylineProgressError,
+    planUpdatedAt: normalizeText(refreshedPlan?.updated_at || ''),
+    previousPlanUpdatedAt: normalizeText(existingPlan.updated_at || '')
   };
 }
 
@@ -5371,6 +5470,7 @@ async function handleChapterFeedbackGeneration(req, res) {
       updated_at: new Date().toISOString(),
       source: 'model_feedback'
     };
+    let feedbackFallbackUsed = false;
 
     const auditResult = await auditGeneratedContent({
       bookTitle: storedContext.bookTitle,
@@ -5393,6 +5493,7 @@ async function handleChapterFeedbackGeneration(req, res) {
     let usedLocalFallback = false;
     let degradedReason = null;
     if (isLowConfidenceFeedback(feedback, content)) {
+      feedbackFallbackUsed = true;
       feedback = buildFallbackChapterFeedback({
         content,
         chapterPlan,
@@ -5416,10 +5517,20 @@ async function handleChapterFeedbackGeneration(req, res) {
     );
 
     const feedbackSaveResult = await saveChapterFeedback({ bookId, chapterNumber, feedback, content, sourceContractHash: storedContext.sourceContractHash });
+    const feedbackPayload = buildChapterFeedbackResponsePayload(feedbackSaveResult?.feedback || feedback, {
+      feedbackFallbackUsed,
+      feedbackGenerationStatus: feedbackFallbackUsed ? 'fallback_generated' : 'ai_generated',
+      hostPlanUpdatedAt: feedbackSaveResult?.planUpdatedAt || '',
+      timestampSource: feedbackSaveResult?.planUpdatedAt
+        ? 'feedback_object_updated_at_and_host_plan_updated_at'
+        : 'feedback_object_updated_at'
+    });
     return res.json({
       success: true,
       data: {
-        feedback: feedbackSaveResult?.feedback || feedback,
+        feedback: feedbackPayload.feedback,
+        feedback_compat: feedbackPayload.feedbackCompat,
+        feedback_timestamps: feedbackPayload.feedbackTimestamps,
         metadata: {
           feedbackGenerated: !usedLocalFallback,
           feedbackSaved: !!feedbackSaveResult,
@@ -5432,7 +5543,8 @@ async function handleChapterFeedbackGeneration(req, res) {
           storylineProgressUpdated: !!feedbackSaveResult?.storylineProgressUpdated,
           requiresStorylineReview: !!feedbackSaveResult?.requiresStorylineReview,
           storylineProgressError: normalizeText(feedbackSaveResult?.storylineProgressError || ''),
-          storylineProgress: (feedbackSaveResult?.feedback || feedback)?.storyline_progress || null
+          storylineProgress: (feedbackSaveResult?.feedback || feedback)?.storyline_progress || null,
+          ...feedbackPayload.feedbackMetadata
         }
       }
     });
@@ -6007,6 +6119,7 @@ async function handleChapterContentGeneration(req, res) {
       return res.status(result.statusCode || 500).json({ success: false, error: result.error });
     }
 
+    if (!normalizeText(result.content)) return res.status(502).json({ success: false, error: 'AI returned empty content' });
     const endingRepair = await repairGeneratedEndingIfNeeded({
       content: result.content,
       finishReason: result.finishReason,
@@ -6108,6 +6221,7 @@ async function handleChapterContentGeneration(req, res) {
           previousReleaseAudit,
           qualityRepair: auditResult.repair_loop,
           qualityRepairUsage: qualityRepair.usage,
+          provider: result.provider || 'deepseek',
           timestamp: new Date().toISOString(),
           targetWordCount: requestedWordCount,
           maxTokens,

@@ -164,6 +164,8 @@ export async function persistChapterResultCycle({
     qualityCheck: null
   };
 
+  content = normalizeText(content);
+  if (!content) throw new Error('Cannot save empty chapter content');
   await upsertGeneratedChapter(bookId, {
     title: chapterTitle,
     chapterName: normalizeChapterName(normalizedPlan.chapter_name || ''),
@@ -192,7 +194,7 @@ export async function persistChapterResultCycle({
 
   if (feedbackResponse?.feedback) {
     const metadata = feedbackResponse.metadata || {};
-    cycleResult.usedLocalFallback = !!metadata.usedLocalFallback;
+    cycleResult.usedLocalFallback = !!(metadata.usedLocalFallback || metadata.feedbackFallbackUsed || feedbackResponse.feedback_compat?.feedback_fallback_used || feedbackResponse.feedback?.feedback_fallback_used);
     cycleResult.modelFeedbackGenerated = !cycleResult.usedLocalFallback && metadata.feedbackGenerated !== false;
     cycleResult.chapterFeedback = ensureFeedbackQualityCheck(feedbackResponse.feedback, {
       generationAudit,

@@ -1500,7 +1500,8 @@ export default function App() {
           signal: generationAbortController.signal
         });
       }
-      const content = response?.content || response?.text || response || '';
+      const content = String(response?.content || response?.text || response || '').trim();
+      if (!content) throw new Error('生成结果为空，已停止保存，请检查模型返回结果。');
       const cycleResult = await handlePersistChapterResult({
         content,
         normalizedPlan,
