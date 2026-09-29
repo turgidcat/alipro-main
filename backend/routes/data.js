@@ -9,6 +9,12 @@ const { bookIdParamAccess } = require('../middleware/book-access');
 const aiService = require('../services/ai');
 const { resolveDatabasePath } = require('../config/runtime');
 const { listDatabaseBackups, scheduleDatabaseRestore } = require('../services/database-storage');
+const {
+  ROLE_TIER_VALUES,
+  ROLE_TIER_LABELS,
+  buildRoleTierPromptSection,
+  enforceRoleTierQuotas
+} = require('../services/character-role-policy');
 
 const bookService = new BookService();
 const chapterService = new ChapterService();
@@ -40,16 +46,6 @@ function isLoopbackRequest(req) {
     || address === '::ffff:127.0.0.1';
 }
 
-const ROLE_TIER_VALUES = ['protagonist', 'supporting_major', 'supporting_secondary', 'supporting_minor', 'antagonist_major', 'antagonist_minor'];
-const ROLE_TIER_LABELS = {
-  protagonist: '主角',
-  supporting_major: '主要配角',
-  supporting_secondary: '次要配角',
-  supporting_minor: '普通配角',
-  antagonist_major: '大反派',
-  antagonist_minor: '普通反派'
-};
-
 function normalizeJsonText(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -69,18 +65,6 @@ function extractJsonObject(text) {
       return null;
     }
   }
-}
-
-function buildRoleTierPromptSection() {
-  return [
-    '角色定位枚举：',
-    '- protagonist：主角',
-    '- supporting_major：主要配角',
-    '- supporting_secondary：次要配角',
-    '- supporting_minor：普通配角',
-    '- antagonist_major：大反派',
-    '- antagonist_minor：普通反派'
-  ].join('\n');
 }
 
 async function buildCharacterGenerationContext(bookId, userId = '') {
@@ -1372,9 +1356,9 @@ router.put('/books/:bookId/characters/:characterId',
         error: error.message,
         stack: error.stack
       });
-      res.status(500).json({
+      res.status(error.statusCode || 500).json({
         success: false,
-        error: '服务器内部错误'
+        error: error.statusCode ? error.message : '服务器内部错误'
       });
     }
   }
@@ -1475,7 +1459,7 @@ router.post('/books/:bookId/characters/generate-card',
         '{"name":"角色名","role_tier":"supporting_major","personality":"核心性格","background":"身份背景","appearance":"外形标记"}'
       ].join('\n');
 
-      const result = await aiService.generate({
+      const result = await aiService.generate({ monitorPoint: 'character.card',
         prompt,
         task: 'outline',
         temperature: 0.7,
@@ -1494,7 +1478,8 @@ router.post('/books/:bookId/characters/generate-card',
         success: true,
         data: {
           name: normalizeJsonText(parsed.name) || name,
-          role_tier: ROLE_TIER_VALUES.includes(parsed.role_tier) ? parsed.role_tier : roleTier,
+          // 角色定位由用户选择决定，模型只能补充角色内容，不能改写主配角层级。
+          role_tier: roleTier,
           personality: normalizeJsonText(parsed.personality),
           background: normalizeJsonText(parsed.background),
           appearance: normalizeJsonText(parsed.appearance)
@@ -1583,7 +1568,7 @@ router.post('/books/:bookId/characters/generate-batch',
         `最终必须返回 ${totalCount} 个对象组成的 JSON 数组。`
       ].join('\n');
 
-      const result = await aiService.generate({
+      const result = await aiService.generate({ monitorPoint: 'character.batch',
         prompt,
         task: 'outline',
         temperature: 0.8,
@@ -1605,15 +1590,22 @@ router.post('/books/:bookId/characters/generate-batch',
         });
       }
 
-      const normalized = parsed
+      const candidates = parsed
         .map((item, index) => ({
           name: normalizeJsonText(item?.name) || `角色${index + 1}`,
-          role_tier: ROLE_TIER_VALUES.includes(item?.role_tier) ? item.role_tier : validEntries[0].roleTier,
+          role_tier: ROLE_TIER_VALUES.includes(item?.role_tier) ? item.role_tier : '',
           personality: normalizeJsonText(item?.personality),
           background: normalizeJsonText(item?.background),
           appearance: normalizeJsonText(item?.appearance)
         }))
         .slice(0, totalCount);
+      if (candidates.length !== totalCount) {
+        return res.status(502).json({
+          success: false,
+          error: `模型返回了 ${candidates.length} 个角色，但本次要求 ${totalCount} 个，请重试`
+        });
+      }
+      const normalized = enforceRoleTierQuotas(candidates, validEntries);
 
       res.json({
         success: true,
@@ -1761,12 +1753,14 @@ router.put('/characters/:id',
     personality: { type: 'string', required: false, maxLength: 2000 },
     background: { type: 'string', required: false, maxLength: 5000 },
     notes: { type: 'string', required: false, maxLength: 2000 },
-    character_type: { type: 'string', required: false, enum: ['main_character', 'chapter_character'] }
+    avatar_image: { type: 'string', required: false, maxLength: 2000000 },
+    character_type: { type: 'string', required: false, enum: ['main_character', 'chapter_character'] },
+    role_tier: { type: 'string', required: false, enum: ROLE_TIER_VALUES }
   }),
   async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { name, appearance = '', personality = '', background = '', notes = '', character_type } = req.body;
+    const { name, appearance = '', personality = '', background = '', notes = '', avatar_image = '', character_type, role_tier } = req.body;
 
     // 先获取旧角色
     const oldCharacter = await characterService.getById(req.params.id);
@@ -1785,20 +1779,16 @@ router.put('/characters/:id',
       });
     }
 
-    // 删除旧角色
-    await characterService.delete(req.params.id);
-
-    // 创建新角色（使用相同的ID和用户ID）
-    const character = await characterService.create(
-      oldCharacter.book_id,
+    const character = await characterService.update(req.params.id, {
       name,
       appearance,
       personality,
       background,
       notes,
-      userId,
-      character_type || oldCharacter.character_type // 保持原有类型或使用新类型
-    );
+      avatar_image,
+      character_type: character_type || oldCharacter.character_type || 'main_character',
+      role_tier: role_tier || oldCharacter.role_tier || 'supporting_major'
+    });
 
     res.json({
       success: true,
@@ -1809,9 +1799,9 @@ router.put('/characters/:id',
       error: error.message,
       stack: error.stack
     });
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
-      error: '服务器内部错误'
+      error: error.statusCode ? error.message : '服务器内部错误'
     });
   }
 });

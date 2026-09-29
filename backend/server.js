@@ -21,7 +21,11 @@ const inspirationRoutes = require('./routes/inspiration');
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const isDevelopment = (process.env.NODE_ENV || 'development') !== 'production';
-const reactDistDir = path.join(__dirname, '..', 'frontend-react', 'dist');
+// Local workspace uses apps/web; existing cloud deployments retain the legacy layout.
+const currentReactDistDir = path.join(__dirname, '..', 'apps', 'web', 'dist');
+const reactDistDir = require('node:fs').existsSync(currentReactDistDir)
+  ? currentReactDistDir
+  : path.join(__dirname, '..', 'frontend-react', 'dist');
 const reactIndexPath = path.join(reactDistDir, 'index.html');
 const hasReactBuild = fs.existsSync(reactIndexPath);
 
@@ -134,6 +138,7 @@ app.use(cors({
 // 解析请求体
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(require('./services/model-monitor').requestMiddleware);
 
 // 日志中间件
 app.use((req, res, next) => {
@@ -262,7 +267,7 @@ app.use((err, req, res, next) => {
 
 // ==================== 启动服务 ====================
 
-const httpServer = app.listen(PORT, () => {
+const httpServer = app.listen(PORT, process.env.ALIPRO_BIND_HOST || undefined, () => {
   logger.info('网文生成器后端服务已启动', {
     port: PORT,
     environment: process.env.NODE_ENV || 'development',

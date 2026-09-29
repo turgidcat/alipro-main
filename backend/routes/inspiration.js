@@ -262,9 +262,12 @@ router.post('/initialize-book', async (req, res) => {
       return res.json({ success: true, data: { bookId, skipped: true, reason: 'not_inspiration_book' } });
     }
     const candidate = normalizeCandidate(candidateSource);
+    const scope = ['book', 'volume', 'chapter'].includes(text(req.body?.scope, 'volume'))
+      ? text(req.body?.scope, 'volume')
+      : 'volume';
     const record = {
       inspiration_source: 'inspiration_explorer',
-      scope: text(req.body?.scope, 'volume'),
+      scope,
       volume_number: volumeNumber,
       chapter_number: chapterNumber,
       user_prompt: text(req.body?.prompt),
@@ -287,8 +290,9 @@ router.post('/initialize-book', async (req, res) => {
         world_rules: formatWorldRules(candidate),
         role_summary: formatRoleSummary(candidate),
         main_outline: candidate.plotOutline || candidate.storyDirection || candidate.premise,
-        volume_outline: `第 ${volumeNumber} 卷《${candidate.title}》：${candidate.storyDirection || candidate.premise}`,
-        detailed_outline: candidate.keyScenes.map((scene, index) => `${index + 1}. ${scene}`).join('\n'),
+        // 灵感探索保存全书时只建立全书方向；分卷与详细大纲必须由对应操作显式生成。
+        volume_outline: '',
+        detailed_outline: '',
         structured_content: record,
         source: 'ai',
         status: 'draft'
@@ -297,7 +301,7 @@ router.post('/initialize-book', async (req, res) => {
     }
 
     const hasVolumePlan = existingVolumePlans.some((plan) => Number(plan.volume_number || 0) === volumeNumber);
-    if (!hasVolumePlan) {
+    if (scope === 'volume' && !hasVolumePlan) {
       await volumePlanService.upsert(bookId, volumeNumber, {
         volume_name: candidate.title,
         volume_theme: candidate.tone,
@@ -374,6 +378,22 @@ router.post('/initialize-book', async (req, res) => {
     }
 
     const targetStorylines = mainStoryline?.id ? [mainStoryline.id] : [];
+    // 全书/分卷灵感只负责建立上游规划。只有用户明确选择“章节”探索时，
+    // 才允许把候选方案落成当前章节的细纲；否则 plotOutline 往往是宏观故事方向。
+    if (scope !== 'chapter') {
+      res.json({
+        success: true,
+        data: {
+          bookId,
+          volumeNumber,
+          chapterNumber,
+          mainStorylineId: mainStoryline?.id || '',
+          created
+        }
+      });
+      return;
+    }
+
     const existingSceneOutline = Array.isArray(existingChapterPlan?.scene_outline)
       ? existingChapterPlan.scene_outline
       : (() => { try { const parsed = JSON.parse(existingChapterPlan?.scene_outline || '[]'); return Array.isArray(parsed) ? parsed : []; } catch (_) { return []; } })();
@@ -456,7 +476,7 @@ router.post('/generate', async (req, res) => {
     const storylines = bookId
       ? execQuery(db, "SELECT * FROM storylines WHERE book_id = ? AND volume_number = ? AND (user_id = ? OR user_id = '') ORDER BY storyline_number ASC, created_at ASC", [bookId, volumeNumber, userId])
       : [];
-    const result = await deepseekService.generate({
+    const result = await deepseekService.generate({ monitorPoint: 'inspiration.generate',
       prompt: buildPrompt({ scope, mode, userPrompt, creativeFocus, constraints, book, bookPlan, characters, volumeNumber, chapterNumber, volumePlan, chapterPlans: volumeChapterPlans, storylines, targetChapter, previousChapter }),
       temperature: mode === 'latest_chapter' ? 0.78 : 0.92,
       maxTokens: mode === 'latest_chapter' ? 5200 : 4800,

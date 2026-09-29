@@ -1,0 +1,17 @@
+{
+  "sourceDatabaseUnchanged": true,
+  "paidProviderCalls": 0,
+  "mockProviderCalls": 5,
+  "factualPreflightBlocksDraft": true,
+  "unallocatedRangeDetected": true,
+  "anchorDistanceDoesNotInventPhases": true,
+  "authoredRangeRecognized": true,
+  "draftApplied": true,
+  "previewEqualsActualInput": true,
+  "outlineInputCharacters": 5103,
+  "proseUsesCurrentTask": true,
+  "revisionUsesCurrentTask": true,
+  "genericTextOperationsPreserved": true,
+  "formalNodePreserved": true,
+  "historicalCardsExcluded": true
+}

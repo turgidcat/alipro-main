@@ -1,4 +1,5 @@
 const axios = require('axios');
+const modelMonitor = require('./model-monitor');
 const { resolveDeepSeekModel } = require('../config/runtime');
 
 class AIService {
@@ -25,6 +26,7 @@ class AIService {
    * @returns {Promise<Object>} API响应
    */
   async generate(options) {
+    const monitorMeta = { pointId: options.monitorPoint, logicalCallId: modelMonitor.newId() };
     const { prompt, task = 'creative', temperature = 0.7, maxTokens = 4000 } = options;
 
     // 根据任务类型选择模型
@@ -41,9 +43,9 @@ class AIService {
 
     try {
       if (provider === 'aliyun') {
-        return await this.callAliyun(model, prompt, temperature, maxTokens);
+        return await this.callAliyun(model, prompt, temperature, maxTokens, monitorMeta);
       } else {
-        return await this.callDeepSeek(model, prompt, temperature, maxTokens);
+        return await this.callDeepSeek(model, prompt, temperature, maxTokens, monitorMeta);
       }
     } catch (error) {
       console.error(`❌ [AI服务] ${provider} 调用失败:`, error.message);
@@ -51,7 +53,7 @@ class AIService {
       // 如果阿里云失败，降级到DeepSeek
       if (provider === 'aliyun' && this.deepseekApiKey) {
         console.log('⚠️ [AI服务] 降级到 DeepSeek');
-        return await this.callDeepSeek(resolveDeepSeekModel(options.model), prompt, temperature, maxTokens);
+        return await this.callDeepSeek(resolveDeepSeekModel(options.model), prompt, temperature, maxTokens, { ...monitorMeta, attempt: 2 });
       }
 
       throw error;
@@ -61,7 +63,7 @@ class AIService {
   /**
    * 调用DeepSeek API
    */
-  async callDeepSeek(model, prompt, temperature, maxTokens) {
+  async callDeepSeek(model, prompt, temperature, maxTokens, monitorMeta = {}) {
     if (!this.deepseekApiKey) {
       throw new Error('DEEPSEEK_API_KEY 未配置');
     }
@@ -75,14 +77,14 @@ class AIService {
       timeout: 60000
     });
 
-    const response = await client.post('/chat/completions', {
+    const response = await modelMonitor.observedPost(client, '/chat/completions', {
       model: model,
       messages: [{ role: 'user', content: prompt }],
       thinking: { type: 'disabled' },
       temperature: temperature,
       max_tokens: maxTokens,
       stream: false
-    });
+    }, {}, { ...monitorMeta, provider: 'legacy-deepseek' });
 
     return {
       success: true,
@@ -96,7 +98,7 @@ class AIService {
   /**
    * 调用阿里云百炼API
    */
-  async callAliyun(model, prompt, temperature, maxTokens) {
+  async callAliyun(model, prompt, temperature, maxTokens, monitorMeta = {}) {
     if (!this.aliyunApiKey) {
       throw new Error('ALIYUN_BAILIAN_API_KEY 未配置');
     }
@@ -110,7 +112,7 @@ class AIService {
       timeout: 60000
     });
 
-    const response = await client.post('/services/aigc/text-generation/generation', {
+    const response = await modelMonitor.observedPost(client, '/services/aigc/text-generation/generation', {
       model: model,
       input: {
         messages: [{ role: 'user', content: prompt }]
@@ -119,7 +121,7 @@ class AIService {
         temperature: temperature,
         max_tokens: maxTokens
       }
-    });
+    }, {}, { ...monitorMeta, provider: 'aliyun' });
 
     return {
       success: true,

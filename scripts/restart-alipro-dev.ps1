@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $backendDir = Join-Path $projectRoot 'backend'
-$frontendDir = Join-Path $projectRoot 'frontend-react'
+$frontendDir = Join-Path $projectRoot 'apps/web'
 
 function Stop-PortProcess {
   param(

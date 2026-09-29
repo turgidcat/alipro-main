@@ -1,0 +1,54 @@
+# apps/web
+
+这是 `alipro-main` 的 React 创作工作台，当前已经作为唯一前端入口使用。
+
+## 现在负责什么
+
+- 首页创作主链
+- 章节规划与生成
+- 校改与局部修改
+- 书籍、日志、启动引导等辅助页面
+
+## 目录说明
+
+- `src/App.jsx`：工作台主入口
+- `src/AppLayout.jsx`：顶部导航布局
+- `src/pages/`：辅助页面
+- `src/workbenchApi.js`：前端 API 封装
+- `src/app-shell.css`：工作台样式
+
+## 本地开发
+
+```powershell
+cd apps/web
+npm install
+npm run dev
+```
+
+打开：
+
+```text
+http://127.0.0.1:5173/
+```
+
+## 生产部署
+
+先构建：
+
+```powershell
+npm run build
+```
+
+后端会优先托管 `apps/web/dist`，所以生产环境直接访问：
+
+```text
+http://localhost:3000/
+```
+
+生产环境不再保留旧静态前端兼容页，统一只保留当前入口。
+
+## 当前边界
+
+- React 已经接管主工作台
+- `apps/web` 是唯一主前端
+- 旧静态前端 `frontend/` 已退场删除

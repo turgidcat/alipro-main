@@ -16,7 +16,7 @@ function parseJson(value) {
 }
 
 async function callJudge(model, sample) {
-  const result = await deepseekService.generate({
+  const result = await deepseekService.generate({ monitorPoint: 'harness.judge',
     model,
     systemPrompt: '你是只读质量裁判。不得生成、续写或修稿；所有缺陷必须引用输入原文证据。',
     prompt: buildPrompt(sample),

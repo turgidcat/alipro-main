@@ -52,7 +52,7 @@ cp .env.example .env
 ```env
 # DeepSeek API（必填）
 DEEPSEEK_API_KEY=YOUR_DEEPSEEK_API_KEY_HERE
-DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_MODEL=deepseek-flash
 
 # 阿里云百炼 API（可选，用于创意命名等增强功能）
 ALIYUN_BAILIAN_API_KEY=YOUR_ALIYUN_BAILIAN_API_KEY_HERE
@@ -247,7 +247,7 @@ backend/
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `DEEPSEEK_API_KEY` | DeepSeek API 密钥 | **必填** |
-| `DEEPSEEK_MODEL` | DeepSeek 默认模型，可被单次请求显式覆盖 | `deepseek-v4-flash` |
+| `DEEPSEEK_MODEL` | DeepSeek 默认模型，可被单次请求显式覆盖 | `deepseek-flash` |
 | `DEEPSEEK_JUDGE_MODEL` | 可选的独立审计模型；留空时沿用正文模型 | 空 |
 | `DEEPSEEK_REPAIR_MODEL` | 可选的定点修稿模型；留空时沿用正文模型 | 空 |
 | `NOVEL_DB_PATH` | 数据库文件路径；主要供隔离测试使用 | `backend/database/novel.db` |

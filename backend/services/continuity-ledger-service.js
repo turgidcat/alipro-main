@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
+const { contentHash } = require('./generation-context-policy');
 
 function normalizeText(value) {
   return String(value || '').trim();
@@ -27,6 +28,7 @@ function shortHash(value) {
 }
 
 function syncFeedbackLedgers(db, { bookId, chapterNumber, feedback, content = '' }) {
+  const evidence = quote => JSON.stringify({ contentHash: contentHash(content), quote });
   const source = normalizeText(feedback?.source) || 'model_feedback';
   db.run('DELETE FROM continuity_events WHERE book_id = ? AND chapter_number = ? AND source = ?', [bookId, chapterNumber, source]);
   db.run('DELETE FROM character_state_ledger WHERE book_id = ? AND chapter_number = ? AND source = ?', [bookId, chapterNumber, source]);
@@ -48,7 +50,7 @@ function syncFeedbackLedgers(db, { bookId, chapterNumber, feedback, content = ''
   facts.forEach(([eventType, value]) => {
     const factText = normalizeText(value);
     db.run(`INSERT INTO continuity_events (id, book_id, chapter_number, event_type, fact_text, evidence_text, source)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`, [uuidv4(), bookId, chapterNumber, eventType, factText, normalizeText(content).slice(0, 500), source]);
+      VALUES (?, ?, ?, ?, ?, ?, ?)`, [uuidv4(), bookId, chapterNumber, eventType, factText, evidence(normalizeText(content).slice(0, 500)), source]);
   });
 
   const characters = [...normalizeArray(feedback?.chapter_characters), ...normalizeArray(feedback?.continuity_report?.new_characters)];
@@ -62,7 +64,7 @@ function syncFeedbackLedgers(db, { bookId, chapterNumber, feedback, content = ''
       state_text, appearance_text, note_text, evidence_text, source
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
       uuidv4(), bookId, chapterNumber, name, normalizeText(item?.role), normalizeText(item?.relation),
-      normalizeText(item?.status), normalizeText(item?.appearance), normalizeText(item?.note), evidenceAround(content, name), source
+      normalizeText(item?.status), normalizeText(item?.appearance), normalizeText(item?.note), evidence(evidenceAround(content, name)), source
     ]);
   });
 
@@ -71,7 +73,7 @@ function syncFeedbackLedgers(db, { bookId, chapterNumber, feedback, content = ''
     db.run(`INSERT INTO foreshadow_ledger (
       id, book_id, chapter_number, foreshadow_key, title, state, evidence_text, source
     ) VALUES (?, ?, ?, ?, ?, 'open', ?, ?)`, [
-      `${bookId}:${chapterNumber}:${key}`, bookId, chapterNumber, key, hook, evidenceAround(content, hook.slice(0, 12)), source
+      `${bookId}:${chapterNumber}:${key}`, bookId, chapterNumber, key, hook, evidence(evidenceAround(content, hook.slice(0, 12))), source
     ]);
   });
 }
@@ -96,8 +98,8 @@ function loadRelevantLedgerSnapshot(db, { bookId, chapterNumber, characterNames 
     const placeholders = uniqueNames.map(() => '?').join(',');
     const stmt = db.prepare(`SELECT * FROM character_state_ledger
       WHERE book_id = ? AND chapter_number < ? AND character_name IN (${placeholders})
-      ORDER BY chapter_number DESC, created_at DESC LIMIT ?`);
-    stmt.bind([bookId, beforeChapter, ...uniqueNames, limit]);
+      ORDER BY chapter_number DESC, created_at DESC`);
+    stmt.bind([bookId, beforeChapter, ...uniqueNames]);
     while (stmt.step()) characterRows.push(stmt.getAsObject());
     stmt.free();
   }
@@ -116,7 +118,34 @@ function loadRelevantLedgerSnapshot(db, { bookId, chapterNumber, characterNames 
   continuityStmt.bind([bookId, beforeChapter, limit]);
   while (continuityStmt.step()) continuityRows.push(continuityStmt.getAsObject());
   continuityStmt.free();
-  return { characterRows, foreshadowRows, continuityRows };
+  const chapters = new Map();
+  const staleChapters = new Set();
+  const versionChecked = rows => rows.filter(row => {
+    if (!chapters.has(row.chapter_number)) {
+      const stmt = db.prepare('SELECT content FROM chapters WHERE book_id = ? AND chapter_number = ?');
+      stmt.bind([bookId, row.chapter_number]);
+      chapters.set(row.chapter_number, stmt.step() ? stmt.getAsObject().content : null);
+      stmt.free();
+      const planStmt = db.prepare('SELECT structured_content FROM chapter_plans WHERE book_id = ? AND chapter_number = ?');
+      planStmt.bind([bookId, row.chapter_number]);
+      while (planStmt.step()) {
+        try { if (JSON.parse(planStmt.getAsObject().structured_content || '{}').derived_state?.status === 'stale') staleChapters.add(row.chapter_number); } catch (_) {}
+      }
+      planStmt.free();
+    }
+    if (staleChapters.has(row.chapter_number)) return false;
+    let envelope;
+    try { envelope = JSON.parse(row.evidence_text); } catch (_) {}
+    if (!envelope?.contentHash) { row.certainty = 'legacy_unverified'; return true; }
+    const content = chapters.get(row.chapter_number);
+    if (content == null || envelope.contentHash !== contentHash(content)) return false;
+    row.evidence_text = envelope.quote || '';
+    row.certainty = 'verified';
+    return true;
+  });
+  const latest = new Map();
+  for (const row of versionChecked(characterRows)) if (!latest.has(row.character_name)) latest.set(row.character_name, row);
+  return { characterRows: [...latest.values()], foreshadowRows: versionChecked(foreshadowRows), continuityRows: versionChecked(continuityRows) };
 }
 
 module.exports = { evidenceAround, loadRelevantLedgerSnapshot, splitHooks, syncFeedbackLedgers };

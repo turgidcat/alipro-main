@@ -1,0 +1,14 @@
+{
+  "inputFile": "C:\\Users\\turgidcat\\Desktop\\alipro-main\\artifacts\\chapter12-outline-input-current.txt",
+  "characters": 5015,
+  "contextCharacters": 3370,
+  "constraintCharacters": 957,
+  "roleNames": "殷寂川 / 牧云昭 / 谢藏锋 / 陆沉舟 / 虞暮雪 / 燕惊鸿 / 容渡 / 白夜昙 / 卓清晏 / 韩霜序",
+  "contextHash": "d8933a4aa8438c55139d678401e6c2fb5973c4abb088aae9cf7ff78acba8482f",
+  "sourceContextHash": "5dc9c773b2a7ee6c7254febf927b78fcb104a57193a5738a3e2700e799930bb6",
+  "feedbackFreshness": "legacy_unverified",
+  "generationBlocked": false,
+  "sourceDatabase": "C:\\Users\\turgidcat\\AppData\\Local\\ALIPRO\\model-experiments\\run-RjkBWJ\\novel.db",
+  "sourceExportedAt": "2026-09-27T08:46:47.760746+00:00",
+  "modelCalled": false
+}

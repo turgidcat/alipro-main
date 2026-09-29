@@ -2,6 +2,7 @@ const initDatabase = require('../database/init');
 const { countPlatformEffectiveWords } = require('./word-count-policy');
 const { createDatabaseBackup, writeDatabaseAtomically } = require('./database-storage');
 const { resolveDatabasePath } = require('../config/runtime');
+const { verifiedCompletedBeats, feedbackIsCurrent, chapterPlanningHash, markChapterDerivedStale } = require('./generation-context-policy');
 
 // UUID生成函数（不依赖uuid包）
 function generateId() {
@@ -682,6 +683,9 @@ function syncChapterRolesToCharacterLibrary(db, {
       return;
     }
 
+    // Chapter assignments remain in chapter_plans.role_execution. Formal cards
+    // are author-owned and must not accumulate generated chapter snapshots.
+    if (existing.character_type !== 'chapter_character') return;
     const updates = {};
     if (!normalizeText(existing.personality) && (role.personality || role.baseline)) {
       updates.personality = role.personality || role.baseline;
@@ -699,13 +703,9 @@ function syncChapterRolesToCharacterLibrary(db, {
       updates.role_tier = 'supporting_major';
     }
 
-    const existingNotes = existing.notes || '';
-    const noteMarker = `【第${Number(chapterNumber || 0)}章角色速查】${role.role}`;
-    if (!existingNotes.includes(noteMarker)) {
-      updates.notes = existingNotes
-        ? `${existingNotes}\n\n${chapterNote}`
-        : chapterNote;
-    }
+    // Temporary cards keep only the latest chapter snapshot; old assignments
+    // remain recoverable in chapter_plans, rather than growing every request.
+    updates.notes = chapterNote;
 
     const fields = Object.keys(updates);
     if (fields.length > 0) {
@@ -728,6 +728,9 @@ function syncStorylineProgressFromChapterPlan(db, {
   structuredContent = {}
 }) {
   const feedback = parseJsonObject(structuredContent.chapter_feedback);
+  const sourceChapter = execQueryOne(db, 'SELECT content FROM chapters WHERE book_id = ? AND chapter_number = ?', [bookId, chapterNumber]);
+  const sourcePlan = execQueryOne(db, 'SELECT * FROM chapter_plans WHERE book_id = ? AND chapter_number = ?', [bookId, chapterNumber]);
+  if (!sourceChapter || !sourcePlan || !feedbackIsCurrent(feedback, sourceChapter.content, sourcePlan)) return 0;
   if (!feedback.chapter_summary && !feedback.story_progress && !feedback.next_chapter_focus && !feedback.open_hooks) {
     return 0;
   }
@@ -791,20 +794,30 @@ function syncStorylineProgressFromChapterPlan(db, {
   }
 
   rows.forEach((row) => {
+    const scopedBeatIds = (Array.isArray(storylineContext.currentBeats) ? storylineContext.currentBeats : [])
+      .filter(beat => beat.storylineId === row.id && beat.beatId && !beat.beatId.startsWith('fallback:'))
+      .map(beat => beat.beatId);
+    const scopedReview = isFallbackContext || scopedBeatIds.length === 0 || (feedback.quality_check?.status !== 'passed' && !feedback.quality_check?.human_confirmed);
+    const scopedEntry = { ...progressEntry, used_storyline_ids: [row.id], used_beat_ids: scopedBeatIds,
+      status: scopedReview ? 'needs_review' : 'advanced', requires_review: scopedReview,
+      source_content_hash: feedback.source_content_hash,
+      source_planning_hash: feedback.source_planning_hash,
+      completed_beat_ids: verifiedCompletedBeats(feedback, sourceChapter.content, scopedBeatIds) };
     const storylineContent = parseJsonObject(row.structured_content);
     const existingProgress = Array.isArray(storylineContent.chapter_progress)
       ? storylineContent.chapter_progress
       : [];
     const nextProgress = [
       ...existingProgress.filter((item) => !isSameChapterProgressEntry(item)),
-      progressEntry
-    ].slice(-30);
+      scopedEntry
+    ];
 
     const existingCurrentProgress = parseJsonObject(storylineContent.currentProgress);
-    const existingCompletedBeats = Array.isArray(existingCurrentProgress.completedBeats)
-      ? existingCurrentProgress.completedBeats
-      : [];
-    const nextCompletedBeats = [...new Set([...existingCompletedBeats, ...contextBeatIds])].filter(Boolean);
+    const nextCompletedBeats = [...new Set(nextProgress.flatMap(item => {
+      const chapter = execQueryOne(db, 'SELECT content FROM chapters WHERE book_id = ? AND chapter_number = ?', [bookId, item.chapter_number]);
+      const plan = execQueryOne(db, 'SELECT * FROM chapter_plans WHERE book_id = ? AND chapter_number = ?', [bookId, item.chapter_number]);
+      return chapter && plan && !item.source_stale && feedbackIsCurrent({ source_content_hash: item.source_content_hash, source_planning_hash: item.source_planning_hash }, chapter.content, plan) && Array.isArray(item.completed_beat_ids) ? item.completed_beat_ids : [];
+    }))].filter(Boolean);
     const nextChapterProgressEntries = nextProgress.map((item) => ({
       chapterId: item.chapter_id || '',
       chapterNumber: Number(item.chapter_number || 0),
@@ -819,7 +832,7 @@ function syncStorylineProgressFromChapterPlan(db, {
       updatedAt: item.updated_at || ''
     }));
     const nextActiveBeats = [...new Set(
-      nextChapterProgressEntries.flatMap((item) => Array.isArray(item.usedBeatIds) ? item.usedBeatIds : [])
+      nextChapterProgressEntries.filter(item => item.status !== 'stale').flatMap((item) => Array.isArray(item.usedBeatIds) ? item.usedBeatIds : [])
     )].filter(Boolean);
     const existingOpenQuestions = Array.isArray(existingCurrentProgress.openQuestions)
       ? existingCurrentProgress.openQuestions
@@ -845,10 +858,12 @@ function syncStorylineProgressFromChapterPlan(db, {
       lastUpdatedChapterId: chapterId || existingCurrentProgress.lastUpdatedChapterId || '',
       lastUpdatedChapterNumber: progressEntry.chapter_number,
       lastProgressSummary: progressEntry.story_progress || progressEntry.chapter_summary || progressEntry.next_chapter_focus || '',
-      lastUsedStorylineIds: contextStorylineIds,
-      lastUsedBeatIds: contextBeatIds,
-      lifecycleStatus: requiresStorylineReview ? 'needs_review' : 'advanced',
-      requiresReview: requiresStorylineReview,
+      lastUsedStorylineIds: [row.id],
+      lastUsedBeatIds: scopedBeatIds,
+      lifecycleStatus: scopedReview ? 'needs_review' : 'advanced',
+      requiresReview: scopedReview,
+      completionEvidenceVersion: 2,
+      legacyCompletedBeats: existingCurrentProgress.legacyCompletedBeats || (existingCurrentProgress.completionEvidenceVersion === 2 ? [] : existingCurrentProgress.completedBeats || []),
       completedBeats: nextCompletedBeats,
       activeBeats: nextActiveBeats,
       openQuestions: nextOpenQuestions,
@@ -857,12 +872,12 @@ function syncStorylineProgressFromChapterPlan(db, {
 
     const nextContent = {
       ...storylineContent,
-      last_chapter_feedback: progressEntry,
+      last_chapter_feedback: scopedEntry,
       chapter_progress: nextProgress,
       currentProgress: nextCurrentProgress,
       lifecycleStatus: nextCurrentProgress.lifecycleStatus
     };
-    const nextStatus = requiresStorylineReview
+    const nextStatus = scopedReview
       ? 'needs_review'
       : (['draft', 'generated', 'needs_review'].includes(row.status) ? 'active' : (row.status || 'active'));
 
@@ -1049,23 +1064,25 @@ function createChapterVersionSnapshot(db, chapter, options = {}) {
       : getNextGenerationVersionNumber(db, chapter.book_id, chapter.chapter_number))
     : 0;
 
-  const existing = execQueryOne(db, `
-    SELECT id
-    FROM chapter_versions
-    WHERE book_id = ? AND chapter_number = ? AND content = ?
-      AND version_type = ? AND version_number = ?
-      AND COALESCE(revision_target, '') = ?
-    ORDER BY datetime(created_at) DESC, rowid DESC
-    LIMIT 1
-  `, [
-    chapter.book_id,
-    Number(chapter.chapter_number),
-    chapter.content || '',
-    versionType,
-    versionNumber,
-    revisionTarget
-  ]);
-  if (existing?.id) return existing.id;
+  if (options.force !== true) {
+    const existing = execQueryOne(db, `
+      SELECT id
+      FROM chapter_versions
+      WHERE book_id = ? AND chapter_number = ? AND content = ?
+        AND version_type = ? AND version_number = ?
+        AND COALESCE(revision_target, '') = ?
+      ORDER BY datetime(created_at) DESC, rowid DESC
+      LIMIT 1
+    `, [
+      chapter.book_id,
+      Number(chapter.chapter_number),
+      chapter.content || '',
+      versionType,
+      versionNumber,
+      revisionTarget
+    ]);
+    if (existing?.id) return existing.id;
+  }
 
   const id = generateId();
   db.run(`
@@ -1091,16 +1108,18 @@ function createChapterVersionSnapshot(db, chapter, options = {}) {
     revisionTarget
   ]);
 
-  // 单章保留最近 30 份，避免长时间使用后数据库无限膨胀。
-  db.run(`
-    DELETE FROM chapter_versions
-    WHERE id IN (
-      SELECT id FROM chapter_versions
-      WHERE book_id = ? AND chapter_number = ?
-      ORDER BY datetime(created_at) DESC, rowid DESC
-      LIMIT -1 OFFSET 30
-    )
-  `, [chapter.book_id, Number(chapter.chapter_number)]);
+  if (options.prune !== false) {
+    // 单章保留最近 30 份，避免长时间使用后数据库无限膨胀。
+    db.run(`
+      DELETE FROM chapter_versions
+      WHERE id IN (
+        SELECT id FROM chapter_versions
+        WHERE book_id = ? AND chapter_number = ?
+        ORDER BY datetime(created_at) DESC, rowid DESC
+        LIMIT -1 OFFSET 30
+      )
+    `, [chapter.book_id, Number(chapter.chapter_number)]);
+  }
   return id;
 }
 
@@ -1225,6 +1244,7 @@ class ChapterVersionService {
           String(version.revision_target || '')
         ]);
       }
+      markChapterDerivedStale(db, bookId, safeChapterNumber, version.content || '');
       db.run('UPDATE books SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [bookId]);
       db.run('COMMIT');
       saveDatabase(db);
@@ -1430,6 +1450,7 @@ class ChapterService {
     values.push(id);
 
     db.run(`UPDATE chapters SET ${fields.join(', ')} WHERE id = ?`, values);
+    if (contentWillChange) markChapterDerivedStale(db, existing.book_id, existing.chapter_number, updates.content);
 
     // 更新书籍的更新时间
     const chapter = await this.getById(id);
@@ -1746,6 +1767,302 @@ function inferCharacterType(name, createdAt) {
   return 'main_character';
 }
 
+function replaceCharacterNameInText(value, oldName, newName) {
+  if (typeof value !== 'string' || !oldName || oldName === newName || !value.includes(oldName)) {
+    return { value, replacements: 0 };
+  }
+
+  const parts = value.split(oldName);
+  return {
+    value: parts.join(newName),
+    replacements: parts.length - 1
+  };
+}
+
+function replaceCharacterNameInJsonNode(value, oldName, newName) {
+  if (typeof value === 'string') {
+    return replaceCharacterNameInText(value, oldName, newName);
+  }
+
+  if (Array.isArray(value)) {
+    let replacements = 0;
+    const nextValue = value.map((item) => {
+      const next = replaceCharacterNameInJsonNode(item, oldName, newName);
+      replacements += next.replacements;
+      return next.value;
+    });
+    return { value: nextValue, replacements };
+  }
+
+  if (!value || typeof value !== 'object') {
+    return { value, replacements: 0 };
+  }
+
+  if (
+    oldName !== newName
+    && Object.prototype.hasOwnProperty.call(value, oldName)
+    && Object.prototype.hasOwnProperty.call(value, newName)
+  ) {
+    const error = new Error(`角色改名会造成结构化字段键冲突：${oldName} -> ${newName}`);
+    error.code = 'CHARACTER_RENAME_JSON_KEY_CONFLICT';
+    throw error;
+  }
+
+  let replacements = 0;
+  const nextValue = {};
+  Object.entries(value).forEach(([key, item]) => {
+    const nextKey = key === oldName ? newName : key;
+    if (nextKey !== key) replacements += 1;
+    const next = replaceCharacterNameInJsonNode(item, oldName, newName);
+    replacements += next.replacements;
+    nextValue[nextKey] = next.value;
+  });
+  return { value: nextValue, replacements };
+}
+
+function replaceCharacterNameInJsonText(value, oldName, newName) {
+  if (typeof value !== 'string' || !value || !oldName || oldName === newName) {
+    return { value, replacements: 0 };
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    const next = replaceCharacterNameInJsonNode(parsed, oldName, newName);
+    return next.replacements > 0
+      ? { value: JSON.stringify(next.value), replacements: next.replacements }
+      : { value, replacements: 0 };
+  } catch (error) {
+    if (error?.code === 'CHARACTER_RENAME_JSON_KEY_CONFLICT') throw error;
+    return replaceCharacterNameInText(value, oldName, newName);
+  }
+}
+
+function rewriteBookScopedCharacterReferences(db, {
+  table,
+  bookId,
+  oldName,
+  newName,
+  textColumns = [],
+  jsonColumns = [],
+  touchUpdatedAt = false,
+  incrementVersion = false
+}) {
+  const columns = [...new Set([...textColumns, ...jsonColumns])];
+  if (columns.length === 0) return { rows_updated: 0, replacements: 0 };
+
+  const rows = execQuery(
+    db,
+    `SELECT id, ${columns.join(', ')} FROM ${table} WHERE book_id = ?`,
+    [bookId]
+  );
+  let rowsUpdated = 0;
+  let replacements = 0;
+
+  rows.forEach((row) => {
+    const fields = [];
+    const values = [];
+    let rowReplacements = 0;
+
+    columns.forEach((column) => {
+      const next = jsonColumns.includes(column)
+        ? replaceCharacterNameInJsonText(row[column], oldName, newName)
+        : replaceCharacterNameInText(row[column], oldName, newName);
+      if (next.replacements <= 0) return;
+      fields.push(`${column} = ?`);
+      values.push(next.value);
+      rowReplacements += next.replacements;
+    });
+
+    if (fields.length === 0) return;
+    if (touchUpdatedAt) fields.push('updated_at = CURRENT_TIMESTAMP');
+    if (incrementVersion) fields.push('version = COALESCE(version, 0) + 1');
+    values.push(row.id);
+    db.run(`UPDATE ${table} SET ${fields.join(', ')} WHERE id = ?`, values);
+    rowsUpdated += 1;
+    replacements += rowReplacements;
+  });
+
+  return { rows_updated: rowsUpdated, replacements };
+}
+
+function rewriteCurrentChapterCharacterReferences(db, { bookId, oldName, newName }) {
+  const columns = ['title', 'chapter_name', 'outline', 'content'];
+  const rows = execQuery(
+    db,
+    `SELECT id, book_id, chapter_number, title, chapter_name, outline, content,
+            word_count, status, content_version_type, content_version_number,
+            content_revision_target
+     FROM chapters WHERE book_id = ?`,
+    [bookId]
+  );
+  let rowsUpdated = 0;
+  let replacements = 0;
+  let chapterSnapshots = 0;
+
+  rows.forEach((chapter) => {
+    const fields = [];
+    const values = [];
+    let rowReplacements = 0;
+    let contentChanged = false;
+    let nextContent = chapter.content;
+
+    columns.forEach((column) => {
+      const next = replaceCharacterNameInText(chapter[column], oldName, newName);
+      if (next.replacements <= 0) return;
+      fields.push(`${column} = ?`);
+      values.push(next.value);
+      rowReplacements += next.replacements;
+      if (column === 'content') {
+        contentChanged = true;
+        nextContent = next.value;
+      }
+    });
+
+    if (fields.length === 0) return;
+    if (contentChanged) {
+      createChapterVersionSnapshot(db, chapter, {
+        source: 'character_rename',
+        reason: `角色改名“${oldName}”→“${newName}”前自动留档`,
+        versionType: chapter.content_version_type,
+        versionNumber: chapter.content_version_number,
+        revisionTarget: chapter.content_revision_target,
+        force: true,
+        prune: false
+      });
+      fields.push('word_count = ?');
+      values.push(countPlatformEffectiveWords(nextContent));
+      chapterSnapshots += 1;
+    }
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(chapter.id);
+    db.run(`UPDATE chapters SET ${fields.join(', ')} WHERE id = ?`, values);
+    rowsUpdated += 1;
+    replacements += rowReplacements;
+  });
+
+  return {
+    rows_updated: rowsUpdated,
+    replacements,
+    chapter_snapshots: chapterSnapshots
+  };
+}
+
+function syncCharacterRenameReferences(db, { bookId, characterId, oldName, newName }) {
+  const renameSync = {
+    renamed: true,
+    character_id: characterId,
+    old_name: oldName,
+    new_name: newName,
+    rows_updated: 0,
+    replacements: 0,
+    chapter_snapshots: 0,
+    tables: {}
+  };
+  const book = execQueryOne(db, 'SELECT id, description FROM books WHERE id = ?', [bookId]);
+  const nextBookDescription = replaceCharacterNameInText(book?.description, oldName, newName);
+  if (book && nextBookDescription.replacements > 0) {
+    db.run(
+      'UPDATE books SET description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [nextBookDescription.value, bookId]
+    );
+  }
+  renameSync.tables.books = {
+    rows_updated: nextBookDescription.replacements > 0 ? 1 : 0,
+    replacements: nextBookDescription.replacements
+  };
+  renameSync.rows_updated += renameSync.tables.books.rows_updated;
+  renameSync.replacements += renameSync.tables.books.replacements;
+  const tableSpecs = [
+    {
+      table: 'novel_characters',
+      textColumns: ['appearance', 'personality', 'background', 'notes']
+    },
+    {
+      table: 'book_plans',
+      textColumns: ['premise', 'main_goal', 'core_conflict', 'world_rules', 'role_summary', 'main_outline', 'volume_outline', 'detailed_outline'],
+      jsonColumns: ['structured_content'],
+      touchUpdatedAt: true,
+      incrementVersion: true
+    },
+    {
+      table: 'volume_plans',
+      textColumns: ['volume_name', 'volume_theme', 'stage_goal', 'core_conflict', 'start_role_state', 'end_role_state', 'notes'],
+      jsonColumns: ['structured_content'],
+      touchUpdatedAt: true,
+      incrementVersion: true
+    },
+    {
+      table: 'volume_settings',
+      textColumns: ['volume_name', 'volume_theme', 'notes'],
+      touchUpdatedAt: true
+    },
+    {
+      table: 'chapter_plans',
+      textColumns: ['chapter_name', 'summary', 'chapter_mission', 'emotion_target', 'outline_text', 'character_notes', 'previous_hook', 'ending_hook'],
+      jsonColumns: ['scene_outline', 'appearing_roles', 'structured_content'],
+      touchUpdatedAt: true
+    },
+    {
+      table: 'storylines',
+      textColumns: ['storyline_name', 'description', 'core_conflict'],
+      jsonColumns: ['involved_characters', 'key_nodes', 'structured_content'],
+      touchUpdatedAt: true
+    },
+    {
+      table: 'chapter_feedback',
+      jsonColumns: ['feedback_json'],
+      touchUpdatedAt: true
+    },
+    {
+      table: 'volume_timelines',
+      jsonColumns: ['timeline_data'],
+      touchUpdatedAt: true
+    },
+    {
+      table: 'foreshadowing',
+      textColumns: ['title', 'description']
+    },
+    {
+      table: 'continuity_events',
+      textColumns: ['subject', 'fact_text', 'evidence_text']
+    },
+    {
+      table: 'character_state_ledger',
+      textColumns: ['character_name', 'role_text', 'relationship_text', 'state_text', 'appearance_text', 'note_text', 'evidence_text']
+    },
+    {
+      table: 'foreshadow_ledger',
+      textColumns: ['title', 'evidence_text']
+    },
+    {
+      table: 'chapter_characters',
+      textColumns: ['role_in_chapter', 'state_snapshot']
+    }
+  ];
+
+  tableSpecs.forEach((spec) => {
+    const result = rewriteBookScopedCharacterReferences(db, {
+      ...spec,
+      bookId,
+      oldName,
+      newName
+    });
+    renameSync.tables[spec.table] = result;
+    renameSync.rows_updated += result.rows_updated;
+    renameSync.replacements += result.replacements;
+  });
+
+  const chapterResult = rewriteCurrentChapterCharacterReferences(db, { bookId, oldName, newName });
+  renameSync.tables.chapters = {
+    rows_updated: chapterResult.rows_updated,
+    replacements: chapterResult.replacements
+  };
+  renameSync.rows_updated += chapterResult.rows_updated;
+  renameSync.replacements += chapterResult.replacements;
+  renameSync.chapter_snapshots = chapterResult.chapter_snapshots;
+  return renameSync;
+}
+
 class CharacterService {
   /**
    * 添加角色（关联用户）
@@ -1862,21 +2179,81 @@ class CharacterService {
     const allowedFields = ['name', 'appearance', 'personality', 'background', 'notes', 'character_type', 'role_tier', 'avatar_image'];
     const fields = [];
     const values = [];
+    const existing = await this.getById(id);
+    if (!existing) return null;
+    const oldName = String(existing.name || '').trim();
+    const nameWasProvided = Object.prototype.hasOwnProperty.call(updates || {}, 'name');
+    const newName = nameWasProvided ? String(updates.name || '').trim() : oldName;
+
+    if (nameWasProvided && !newName) {
+      const error = new Error('角色名不能为空');
+      error.code = 'CHARACTER_NAME_REQUIRED';
+      error.statusCode = 400;
+      throw error;
+    }
+    const isRename = !!oldName && !!newName && oldName !== newName;
 
     for (const [key, value] of Object.entries(updates || {})) {
       if (allowedFields.includes(key)) {
         fields.push(`${key} = ?`);
-        values.push(value);
+        values.push(key === 'name' ? newName : value);
       }
     }
 
-    if (fields.length === 0) return this.getById(id);
+    const emptyRenameSync = {
+      renamed: false,
+      character_id: id,
+      old_name: oldName,
+      new_name: newName,
+      rows_updated: 0,
+      replacements: 0,
+      chapter_snapshots: 0,
+      tables: {}
+    };
+    if (fields.length === 0) return { ...existing, rename_sync: emptyRenameSync };
 
-    values.push(id);
-    db.run(`UPDATE novel_characters SET ${fields.join(', ')} WHERE id = ?`, values);
-    saveDatabase(db);
+    let renameSync = emptyRenameSync;
+    db.run('BEGIN TRANSACTION');
+    try {
+      if (isRename) {
+        const duplicate = execQueryOne(
+          db,
+          `SELECT id FROM novel_characters
+           WHERE book_id = ? AND id != ? AND LOWER(TRIM(COALESCE(name, ''))) = LOWER(?)
+           LIMIT 1`,
+          [existing.book_id, id, newName]
+        );
+        if (duplicate) {
+          const error = new Error(`角色名“${newName}”已存在`);
+          error.code = 'CHARACTER_NAME_CONFLICT';
+          error.statusCode = 409;
+          throw error;
+        }
 
-    return this.getById(id);
+      }
+
+      values.push(id);
+      db.run(`UPDATE novel_characters SET ${fields.join(', ')} WHERE id = ?`, values);
+      if (isRename) {
+        renameSync = syncCharacterRenameReferences(db, {
+          bookId: existing.book_id,
+          characterId: id,
+          oldName,
+          newName
+        });
+        db.run('UPDATE books SET updated_at = CURRENT_TIMESTAMP WHERE id = ?', [existing.book_id]);
+      }
+      db.run('COMMIT');
+      saveDatabase(db);
+    } catch (error) {
+      try {
+        db.run('ROLLBACK');
+      } catch (_) {}
+      throw error;
+    }
+
+    const updated = await this.getById(id);
+    return updated ? { ...updated, rename_sync: renameSync } : null;
   }
 
   /**
@@ -2320,12 +2697,18 @@ class ChapterPlanService {
       ]);
     }
 
+    const savedPlan = execQueryOne(db, 'SELECT * FROM chapter_plans WHERE book_id = ? AND chapter_number = ?', [bookId, chapterNumber]);
+    if (existing && chapterPlanningHash(existing) !== chapterPlanningHash(savedPlan)) {
+      const chapter = execQueryOne(db, 'SELECT content FROM chapters WHERE book_id = ? AND chapter_number = ?', [bookId, chapterNumber]);
+      markChapterDerivedStale(db, bookId, chapterNumber, chapter?.content || '');
+    } else {
     syncStorylineProgressFromChapterPlan(db, {
       bookId,
       chapterNumber,
       chapterGoal,
       structuredContent: normalizedStructuredContent
     });
+    }
     syncChapterRolesToCharacterLibrary(db, {
       bookId,
       userId,

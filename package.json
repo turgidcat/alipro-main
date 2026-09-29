@@ -1,0 +1,17 @@
+{
+  "name": "alipro-products",
+  "private": true,
+  "scripts": {
+    "experiment:models": "node scripts/start-model-experiment.cjs",
+    "monitor:models": "node apps/model-monitor/server.cjs --open",
+    "version:check": "node scripts/release-version.cjs",
+    "version:prepare": "node scripts/release-version.cjs --apply",
+    "test:version": "node --test scripts/release-version.test.cjs",
+    "dev:web": "npm --prefix apps/web run dev",
+    "dev:backend": "npm --prefix backend run dev",
+    "build:web": "npm --prefix apps/web run build",
+    "build:android": "npm --prefix apps/android run build:debug",
+    "build:windows": "npm --prefix apps/windows run package:win",
+    "verify:frontend": "npm --prefix apps/web run verify:frontend-contracts"
+  }
+}

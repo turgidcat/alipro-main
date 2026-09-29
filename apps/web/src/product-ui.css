@@ -1,0 +1,1358 @@
+/*
+ * Final product surface.
+ * This layer intentionally normalizes legacy page-local styles without changing
+ * component behavior. Keep product-wide visual decisions here.
+ */
+:root {
+  /* --product-canvas 唯一定义点已收敛至 styles/ink-zhu-paper.css */
+  --product-surface: #ffffff;
+  --product-surface-subtle: #f7f8fa;
+  --product-text: #1b2430;
+  --product-text-soft: #475467;
+  --product-muted: #6f7a8a;
+  --product-line: #e1e5eb;
+  --product-line-strong: #cfd6df;
+  --product-primary: #2f5bd3;
+  --product-primary-hover: #264db7;
+  --product-primary-soft: #edf2ff;
+  --product-success: #34745b;
+  --product-warning: #9a5c36;
+  --product-danger: #b44b49;
+  --product-radius: 14px;
+  --product-shadow: 0 10px 30px rgba(27, 36, 48, 0.06);
+}
+
+html {
+  background: var(--product-canvas);
+}
+
+body {
+  background: var(--product-canvas);
+  color: var(--product-text);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+/* Global navigation */
+body .al-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  height: 64px;
+  border-bottom: 1px solid var(--product-line);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: none;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+body .al-nav-inner {
+  width: min(1440px, calc(100% - 32px));
+  height: 64px;
+  margin: 0 auto;
+  padding: 0;
+}
+
+body .al-nav-brand {
+  gap: 10px;
+  color: var(--product-text);
+}
+
+body .al-nav-monogram {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid #c8441e;
+  border-radius: 9px;
+  background: #c8441e;
+  color: #fff;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+body .al-nav-brand-lockup {
+  display: grid;
+  gap: 1px;
+  text-align: left;
+}
+
+body .al-nav-brand-name {
+  color: var(--product-text);
+  font-size: 14px;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+}
+
+body .al-nav-brand-code {
+  color: #6a6053;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+}
+
+body .al-nav-links {
+  align-self: center;
+  gap: 4px;
+}
+
+body .al-nav-link {
+  position: relative;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 9px;
+  color: #6a6053;
+  font-size: 13px;
+  font-weight: 650;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+body .al-nav-link:hover {
+  background: #f3ede1;
+  color: var(--product-text);
+  transform: none;
+}
+
+body .al-nav-link--active {
+  background: var(--product-primary-soft);
+  color: #c8441e;
+}
+
+body .al-nav-link-indicator {
+  position: absolute;
+  right: 12px;
+  bottom: 4px;
+  left: 12px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--product-primary);
+}
+
+/* Home */
+body .hp-page {
+  background: var(--product-canvas);
+}
+
+body .hp-hero {
+  position: relative;
+  display: grid;
+  width: min(1440px, calc(100% - 32px));
+  max-width: 1440px;
+  min-height: 600px;
+  margin: 24px auto 0;
+  padding: 86px clamp(40px, 6vw, 88px);
+  align-content: center;
+  justify-items: start;
+  border: 1px solid var(--product-line);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: var(--product-shadow);
+  text-align: left;
+  overflow: hidden;
+}
+
+body .hp-hero > * {
+  position: relative;
+  z-index: 2;
+  max-width: 50%;
+}
+
+body .hp-hero-badge-dot {
+  background: var(--product-primary);
+  box-shadow: none;
+}
+
+body .hp-hero-desc {
+  margin: 15px 0 0;
+  color: var(--product-muted);
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+body .hp-hero-actions {
+  margin-top: 30px;
+  justify-content: flex-start;
+}
+
+body .hp-btn-primary,
+body .hp-btn-secondary {
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+body .hp-btn-primary {
+  border-color: var(--product-primary);
+  background: var(--product-primary);
+  color: #fff;
+  box-shadow: none;
+}
+
+body .hp-btn-primary:hover {
+  border-color: var(--product-primary-hover);
+  background: var(--product-primary-hover);
+  transform: none;
+}
+
+body .hp-btn-secondary {
+  border-color: var(--product-line-strong);
+  background: #fff;
+  color: var(--product-text);
+}
+
+body .hp-features {
+  max-width: 1440px;
+  padding: 88px 16px 96px;
+}
+
+body .hp-section-header {
+  margin-bottom: 34px;
+}
+
+body .hp-section-title {
+  color: var(--product-text);
+  font-family: var(--font-sans);
+  font-size: clamp(32px, 4vw, 44px);
+  font-weight: 760;
+  letter-spacing: -0.035em;
+}
+
+body .hp-feature-grid {
+  gap: 12px;
+}
+
+body .hp-feature-card,
+body .hp-feature-card:first-child {
+  min-height: 250px;
+  padding: 26px;
+  border: 1px solid var(--product-line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: none;
+}
+
+body .hp-feature-card:first-child {
+  grid-column: span 2;
+}
+
+body .hp-feature-card::after,
+body .hp-feature-card:first-child::after {
+  display: none;
+}
+
+body .hp-feature-card .hp-feature-title,
+body .hp-feature-card:first-child .hp-feature-title {
+  color: var(--product-text);
+  font-size: 18px;
+}
+
+body .hp-feature-card .hp-feature-desc,
+body .hp-feature-card:first-child .hp-feature-desc {
+  color: var(--product-muted);
+}
+
+body .hp-upcoming {
+  max-width: 1440px;
+  margin: 0 auto 72px;
+  padding: 0 16px;
+}
+
+body .hp-upcoming-inner {
+  padding: 38px 42px;
+  border: 1px solid var(--product-line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: none;
+  text-align: left;
+}
+
+body .hp-upcoming-inner::after {
+  display: none;
+}
+
+body .hp-upcoming-tags {
+  color: var(--product-text);
+  font-family: var(--font-sans);
+  font-size: clamp(23px, 2.5vw, 32px);
+}
+
+body .hp-upcoming-tags-accent {
+  color: var(--product-primary);
+}
+
+body .hp-upcoming-note {
+  color: var(--product-muted);
+}
+
+/* Library application shell */
+body .books-admin-page.library-app-shell {
+  display: grid;
+  width: min(1440px, calc(100% - 32px)) !important;
+  min-height: calc(100vh - 112px);
+  margin: 24px auto !important;
+  padding: 0 !important;
+  grid-template-columns: 236px minmax(0, 1fr);
+  gap: 0;
+  border: 1px solid var(--product-line);
+  border-radius: 16px;
+  background: var(--product-surface);
+  box-shadow: var(--product-shadow);
+  font-size: 14px;
+  overflow: clip;
+}
+
+body .books-admin-page .library-sidebar {
+  position: sticky;
+  top: 88px;
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch;
+  width: 236px;
+  height: calc(100vh - 112px);
+  min-height: 0;
+  max-height: calc(100vh - 112px);
+  gap: 14px;
+  padding: 20px 14px;
+  border: 0;
+  border-right: 1px solid var(--product-line);
+  border-radius: 0;
+  background: var(--product-surface-subtle);
+  box-shadow: none;
+  color: var(--product-text);
+  overflow-y: auto;
+}
+
+body .books-admin-page .library-sidebar-head {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--product-line);
+}
+
+body .books-admin-page .library-surface-switcher {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--product-line);
+  border-radius: 11px;
+  background: #f3ede1;
+}
+
+body .books-admin-page .library-surface-entry,
+body .books-admin-page .library-surface-entry.is-primary {
+  display: flex;
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
+  padding: 7px 9px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--product-muted);
+}
+
+body .books-admin-page .library-surface-entry.is-primary,
+body .books-admin-page .library-surface-entry:hover {
+  background: #fff;
+  color: var(--product-text);
+  box-shadow: 0 1px 3px rgba(74, 58, 40, 0.08);
+}
+
+body .books-admin-page .library-sidebar-kicker {
+  display: none;
+}
+
+body .books-admin-page .library-surface-entry strong {
+  color: inherit;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+body .books-admin-page .library-sidebar-nav {
+  display: grid !important;
+  flex: none;
+  gap: 3px;
+  margin: 0;
+}
+
+body .books-admin-page .library-nav-item {
+  display: grid;
+  min-height: 38px;
+  padding: 0 10px;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #6a6053;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+
+body .books-admin-page .library-nav-item::before {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid #e6ddcb;
+  border-radius: 7px;
+  background: #fff;
+  color: #6a6053;
+  font-size: 11px;
+  font-weight: 700;
+  content: attr(data-short);
+}
+
+body .books-admin-page .library-nav-item:hover:not(:disabled) {
+  background: #f3ede1;
+  color: var(--product-text);
+}
+
+body .books-admin-page .library-nav-item.is-active {
+  background: var(--product-primary-soft);
+  color: #c8441e;
+  box-shadow: none;
+}
+
+body .books-admin-page .library-nav-item.is-active::before {
+  border-color: #e6ddcb;
+  background: #fff;
+  color: #c8441e;
+}
+
+body .books-admin-page .library-sidebar-section {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--product-line);
+}
+
+body .books-admin-page .library-sidebar-context span,
+body .books-admin-page .library-book-switcher > span,
+body .books-admin-page .library-sidebar-note {
+  color: #6a6053;
+}
+
+body .books-admin-page .library-sidebar-context strong {
+  color: var(--product-text);
+  font-size: 13px;
+}
+
+body .books-admin-page .library-book-switcher select {
+  border-color: var(--product-line-strong);
+  background: #fff;
+  color: var(--product-text);
+}
+
+body .books-admin-page .library-main {
+  width: 100%;
+  min-width: 0;
+  padding: 36px 40px 64px;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+}
+
+body .books-admin-page .books-page-header,
+body .books-admin-page .library-page-title {
+  min-height: 74px;
+  margin: 0 0 26px;
+  padding: 0 0 20px;
+  border-bottom: 1px solid var(--product-line);
+}
+
+body .books-admin-page .books-page-header h1,
+body .books-admin-page .library-page-title h1 {
+  color: var(--product-text);
+  font-family: var(--font-sans);
+  font-size: clamp(28px, 2.6vw, 36px);
+  font-weight: 760;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+}
+
+body .books-admin-page .books-page-header-sub {
+  margin-top: 7px;
+  color: var(--product-muted);
+  font-size: 13px;
+}
+
+body .books-admin-page .books-page-prompt-entry {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid var(--product-line-strong);
+  border-radius: 9px;
+  background: #fff;
+  color: #42516a;
+}
+
+body .books-admin-page .books-page-stats {
+  gap: 10px;
+}
+
+body .books-admin-page .books-page-stat-card,
+body .books-admin-page .books-page-stat-card:first-child {
+  min-height: 92px;
+  padding: 17px 18px;
+  border: 1px solid var(--product-line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: none;
+}
+
+body .books-admin-page .books-page-stat-card:first-child {
+  border-left: 3px solid var(--product-primary);
+}
+
+body .books-admin-page .books-page-stat-value {
+  color: var(--product-text);
+  font-size: 25px;
+}
+
+body .books-admin-page .books-page-stat-label {
+  color: var(--product-muted);
+}
+
+body .books-admin-page .books-page-toolbar {
+  padding: 12px;
+  border: 1px solid var(--product-line);
+  border-radius: 12px;
+  background: var(--product-surface-subtle);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+body .books-admin-page .books-page-toolbar-input,
+body .books-admin-page .books-page-toolbar-select {
+  border-color: var(--product-line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--product-text);
+}
+
+body .books-admin-page .books-page-toolbar-btn-primary,
+body .books-admin-page .solid-btn,
+body .books-admin-page .nav-btn-primary {
+  border-color: var(--product-primary);
+  background: var(--product-primary);
+  color: #fff;
+  box-shadow: none;
+}
+
+body .books-admin-page .books-page-toolbar-btn-primary:hover,
+body .books-admin-page .solid-btn:hover,
+body .books-admin-page .nav-btn-primary:hover {
+  border-color: var(--product-primary-hover);
+  background: var(--product-primary-hover);
+}
+
+body .books-admin-page .books-page-grid {
+  gap: 14px;
+}
+
+body .books-admin-page .books-page-card {
+  border: 1px solid var(--product-line);
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: none;
+}
+
+body .books-admin-page .books-page-card::before {
+  display: none;
+}
+
+body .books-admin-page .books-page-card:hover {
+  border-color: #a2968a;
+  box-shadow: 0 8px 22px rgba(74, 58, 40, 0.07);
+  transform: translateY(-1px);
+}
+
+body .books-admin-page .books-page-card-title {
+  color: var(--product-text);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  font-weight: 720;
+}
+
+body .books-admin-page .books-page-card-genre,
+body .books-admin-page .books-page-card-current {
+  background: var(--product-primary-soft);
+  color: #c8441e;
+}
+
+body .books-admin-page .books-detail-card,
+body .books-admin-page .detail-panel,
+body .books-admin-page .storyline-board-card,
+body .books-admin-page .storyline-full-editor,
+body .books-admin-page .storyline-node-card {
+  border-color: var(--product-line);
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: none;
+}
+
+body .books-admin-page .storyline-control-panel,
+body .books-admin-page .storyline-volume-panel {
+  border-color: var(--product-line);
+  background: #fff;
+  box-shadow: none;
+}
+
+body .books-admin-page .storyline-board-kicker {
+  color: #c8441e;
+}
+
+body .books-admin-page .ghost-btn,
+body .books-admin-page .books-page-card-action-btn {
+  border-color: var(--product-line-strong);
+  background: #fff;
+  color: #6a6053;
+}
+
+/* Chapter index and focused prose reader */
+body .books-admin-page .chapter-flow-card {
+  padding: 18px;
+  border: 1px solid var(--product-line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: none;
+}
+
+body .books-admin-page .chapter-flow-card:hover {
+  border-color: #a2968a;
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+body .books-admin-page .chapter-title-link {
+  color: var(--product-text);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 720;
+}
+
+body .books-admin-page.library-app-shell.is-chapter-reader-page {
+  display: block;
+  width: min(1120px, calc(100% - 32px)) !important;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body .books-admin-page.is-chapter-reader-page .library-main {
+  width: 100%;
+  padding: 36px 56px 72px;
+}
+
+body .books-admin-page.is-chapter-reader-page .books-page-header {
+  width: min(940px, 100%);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+body .books-admin-page .chapter-reader-shell {
+  display: grid;
+  width: min(900px, 100%);
+  margin: 0 auto;
+  gap: 24px;
+}
+
+body .books-admin-page .chapter-reader-toolbar,
+body .books-admin-page .chapter-reader-footer {
+  width: min(760px, 100%);
+  margin: 0 auto;
+}
+
+body .books-admin-page .chapter-reader-toolbar {
+  padding: 2px 0 18px;
+  border-bottom: 1px solid var(--product-line);
+}
+
+body .books-admin-page .chapter-reader-head {
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: 24px 0 28px;
+  border-bottom: 1px solid var(--product-line);
+  text-align: left;
+}
+
+body .books-admin-page .chapter-reader-head h2 {
+  margin: 10px 0 14px;
+  color: var(--product-text);
+  font-family: var(--font-serif);
+  font-size: clamp(34px, 4vw, 46px);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+}
+
+body .books-admin-page .chapter-reader-meta {
+  justify-content: flex-start;
+  color: var(--product-muted);
+}
+
+body .books-admin-page .chapter-reader-meta span {
+  border-color: var(--product-line);
+  background: var(--product-surface-subtle);
+}
+
+body .books-admin-page .chapter-reader-audit,
+body .books-admin-page .chapter-reader-note,
+body .books-admin-page .chapter-reader-prose {
+  width: min(720px, 100%);
+  box-sizing: border-box;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+body .books-admin-page .chapter-reader-audit {
+  border-left-color: #a2968a;
+  color: var(--product-muted);
+}
+
+body .books-admin-page .chapter-reader-note {
+  border: 1px solid #e6ddcb;
+  border-left: 3px solid #a2968a;
+  border-radius: 10px;
+  background: #f3ede1;
+  color: #6a6053;
+}
+
+body .books-admin-page .chapter-reader-prose {
+  padding: 14px 0 24px;
+  color: #1e1810;
+  font-family: var(--font-serif);
+  font-size: 18px;
+  line-height: 2.08;
+  letter-spacing: 0.012em;
+}
+
+body .books-admin-page .chapter-reader-prose p {
+  margin: 0 0 1.15em;
+  text-indent: 2em;
+}
+
+body .books-admin-page .chapter-reader-end-marker {
+  width: min(720px, 100%);
+  box-sizing: border-box;
+  margin: -4px auto 0;
+  padding: 20px 0 2px;
+  border-top: 1px solid var(--product-line);
+  color: var(--product-muted);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+body .books-admin-page .chapter-reader-footer {
+  padding-top: 22px;
+  border-top: 1px solid var(--product-line);
+}
+
+/* Workbench */
+body .workbench-stage {
+  background: var(--product-canvas);
+}
+
+body .workbench-app-shell {
+  width: min(1440px, calc(100% - 32px));
+  min-height: calc(100vh - 112px);
+  margin: 24px auto;
+  border: 1px solid var(--product-line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--product-shadow);
+  overflow: hidden;
+}
+
+body .workbench-worktop {
+  min-height: 62px;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--product-line);
+  border-radius: 0;
+  background: #fff;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+body .workbench-worktop .wgb,
+body .workbench-worktop .workbench-global-bar {
+  min-height: 42px;
+  padding: 0;
+}
+
+body .workbench-worktop .wgb-title,
+body .workbench-worktop .workbench-global-title {
+  color: var(--product-text);
+  font-family: var(--font-sans);
+  font-size: 20px;
+  font-weight: 750;
+}
+
+body .workbench-triple-pane {
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+}
+
+body .workbench-triple-pane-left {
+  border-right: 1px solid var(--product-line);
+  background: var(--product-surface-subtle);
+  box-shadow: none;
+  color: var(--product-text);
+}
+
+body .workbench-nav-section {
+  border-top-color: var(--product-line);
+}
+
+body .workbench-nav-section-head * {
+  color: inherit !important;
+}
+
+body .workbench-nav-link {
+  border-color: transparent;
+  background: transparent;
+  color: #6a6053;
+}
+
+body .workbench-nav-link:hover:not(:disabled) {
+  background: #f3ede1;
+  color: var(--product-text);
+}
+
+body .workbench-nav-link-danger {
+  color: var(--product-danger);
+}
+
+body .workbench-entry-mode-trigger,
+body .workbench-nav-select-trigger,
+body .workbench-nav-chapter-switch button,
+body .workbench-nav-field select,
+body .workbench-nav-field input {
+  border-color: var(--product-line-strong);
+  background: #fff;
+  color: var(--product-text);
+  box-shadow: none;
+}
+
+body .workbench-entry-mode-trigger:hover,
+body .workbench-nav-select-trigger:hover,
+body .workbench-nav-select-trigger.is-open {
+  border-color: #a2968a;
+  background: #fff;
+}
+
+body .workbench-entry-mode-trigger span,
+body .workbench-nav-select-trigger em {
+  color: var(--product-muted);
+}
+
+body .workbench-entry-mode-trigger strong,
+body .workbench-nav-select-trigger strong {
+  color: var(--product-text);
+}
+
+body .workbench-nav-select-menu,
+body .workbench-entry-mode-menu {
+  border-color: var(--product-line);
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(74, 58, 40, 0.12);
+}
+
+body .workbench-nav-select-option,
+body .workbench-entry-mode-menu button {
+  color: #6a6053;
+}
+
+body .workbench-nav-select-option:hover,
+body .workbench-nav-select-option.is-active,
+body .workbench-entry-mode-menu button:hover,
+body .workbench-entry-mode-menu button.is-active {
+  background: var(--product-primary-soft);
+  color: #c8441e;
+}
+
+body .workbench-triple-pane-center {
+  background: #fff;
+}
+
+body .workbench-prose-main .workbench-section,
+body .workbench-content-meta .workbench-section,
+body .workbench-generation-preview,
+body .workbench-prose-paper {
+  border: 1px solid var(--product-line);
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: none;
+}
+
+body .workbench-generation-preview,
+body .workbench-prose-paper {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: #DCD2BE transparent;
+  scrollbar-width: thin;
+}
+
+body .workbench-generation-preview::-webkit-scrollbar,
+body .workbench-prose-paper::-webkit-scrollbar {
+  width: 7px;
+}
+
+body .workbench-generation-preview::before,
+body .workbench-prose-paper::before {
+  width: 3px;
+  background: var(--product-primary);
+}
+
+body .workbench-generation-prep-row {
+  border-color: var(--product-line);
+  background: #fafbfc;
+}
+
+body .workbench-triple-pane-right {
+  border-left: 1px solid var(--product-line);
+  background: var(--product-surface-subtle);
+}
+
+body .workbench-info-card {
+  border: 1px solid var(--product-line);
+  border-radius: 11px;
+  background: #fff;
+  box-shadow: none;
+}
+
+body .workbench-info-card-title {
+  border-bottom-color: var(--product-line);
+  background: #f3ede1;
+  color: #1e1810;
+}
+
+/* Changelog */
+body .changelog-page {
+  color: var(--product-text);
+}
+
+@media (max-width: 980px) {
+  body .hp-hero {
+    min-height: 560px;
+  }
+
+  body .hp-hero::before {
+    width: 34%;
+  }
+
+  body .hp-hero > * {
+    max-width: 60%;
+  }
+
+  body .books-admin-page.library-app-shell,
+  body .books-admin-page.library-app-shell.is-sidebar-collapsed,
+  body .books-admin-page.library-app-shell.is-sidebar-collapsed.is-sidebar-peek {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  body .books-admin-page .library-sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+    min-height: auto;
+    max-height: none;
+    padding: 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--product-line);
+    overflow: visible;
+  }
+}
+
+@media (max-width: 720px) {
+  body .al-nav,
+  body .al-nav-inner {
+    height: 56px;
+  }
+
+  body .al-nav-inner {
+    width: calc(100% - 20px);
+  }
+
+  body .al-nav-brand-code {
+    display: none;
+  }
+
+  body .al-nav-link {
+    min-height: 34px;
+    padding-inline: 9px;
+    font-size: 11px;
+  }
+
+  body .hp-hero {
+    width: calc(100% - 20px);
+    min-height: auto;
+    margin-top: 10px;
+    padding: 54px 24px 260px;
+    border-radius: 16px;
+  }
+
+  body .hp-hero::before {
+    inset: auto 0 0;
+    width: 100%;
+    height: 220px;
+  }
+
+  body .hp-hero::after {
+    top: auto;
+    right: 50%;
+    bottom: 20px;
+    width: 180px;
+    height: 150px;
+    transform: translateX(50%);
+  }
+
+  body .hp-hero > * {
+    max-width: 100%;
+  }
+
+  body .hp-hero-title {
+    font-size: clamp(48px, 15vw, 66px);
+  }
+
+  body .hp-hero-actions {
+    width: 100%;
+  }
+
+  body .hp-features {
+    padding: 60px 20px 72px;
+  }
+
+  body .hp-feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  body .hp-feature-card:first-child {
+    grid-column: auto;
+  }
+
+  body .books-admin-page.library-app-shell {
+    width: calc(100% - 20px) !important;
+    min-height: calc(100vh - 76px);
+    margin: 10px auto !important;
+    border-radius: 14px;
+  }
+
+  body .books-admin-page .library-main {
+    padding: 26px 18px 44px;
+  }
+
+  body .books-admin-page .books-page-header,
+  body .books-admin-page .library-page-title {
+    min-height: 0;
+    margin-bottom: 22px;
+    padding-bottom: 18px;
+  }
+
+  body .books-admin-page .books-page-header h1,
+  body .books-admin-page .library-page-title h1 {
+    font-size: 28px;
+  }
+
+  body .books-admin-page.library-app-shell.is-chapter-reader-page {
+    width: calc(100% - 20px) !important;
+  }
+
+  body .books-admin-page.is-chapter-reader-page .library-main {
+    padding: 26px 18px 48px;
+  }
+
+  body .books-admin-page .chapter-reader-shell {
+    gap: 18px;
+  }
+
+  body .books-admin-page .chapter-reader-head {
+    padding: 18px 0 22px;
+  }
+
+  body .books-admin-page .chapter-reader-head h2 {
+    font-size: 32px;
+  }
+
+  body .books-admin-page .chapter-reader-prose {
+    font-size: 17px;
+    line-height: 2;
+  }
+
+  body .workbench-app-shell {
+    width: calc(100% - 20px);
+    min-height: calc(100vh - 76px);
+    margin: 10px auto;
+    border-radius: 14px;
+  }
+
+  body .workbench-triple-pane-left,
+  body .workbench-triple-pane-center,
+  body .workbench-triple-pane-right {
+    background: #fff;
+  }
+
+  body .workbench-triple-pane-left {
+    border-right: 0;
+    border-bottom: 1px solid var(--product-line);
+  }
+
+  body .workbench-triple-pane-right {
+    border-left: 0;
+    border-top: 1px solid var(--product-line);
+    background: var(--product-surface-subtle);
+  }
+
+  body .workbench-generation-preview,
+  body .workbench-prose-paper {
+    max-height: none;
+    overflow: visible;
+    overscroll-behavior: auto;
+  }
+}
+
+@media (max-width: 430px) {
+  body .al-nav-brand-lockup {
+    display: none;
+  }
+
+  body .hp-hero-actions {
+    flex-direction: column;
+  }
+}
+
+/* Final dark contrast layer. This file is imported by main.jsx after the
+   legacy workbench styles, so these rules are the last visual authority. */
+body .workbench-app-shell {
+  --bg: var(--cinema-bg);
+  --bg-subtle: var(--cinema-bg-soft);
+  --text: var(--cinema-text);
+  --text-soft: #c9d8d5;
+  --muted: var(--cinema-muted);
+  --brand: var(--cinema-signal);
+  --brand-deep: #8be9dd;
+  --brand-soft: var(--cinema-signal-soft);
+  --brand-soft-strong: rgba(39, 199, 183, 0.24);
+  --accent: var(--cinema-gold);
+  --accent-deep: #f0cf75;
+  --accent-soft: rgba(213, 169, 79, 0.14);
+  --surface: var(--cinema-panel);
+  --panel: var(--cinema-panel);
+  --panel-strong: var(--cinema-panel-strong);
+  --panel-note-bg: #5c826f;
+  --line: var(--cinema-line);
+  --line-strong: var(--cinema-line-strong);
+  color: var(--cinema-text);
+  background: var(--cinema-bg) !important;
+}
+
+body .workbench-stage.workbench-app-shell,
+body .workbench-app-shell .workbench-worktop,
+body .workbench-app-shell .workbench-triple-pane {
+  border-color: var(--cinema-line) !important;
+  background: #5c826f !important;
+}
+
+body .workbench-app-shell .workbench-worktop {
+  background: rgba(92, 130, 111, 0.96) !important;
+}
+
+body .workbench-app-shell .workbench-worktop .wgb-title,
+body .workbench-app-shell .workbench-worktop .workbench-global-title {
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .workbench-triple-pane-left {
+  border-color: var(--cinema-line) !important;
+  background: #5c826f !important;
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .workbench-triple-pane-center {
+  background: #5c826f !important;
+}
+
+body .workbench-app-shell .workbench-triple-pane-right {
+  border-color: var(--cinema-line) !important;
+  background: #5c826f !important;
+}
+
+body .workbench-app-shell .workbench-nav-section-head,
+body .workbench-app-shell .workbench-nav-select-label,
+body .workbench-app-shell .workbench-nav-field > span,
+body .workbench-app-shell .workbench-nav-volume-title {
+  color: #a9c0bd !important;
+}
+
+body .workbench-app-shell .workbench-nav-link {
+  color: #b6c9c6 !important;
+  background: transparent !important;
+}
+
+body .workbench-app-shell .workbench-nav-link:hover:not(:disabled),
+body .workbench-app-shell .workbench-nav-link.is-active {
+  color: var(--cinema-text) !important;
+  background: rgba(39, 199, 183, 0.12) !important;
+}
+
+body .workbench-app-shell .workbench-entry-mode-trigger:hover,
+body .workbench-app-shell .workbench-nav-select-trigger:hover,
+body .workbench-app-shell .workbench-nav-select-trigger.is-open {
+  border-color: rgba(39, 199, 183, 0.56) !important;
+  background: #5c826f !important;
+}
+
+body .workbench-app-shell .workbench-entry-mode-trigger span,
+body .workbench-app-shell .workbench-nav-select-trigger em {
+  color: #9bb5b2 !important;
+}
+
+body .workbench-app-shell .workbench-entry-mode-trigger strong,
+body .workbench-app-shell .workbench-nav-select-trigger strong {
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .workbench-nav-select-menu,
+body .workbench-app-shell .workbench-entry-mode-menu {
+  border-color: var(--cinema-line-strong) !important;
+  background: #5c826f !important;
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.52);
+}
+
+body .workbench-app-shell .workbench-nav-select-option,
+body .workbench-app-shell .workbench-entry-mode-menu button {
+  color: #b6c9c6 !important;
+}
+
+body .workbench-app-shell .workbench-nav-select-option:hover,
+body .workbench-app-shell .workbench-nav-select-option.is-active,
+body .workbench-app-shell .workbench-entry-mode-menu button:hover,
+body .workbench-app-shell .workbench-entry-mode-menu button.is-active {
+  background: #5c826f !important;
+  color: #f2fbf8 !important;
+}
+
+body .workbench-app-shell .workbench-command-head h3,
+body .workbench-app-shell .workbench-section h2,
+body .workbench-app-shell .workbench-section h3,
+body .workbench-app-shell .workbench-generation-preview h3,
+body .workbench-app-shell .workbench-prose-paper h1,
+body .workbench-app-shell .workbench-prose-paper h2 {
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .workbench-generation-prep-row.is-warning {
+  border-color: rgba(230, 107, 103, 0.48) !important;
+  background: rgba(86, 38, 39, 0.72) !important;
+}
+
+body .workbench-app-shell .workbench-generation-prep-row.is-ready {
+  border-color: rgba(39, 199, 183, 0.38) !important;
+  background: rgba(92, 130, 111, 0.72) !important;
+}
+
+body .workbench-app-shell .wpa-secondary,
+body .workbench-app-shell .gen-settings-trigger,
+body .workbench-app-shell .workbench-info-card-edit {
+  border-color: var(--cinema-line-strong) !important;
+  background: rgba(255, 255, 255, 0.035) !important;
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .wpa-secondary:hover,
+body .workbench-app-shell .gen-settings-trigger:hover,
+body .workbench-app-shell .workbench-info-card-edit:hover {
+  border-color: rgba(39, 199, 183, 0.56) !important;
+  background: rgba(39, 199, 183, 0.12) !important;
+  color: #8be9dd !important;
+}
+
+body .workbench-app-shell .wpa-generate,
+body .workbench-app-shell .workbench-prose-actions .primary-btn,
+body .workbench-app-shell .workbench-meta-actions .primary-btn,
+body .workbench-app-shell .workbench-generation-preview > button {
+  border-color: var(--cinema-signal) !important;
+  background: var(--cinema-signal) !important;
+  color: #041512 !important;
+}
+
+body .workbench-app-shell .workbench-info-card {
+  border-color: var(--cinema-line) !important;
+  background: #5c826f !important;
+}
+
+body .workbench-app-shell .workbench-info-card-title {
+  border-color: var(--cinema-line) !important;
+  background: #5c826f !important;
+  color: #8be9dd !important;
+}
+
+body .workbench-app-shell .workbench-info-row,
+body .workbench-app-shell .workbench-info-character {
+  border-color: var(--cinema-line) !important;
+  background: rgba(92, 130, 111, 0.72) !important;
+}
+
+body .workbench-app-shell .workbench-info-row span,
+body .workbench-app-shell .workbench-info-note,
+body .workbench-app-shell .workbench-info-empty,
+body .workbench-app-shell .workbench-info-character p {
+  color: var(--cinema-muted) !important;
+}
+
+body .workbench-app-shell .workbench-info-row strong,
+body .workbench-app-shell .workbench-info-character strong {
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .gen-settings-panel {
+  border-color: var(--cinema-line-strong) !important;
+  background: #5c826f !important;
+  color: var(--cinema-text) !important;
+  box-shadow: 0 28px 72px rgba(0, 0, 0, 0.55);
+}
+
+body .workbench-app-shell .gen-settings-panel-head,
+body .workbench-app-shell .gen-settings-option,
+body .workbench-app-shell .gen-settings-toggle,
+body .workbench-app-shell .gen-settings-input,
+body .workbench-app-shell .gen-settings-textarea {
+  border-color: var(--cinema-line) !important;
+  background: #5c826f !important;
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .gen-settings-panel-head strong,
+body .workbench-app-shell .gen-settings-option strong,
+body .workbench-app-shell .gen-settings-label {
+  color: var(--cinema-text) !important;
+}
+
+body .workbench-app-shell .gen-settings-panel-head small,
+body .workbench-app-shell .gen-settings-option small,
+body .workbench-app-shell .gen-settings-hint,
+body .workbench-app-shell .gen-settings-range-ticks {
+  color: var(--cinema-muted) !important;
+}
+
+body .workbench-app-shell .gen-settings-option:hover,
+body .workbench-app-shell .gen-settings-option.is-active {
+  border-color: rgba(39, 199, 183, 0.52) !important;
+  background: rgba(39, 199, 183, 0.14) !important;
+}

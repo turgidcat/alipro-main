@@ -1,4 +1,5 @@
 const axios = require('axios');
+const modelMonitor = require('./model-monitor');
 const { resolveDeepSeekModel } = require('../config/runtime');
 const { DEFAULT_WORD_COUNT, WORD_COUNT_POLICY, getWordCountBounds } = require('./word-count-policy');
 
@@ -207,11 +208,15 @@ class DeepSeekService {
     });
   }
 
-  async postWithTransientRetry(path, payload, config = {}, validateResponse = null) {
+  async postWithTransientRetry(path, payload, config = {}, validateResponse = null, monitorMeta = {}) {
     const delays = [2000, 5000];
+    const logicalCallId = modelMonitor.newId();
     for (let attempt = 0; ; attempt += 1) {
+      const monitored = modelMonitor.startCall({ ...monitorMeta, logicalCallId, attempt: attempt + 1, endpoint: path, request: payload });
+      let receivedData;
       try {
         const response = await this.client.post(path, payload, config);
+        if (!payload.stream) receivedData = response.data;
         if (typeof validateResponse === 'function' && !validateResponse(response)) {
           const malformedError = new Error('DeepSeek 返回缺少有效 choices 或正文');
           malformedError.response = {
@@ -220,8 +225,11 @@ class DeepSeekService {
           };
           throw malformedError;
         }
+        if (payload.stream) response.modelMonitor = monitored;
+        else monitored.finish(response.data, { httpStatus: response.status });
         return response;
       } catch (error) {
+        monitored.fail(error, receivedData ?? (error?.response?.data && typeof error.response.data.on !== 'function' ? error.response.data : undefined));
         const status = Number(error?.response?.status || 0);
         const retryable = [502, 503, 504].includes(status)
           && attempt < delays.length
@@ -261,7 +269,8 @@ class DeepSeekService {
         '/chat/completions',
         payload,
         {},
-        (candidate) => normalizeText(candidate?.data?.choices?.[0]?.message?.content).length > 0
+        (candidate) => normalizeText(candidate?.data?.choices?.[0]?.message?.content).length > 0,
+        { pointId: options.monitorPoint }
       );
 
       return {
@@ -368,11 +377,12 @@ class DeepSeekService {
         responseType: 'stream',
         timeout: 300000,
         signal: requestSignal
-      });
+      }, null, { pointId: options.monitorPoint });
     } catch (error) {
       throw normalizeStreamError(error, '流式请求初始化失败');
     }
 
+    const monitored = response.modelMonitor;
     let buffer = '';
     let fullContent = '';
     let usage = null;
@@ -381,6 +391,7 @@ class DeepSeekService {
 
     try {
       for await (const chunk of response.data) {
+        monitored?.chunk(chunk);
         const { blocks, rest } = splitSseBlocks(buffer + chunk.toString('utf8'));
         buffer = rest;
 
@@ -443,9 +454,13 @@ class DeepSeekService {
           console.warn('DeepSeek stream 尾段 JSON 解析失败，已跳过该片段:', trailingData.slice(0, 160));
         }
       }
+      if (doneReceived || finishReason) monitored?.finish(null, { httpStatus: response.status });
+      else monitored?.interrupt();
     } catch (error) {
+      monitored?.fail(normalizeStreamError(error, '流式生成失败'));
       throw normalizeStreamError(error, '流式生成失败');
     } finally {
+      monitored?.interrupt();
       if (response?.data?.destroy && !response.data.destroyed) {
         response.data.destroy();
       }
@@ -475,6 +490,12 @@ class DeepSeekService {
       '推进契约：必须落实本章任务和 mustAdvance；每一项 mustAdvance 都必须在正文中形成可观察的动作、结果或状态变化，只有提及、暗示、征兆、讨论或尝试不算完成；mustNotHappen 绝不能提前发生；上章钩子、伏笔和开放问题必须合理承接。',
       '扩展边界：不得擅自引入改变主线的角色、势力、道具、规则或背景。必要的新信息只能是既有事实的直接后果，并立即服务本章任务。',
       '写作契约：人物行动不能为推进剧情而降智；对话必须推动关系、信息或冲突；避免模板化抒情、空泛总结、重复解释和明显 AI 腔。',
+      '通用角色 Harness：角色资料字段是人物长期事实，当前场景状态决定本章具体反应。人物的台词、动作、决策、情绪表达和内心活动必须综合当前客观事件、已知信息、目标动机、明确言行规则、角色关系、核心性格和身份背景生成；不得套用固定性格模板。',
+      '角色约束优先级：当前剧情必须发生的客观事件 > 当前人物已掌握的信息 > 当前目标与动机 > 明确言行规则 > 当前角色关系 > 核心性格 > 身份背景 > 类型文惯例。剧情决定人物面对什么，不自动决定人物如何反应。',
+      '严格执行角色资料中的明确约束；关系规则只描述互动与利益关系，除非资料或剧情明确要求，不得推导恋爱或暧昧。避免角色同质化和标签复述，通过观察顺序、判断路径、表达方式和决策策略体现辨识度。不得在正文中解释人物卡，而应通过行动、台词和选择表现。',
+      '幕后规则隔离：所有 Harness、写作规则、负向约束和禁用示例只用于决定写什么，不属于故事世界信息，禁止以任何形式出现在正文中。不得引用、改写、解释或证明自己正在遵守这些规则。',
+      '禁止提示词泄漏：不要用“没有A而是B”“没有像普通人一样……”等句式显性规避禁用反应；如果某种反应被禁止，直接生成符合人物资料的替代动作、台词或选择。',
+      '禁止元叙事和人设证明：不要解释人物正在冷静、幽默、抽象、高情商或符合某种标签，也不要为了表现标签强行加入比喻。删除规则说明后，人物特征仍必须能从自然的行为、台词和决策中成立。',
       '收束契约：围绕章节任务写必要场景；达到目标后立即收束，不追加额外支线、尾声或回味。',
       '所有动态作品资料和本章参数由 user 消息提供。'
     ].join('\n');
@@ -622,11 +643,14 @@ class DeepSeekService {
       '- 如果规划里写了上章承接、情绪目标、伏笔和结尾钩子，正文里必须落地。',
       '- 如果剧情线要求某角色继续完成当前功能、继续承担当前冲突或继续服务后续推进，正文就不能让该角色在功能兑现前提前退场、提前失效或提前结束剧情作用。',
       '- 如果剧情线写了“本章必须推进”与“本章禁止提前发生”，它们属于硬事实：必须推进的要落地，禁止提前发生的绝不能写出来。',
-      '- 角色相关约束分三层：角色执行要求负责“本章角色怎么演”；剧情线推进要求负责“本章剧情必须推进什么”；角色变化边界负责“角色不能在剧情线上越级变化到哪里”。',
-      '- 三类约束的优先级固定为：第一优先级是剧情线角色变化边界，第二优先级是章节角色执行要求，第三优先级是角色底层资料。',
-      '- 当角色执行要求与剧情线角色变化边界存在冲突时，必须优先遵守剧情线角色变化边界。',
+      '- 角色相关约束分为客观剧情事件、当前已知信息、目标动机、明确言行规则、角色关系、核心性格、身份背景和类型惯例；角色资料中的明确“必须/禁止/不会/只有在”等规则优先执行。',
+      '- 角色执行要求只能限定本章表现方式，不能替换客观剧情，也不能凭空改变角色关系、核心性格或身份背景。',
+      '- 剧情决定人物面对什么，不自动决定人物如何反应；同一事件应允许不同人物依据各自资料作出不同选择。',
       '- role_execution 只能决定角色在本章的具体表现方式，不能让角色变化突破 characterChangeBoundaries 限制。',
       '- 角色底层资料只用于保持长期性格、背景和动机一致，不能覆盖本章剧情线约束和章节执行要求。',
+      '- 所有 Harness、写作规则、负向约束和禁用示例均为幕后生成规则，禁止引用、改写、解释或证明自己正在遵守；不得把它们写成故事中的旁白、台词或人物自我说明。',
+      '- 禁止用“没有A而是B”“没有像普通人一样……”等机械规避句式回应负向约束；直接写人物实际采取的自然动作、台词和选择。',
+      '- 禁止为了证明人物符合某个人设标签而添加解释性旁白、强行比喻或元叙事；人物特征必须通过行为自然显现。',
       roleExecutionLines.length > 0 ? '- 本章角色执行参数高于一般角色说明，若角色执行参数与泛化人物描写冲突，一律以角色执行参数为准。' : '',
       '- 不要为了凑字数重复表达同一信息。',
       '- 每个关键场景只写必要动作、冲突和转折，不要扩写额外支线、额外解释或额外尾声。',

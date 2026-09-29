@@ -26,9 +26,9 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          npm ci --prefix frontend-react
+          npm ci --prefix apps/web
           npm ci --prefix backend
-          npm ci --prefix desktop-ide
+          npm ci --prefix apps/windows
 
       - name: Prepare private runtime configuration
         shell: bash
@@ -46,14 +46,14 @@ jobs:
 
       - name: Build macOS arm64 DMG and ZIP
         shell: bash
-        working-directory: desktop-ide
+        working-directory: apps/windows
         run: |
           npx electron-builder --mac dmg zip --arm64 \
             --config.directories.output=release-arm64 --publish never
 
       - name: Build macOS x64 DMG and ZIP
         shell: bash
-        working-directory: desktop-ide
+        working-directory: apps/windows
         run: |
           npx electron-builder --mac dmg zip --x64 \
             --config.directories.output=release-x64 --publish never
@@ -63,8 +63,8 @@ jobs:
         with:
           name: longform-studio-macos
           path: |
-            desktop-ide/release-arm64/*.dmg
-            desktop-ide/release-arm64/*.zip
-            desktop-ide/release-x64/*.dmg
-            desktop-ide/release-x64/*.zip
+            apps/windows/release-arm64/*.dmg
+            apps/windows/release-arm64/*.zip
+            apps/windows/release-x64/*.dmg
+            apps/windows/release-x64/*.zip
           if-no-files-found: error

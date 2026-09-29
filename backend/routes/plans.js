@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { inspectVolumeDeletion, deleteEmptyVolume } = require('../services/volume-deletion');
 const logger = require('../utils/logger');
 const dbPromise = require('../database/init');
 const { BookPlanService, VolumePlanService, saveDatabase } = require('../services/database');
@@ -42,7 +43,10 @@ function normalizeVolumePlanDraft(item, index) {
   const coreConflict = normalizeText(item.core_conflict || item.coreConflict || '');
   const startRoleState = normalizeText(item.start_role_state || item.startRoleState || '');
   const endRoleState = normalizeText(item.end_role_state || item.endRoleState || '');
-  const estimatedChapters = Math.max(1, Number(item.estimated_chapters || item.estimatedChapters || 15) || 15);
+  const estimatedChapters = Number(item.estimated_chapters ?? item.estimatedChapters);
+  if (!Number.isSafeInteger(estimatedChapters) || estimatedChapters < 1) {
+    throw new Error('模型未返回有效的分卷章数估算，请重新生成');
+  }
   const storylineQuota = Math.max(1, Number(item.storyline_quota || item.storylineQuota || 3) || 3);
   const notes = normalizeText(item.notes || item.summary || item.description || '');
 
@@ -88,7 +92,7 @@ function buildVolumePlanGenerationPrompt(bookPlan = {}, bookId = '', targetVolum
     '      "core_conflict": "这一卷最核心的冲突",',
     '      "start_role_state": "这一卷开始时关键角色的大状态",',
     '      "end_role_state": "这一卷结束时关键角色的大状态",',
-    '      "estimated_chapters": 15,',
+    '      "estimated_chapters": "按本卷故事体量估算的正整数，实际输出必须是数字",',
     '      "storyline_quota": 3,',
     '      "notes": "这卷的大致推进、关键转折和收束方向"',
     '    }',
@@ -98,15 +102,21 @@ function buildVolumePlanGenerationPrompt(bookPlan = {}, bookId = '', targetVolum
     '规则：',
     '1. 只按现有全书规划拆卷，不要补外部设定。',
     '2. volume_number 必须从 1 开始连续递增。',
-    '3. 每卷都必须有 stage_goal 和 core_conflict。',
+    '3. 每卷都必须有 stage_goal 和 core_conflict；规划时先像灵感探索候选方案一样明确本卷主题、世界规则限制、关键人物作用、核心冲突、发展方向、4-6 个关键剧情节点、卷末钩子、主要风险和下一卷的升级方向，再压缩写入现有字段。',
     '4. start_role_state / end_role_state 只写阶段状态，不要写单章细节。',
-    '5. estimated_chapters 取合理范围，常规网文卷一般 8 到 30 章。',
+    '5. estimated_chapters 是可调整的篇幅估算，不是写作上限。先规划完整的大型阶段故事，再估算章数；长篇网文每卷默认至少 50 章，通常约 60-120 章，不能用 10-30 章的小事件充当一卷。若原规划明确了总字数、单章字数或总章数，分卷估算之和应与其相符；没有篇幅要求时按长篇网文体量规划，不要自行压缩成短篇。',
     '6. storyline_quota 只写这一卷同时活跃的主要剧情线数量，常规 1 到 5。',
     targetVolumeCount > 0
-      ? '7. 如果已经给定目标卷数，就必须严格返回该卷数，不允许少卷或多卷；应通过合并/拆分阶段任务来满足目标卷数。'
+      ? '7. 如果已经给定目标卷数，就必须严格返回该卷数；重新组织全书阶段目标和因果链，不能把一个局部事件拆成多卷凑数。'
       : '7. 如果现有规划不足以支撑太多分卷，就宁可少拆，不要硬凑。',
     '8. 输出必须能直接落库，不要返回解释文本。',
     targetVolumeCount > 0 ? `9. 本次目标卷数为 ${targetVolumeCount} 卷，必须返回正好 ${targetVolumeCount} 个 volumes 项。` : '9. 如果没有明确卷数要求，请根据全书规划自行判断合理卷数。',
+    '10. 分卷必须覆盖全书主线直至结局，不得只把开篇的一段故事拆成多卷。已有逐章文本只作为情节事实参考，不沿用其中过小的章节区间来划卷。',
+    '11. 每一卷必须是大型叙事单元，至少包含 3-5 个相互因果的内部剧情弧：进入新阶段、目标建立、调查或扩张、连续受阻、关系或立场变化、中段反转、阶段高潮、余波与下一卷入口。不能将同一事件的准备、调查、交锋各算一卷。',
+    '12. 每卷都要有明显的时间跨度和空间/舞台变化（例如数月到数年、校园到城市到更大势力范围，具体服从题材），引入或重新定位多名关键人物，并让人物关系、身份、能力、资源或势力格局发生至少两次实质变化。没有时间推进、人物扩展和局势换挡的内容只能算卷内一条剧情弧，不能独立成卷。',
+    '13. notes 写清本卷 3-5 条内部剧情弧、4-6 个关键剧情节点、关键转折、高潮兑现、不可逆结果、卷末钩子及下一卷的因果入口；可补充主要风险和后续升级方向。不写逐章目录或固定章节区间。start_role_state 承接上一卷 end_role_state，卷末必须有实质变化，不能只写发现更多线索或危机加深。',
+    '14. 相邻卷要在主角长期目标、对手层级、活动舞台、核心真相、人物阵容或势力关系中出现多项实质升级或转向；升级必须有前因后果，不靠空降设定或只换地点。',
+
     '',
     `book_id: ${bookId || 'unknown'}`,
     `作品前提：${premise || '未提供'}`,
@@ -140,7 +150,7 @@ function buildVolumePlanCountRepairPrompt(volumeDrafts = [], targetVolumeCount =
     '      "core_conflict": "这一卷最核心的冲突",',
     '      "start_role_state": "这一卷开始时关键角色的大状态",',
     '      "end_role_state": "这一卷结束时关键角色的大状态",',
-    '      "estimated_chapters": 15,',
+    '      "estimated_chapters": "按本卷故事体量估算的正整数，实际输出必须是数字",',
     '      "storyline_quota": 3,',
     '      "notes": "这卷的大致推进、关键转折和收束方向"',
     '    }',
@@ -153,6 +163,8 @@ function buildVolumePlanCountRepairPrompt(volumeDrafts = [], targetVolumeCount =
     '3. 可以通过合并相邻卷、拆开过大的卷、重分配阶段目标来达成目标卷数。',
     '4. 不要丢失已有草案中的主阶段推进，只能重整分配。',
     '5. 每卷都必须保留 stage_goal、core_conflict、estimated_chapters、storyline_quota。',
+    '6. 覆盖全书起点至结局，不得把局部事件的准备、调查、交锋拆卷凑数；每卷须完成至少 3-5 条内部剧情弧、阶段目标和不可逆结果，后一卷由前一卷的结果引出新冲突。',
+    '7. 每卷按长篇网文大型单元重估章数，默认至少 50 章、通常 60-120 章，不设 8 到 30 章上限；若只是合并或拆分，保留原有总篇幅，不把长篇压缩成短篇，也不靠注水增加篇幅。notes 必须写内部剧情弧、时间跨度、人物变化和卷末换挡，不得写逐章目录或固定章节区间。',
     '',
     '现有草案：',
     JSON.stringify({ volumes: volumeDrafts }, null, 2)
@@ -306,7 +318,7 @@ router.post('/books/:bookId/volume-plans/generate', async (req, res) => {
     }
 
     const prompt = buildVolumePlanGenerationPrompt(bookPlan, bookId, targetVolumeCount);
-    const result = await deepseekService.generate({
+    const result = await deepseekService.generate({ monitorPoint: 'volume.split',
       prompt,
       temperature: 0.35,
       maxTokens: 2200,
@@ -320,8 +332,8 @@ router.post('/books/:bookId/volume-plans/generate', async (req, res) => {
     let volumeDrafts = parseVolumeDraftsFromResult(result.content);
 
     if (targetVolumeCount > 0 && volumeDrafts.length !== targetVolumeCount) {
-      const repairPrompt = buildVolumePlanCountRepairPrompt(volumeDrafts, targetVolumeCount);
-      const repairResult = await deepseekService.generate({
+      const repairPrompt = [prompt, '', buildVolumePlanCountRepairPrompt(volumeDrafts, targetVolumeCount)].join('\n');
+      const repairResult = await deepseekService.generate({ monitorPoint: 'volume.repair',
         prompt: repairPrompt,
         temperature: 0.2,
         maxTokens: 2600,
@@ -435,54 +447,32 @@ router.post('/books/:bookId/volume-plans/:volumeNumber', async (req, res) => {
   }
 });
 
+router.get('/books/:bookId/volume-plans/:volumeNumber/delete-preview', async (req, res) => {
+  try {
+    const volumeNumber = Number(req.params.volumeNumber);
+    if (!Number.isSafeInteger(volumeNumber) || volumeNumber < 1) return res.status(400).json({ success: false, error: '卷号无效' });
+    const db = await dbPromise;
+    res.json({ success: true, data: inspectVolumeDeletion(db, req.params.bookId, volumeNumber, req.user.userId) });
+  } catch (error) {
+    logger.error('Preview volume deletion failed', { error: error.message });
+    res.status(error.statusCode || 500).json({ success: false, error: error.statusCode ? error.message : '无法获取删除影响，请重试。' });
+  }
+});
+
 router.delete('/books/:bookId/volume-plans/:volumeNumber', async (req, res) => {
   try {
     const userId = req.user.userId;
     const { bookId } = req.params;
-    const volumeNumber = Number.parseInt(req.params.volumeNumber, 10);
-    if (!Number.isFinite(volumeNumber) || volumeNumber < 1) {
-      return res.status(400).json({ success: false, error: 'volumeNumber 必须大于 0' });
-    }
-
-    const existingPlans = await volumePlanService.getByBookId(bookId, userId);
-    const matchedPlan = Array.isArray(existingPlans)
-      ? existingPlans.find((item) => Number(item.volume_number || 0) === volumeNumber)
-      : null;
-    if (!matchedPlan) {
-      return res.status(404).json({ success: false, error: `第 ${volumeNumber} 卷不存在` });
-    }
-
+    const volumeNumber = Number(req.params.volumeNumber);
+    if (!Number.isSafeInteger(volumeNumber) || volumeNumber < 1) return res.status(400).json({ success: false, error: '卷号无效' });
     const db = await dbPromise;
-    const deleteStatements = [
-      userId
-        ? { sql: 'DELETE FROM volume_plans WHERE book_id = ? AND user_id = ? AND volume_number = ?', params: [bookId, userId, volumeNumber] }
-        : { sql: "DELETE FROM volume_plans WHERE book_id = ? AND user_id = '' AND volume_number = ?", params: [bookId, volumeNumber] },
-      { sql: 'DELETE FROM volume_settings WHERE book_id = ? AND volume_number = ?', params: [bookId, volumeNumber] },
-      { sql: 'DELETE FROM storylines WHERE book_id = ? AND volume_number = ?', params: [bookId, volumeNumber] },
-      { sql: 'DELETE FROM volume_timelines WHERE book_id = ? AND volume_number = ?', params: [bookId, volumeNumber] }
-    ];
-    deleteStatements.forEach(({ sql, params }) => db.run(sql, params));
+    deleteEmptyVolume(db, bookId, volumeNumber, userId, req.query.expected_volume_id);
     saveDatabase(db);
-
-    const laterVolumeNumbers = existingPlans
-      .map((item) => Number(item.volume_number || 0))
-      .filter((item) => Number.isFinite(item) && item > volumeNumber)
-      .sort((a, b) => a - b);
-
-    await remapVolumeNumbers(
-      bookId,
-      laterVolumeNumbers.map((value) => ({ from: value, to: value - 1 })),
-      userId
-    );
-
     const plans = await volumePlanService.getByBookId(bookId, userId);
-    res.json({
-      success: true,
-      data: plans
-    });
+    res.json({ success: true, data: plans });
   } catch (error) {
     logger.error('Delete volume plan failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: '删除分卷失败' });
+    res.status(error.statusCode || 500).json({ success: false, error: error.statusCode ? error.message : '删除分卷失败，请刷新后确认当前状态。' });
   }
 });
 

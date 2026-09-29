@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ALIPRO · 模型调用观察台</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<header><div><span class="eyebrow">ALIPRO / MODEL OBSERVER · 0.1.2</span><h1>模型调用观察台</h1><p>一次操作，究竟发给模型什么？</p></div><div class="top-actions"><span id="connection" class="pill">连接中</span><button id="pause">暂停刷新</button><button id="matrixToggle">点位矩阵</button><button id="screenshot">截图模式</button></div></header>
+<div id="clientSource" class="client-source" hidden></div>
+<div id="notice" role="status"></div>
+<section class="overview"><div><small>已记录请求</small><strong id="count">0</strong></div><div><small>当前结果 · 发送字符总量</small><strong id="totalInput">0</strong></div><div><small>当前结果 · 进行中</small><strong id="running">0</strong></div><div class="source"><small>采集来源</small><b id="source">本地后端</b><span id="storage"></span></div></section>
+<main id="workspace"><aside><div class="filters"><input id="search" placeholder="搜索作品、章节、点位或操作编号" aria-label="搜索调用"><div><select id="group" aria-label="模块"><option value="">全部模块</option></select><select id="status" aria-label="状态"><option value="">全部状态</option><option value="running">进行中</option><option value="completed">已完成</option><option value="failed">失败</option><option value="cancelled">已取消</option><option value="interrupted">已中断</option></select></div><p id="listHint">按操作归组，组内按实际发送顺序排列</p></div><div id="calls"></div><button id="more" class="wide">加载更多</button></aside>
+<article><div id="empty"><span class="empty-icon">◎</span><h2>等待第一条模型请求</h2><p>在启用采集的本地后端进行一次生成后，真实输入会立即出现，输出会随流式响应更新。</p><p>此窗口不会读取尚未接入采集的云端请求，也不会触发付费生成。</p></div><div id="detail" hidden>
+<div class="detail-head"><div><span id="point" class="eyebrow"></span><h2 id="title"></h2><p id="meta"></p></div><div class="detail-actions"><button id="copy">复制诊断包</button><button id="export">导出完整JSON</button></div></div>
+<div id="stats" class="stats"></div><div id="chain"></div><div id="warnings"></div>
+<div class="toolbar"><nav id="tabs"><button data-tab="input" class="active">输入 INPUT</button><button data-tab="output">输出 OUTPUT</button><button data-tab="compare">前后对比</button><button data-tab="raw">完整请求 / 响应</button></nav><button id="copyTab">复制当前内容</button></div>
+<section id="inputPanel"><div class="panel-label">实际发送的消息 · 按原始顺序展示 <span>字符数不是 token 数</span></div><div id="messages"></div></section>
+<section id="outputPanel" hidden><div class="panel-label">模型返回文本 <span id="outputState"></span></div><pre id="output"></pre><details id="reasoningBox"><summary>模型返回的 reasoning_content</summary><pre id="reasoning"></pre></details></section>
+<section id="comparePanel" hidden><div class="compare-controls"><label>与同点位的历史请求比较 <select id="baseline"></select></label><button id="compareButton">比较输入</button></div><p class="muted">按消息角色和文本行比较，保留重复行次数。不同作品也可比较，请先确认上下文。</p><div id="diff"></div></section>
+<section id="rawPanel" hidden><div class="panel-label">原始请求体和响应 · 不记录请求头中的密钥</div><pre id="raw"></pre></section>
+<div class="notes"><label for="memo">我的判断 / 希望修改的方向</label><textarea id="memo" placeholder="例如：第2次修稿把整份角色库又追加了一遍，希望只保留本章角色。此内容会附在复制的诊断包末尾。"></textarea></div>
+</div></article></main>
+<section id="matrix" hidden>
+<div class="matrix-head"><div><h2>模型调用点位矩阵</h2><p>按创作流程查看，每个分类内展示生成、检查和修正点位。</p></div><button id="copyMatrix">复制当前分类</button></div>
+<nav id="matrixCategories" class="matrix-categories" aria-label="点位分类"></nav>
+<div class="matrix-controls"><input id="matrixSearch" type="search" placeholder="在矩阵中查找点位、输入来源或入口" aria-label="搜索点位矩阵"><span id="matrixHint"></span><button id="matrixExpand">展开全部</button><button id="matrixCollapse">收起全部</button></div>
+<p class="matrix-note">分类表示逻辑关系，实际执行顺序以调用记录为准。次数来自调用列表的当前筛选结果。</p>
+<div id="matrixRows"></div>
+</section>
+<footer>实际请求全量保存 · 不自动压缩或修改提示词 · 非流式输出在响应完成后显示 · 截图模式可搭配浏览器打印</footer><script src="/app.js"></script></body></html>

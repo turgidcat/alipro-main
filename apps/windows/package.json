@@ -1,0 +1,95 @@
+{
+  "name": "longform-studio-ide",
+  "version": "1.9.20",
+  "author": "Longform Studio",
+  "private": true,
+  "description": "ALIPRO Windows 云端创作工作台",
+  "main": "src/main.cjs",
+  "scripts": {
+    "build": "node scripts/build-desktop.mjs",
+    "start": "electron .",
+    "dev": "npm run build && electron .",
+    "package:mac": "npm run build && electron-builder --mac dmg zip",
+    "package:mac:dir": "npm run build && electron-builder --mac --dir",
+    "package:win": "npm run build && electron-builder --win nsis portable --x64"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.alipro.longformstudio",
+    "productName": "Longform Studio",
+    "asar": true,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "electronDist": "node_modules/electron/dist",
+    "files": [
+      "src/main.cjs",
+      "src/preload.cjs",
+      "src/model-monitor-window.cjs",
+      "src/paper-theme.css",
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../model-monitor",
+        "to": "model-observer/apps/model-monitor",
+        "filter": [
+          "server.cjs",
+          "public/**/*"
+        ]
+      },
+      {
+        "from": "../../backend/services/model-monitor.js",
+        "to": "model-observer/backend/services/model-monitor.js"
+      },
+      {
+        "from": "../../backend/monitor/points.json",
+        "to": "model-observer/backend/monitor/points.json"
+      },
+      {
+        "from": "../../version.json",
+        "to": "model-observer/version.json"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "artifactName": "ALIPRO-${version}-Setup-${arch}.${ext}",
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
+    },
+    "portable": {
+      "artifactName": "ALIPRO-${version}-Portable-${arch}.${ext}"
+    }
+  }
+}

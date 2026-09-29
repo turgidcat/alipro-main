@@ -1,0 +1,41 @@
+{
+  "name": "alipro-creative-workbench",
+  "version": "1.9.20",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prebuild": "node ../../scripts/release-version.cjs --apply",
+    "dev": "vite",
+    "build": "npm run verify:frontend-contracts && vite build",
+    "verify:frontend-contracts": "node scripts/verify-frontend-contracts.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/browser": "^8.0.4",
+    "@capacitor/core": "^8.5.0",
+    "@radix-ui/react-popover": "^1.1.17",
+    "@radix-ui/react-separator": "^1.1.10",
+    "@radix-ui/react-slot": "^1.3.0",
+    "@radix-ui/react-tabs": "^1.1.15",
+    "clsx": "^2.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-resizable-panels": "^4.11.2",
+    "react-router-dom": "^6.26.0",
+    "tailwind-merge": "^3.6.0"
+  },
+  "overrides": {
+    "react-router-dom": {
+      "react": "^18.3.1"
+    }
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.1",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^4.3.1",
+    "vite": "^5.4.10"
+  }
+}

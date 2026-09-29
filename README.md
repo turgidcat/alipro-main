@@ -1,5 +1,17 @@
 # Alipro
 
+## 三种产品形态
+
+| 产品 | 目录 | 说明 |
+| --- | --- | --- |
+| 安卓 APP | [apps/android](apps/android/README.md) | Capacitor 外壳、Android 原生工程与 APK 构建 |
+| Windows 桌面客户端 | [apps/windows](apps/windows/WINDOWS-CLOUD.md) | Electron 外壳、免安装 EXE 和安装版 EXE |
+| 网页版 | [apps/web](apps/web/README.md) | React 页面源码，同时被安卓和桌面端复用；网页版独立开发目前暂停 |
+| 三端共用后台 | backend/ | 账号、作品、AI 与有声书服务，线上运行在阿里云 |
+| 共享规则 | shared/ | 前后端共用的数据规则 |
+
+目录迁移和产物位置见 [项目目录说明](docs/PROJECT-STRUCTURE.md)。在根目录使用 `npm run build:web`、`npm run build:android`、`npm run build:windows`，不需要记忆子目录命令。
+
 Alipro 是一个面向网文写作的 AI 小说创作工具。当前主线已经收敛为：
 
 - 作品入口：创建或选择作品后进入资料库 / 创作台
@@ -13,7 +25,10 @@ Alipro 是一个面向网文写作的 AI 小说创作工具。当前主线已经
 
 ```text
 alipro-main/
-├── frontend-react/          # React/Vite 前端主入口
+├── apps/                    # 三个产品客户端
+│   ├── android/             # 安卓 APP
+│   ├── windows/             # Windows 桌面客户端
+│   └── web/                 # 网页版与三端共用界面源码
 ├── backend/                 # Express 后端与 SQLite 数据库访问
 ├── scripts/                 # 启动、版本、部署辅助脚本
 ├── docs/                    # 设计、生成链路与项目文档
@@ -24,10 +39,10 @@ alipro-main/
 
 说明：
 
-- 前端开发入口是 `frontend-react/`
+- 前端开发入口是 `apps/web/`
 - 后端服务入口是 `backend/server.js`
 - 本地数据库默认位于 `backend/database/novel.db`
-- `frontend-react/dist` 是构建产物，不应作为源码修改入口
+- `apps/web/dist` 是构建产物，不应作为源码修改入口
 
 ## 本地安装
 
@@ -37,7 +52,7 @@ alipro-main/
 cd backend
 npm install
 
-cd ..\frontend-react
+cd ..\apps/web
 npm install
 ```
 
@@ -70,7 +85,7 @@ npm run dev
 ```
 
 ```powershell
-cd frontend-react
+cd apps/web
 npm run dev -- --host 127.0.0.1
 ```
 
@@ -93,7 +108,7 @@ npm run dev -- --host 127.0.0.1
 前端构建：
 
 ```powershell
-cd frontend-react
+cd apps/web
 npm run build
 ```
 
@@ -139,7 +154,7 @@ node verify-batch-generation.js --mode inspect --book-id <book-id> --chapters 1,
 
 - 环境变量示例：`backend/.env.example`
 - 部署配置示例：`config/deploy.config.example.json`
-- 前端依赖配置：`frontend-react/package.json`
+- 前端依赖配置：`apps/web/package.json`
 - 后端依赖配置：`backend/package.json`
 
 不要提交真实 `.env`、数据库运行产物、临时日志或导出数据。

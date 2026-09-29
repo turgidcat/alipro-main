@@ -103,6 +103,7 @@ test('手机号注册、会话与用户数据隔离形成完整闭环', async ()
     token: first.token,
     body: JSON.stringify({
       bookId,
+      scope: 'chapter',
       volumeNumber: 1,
       chapterNumber: 1,
       candidate: {

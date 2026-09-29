@@ -844,7 +844,7 @@ class StorylineGenerationService {
 
   async generateVolumeStorylineSet(context = {}) {
     const prompt = buildVolumeStorylineSetPrompt(context);
-    const result = await deepseekService.generate({
+    const result = await deepseekService.generate({ monitorPoint: 'storyline.set',
       prompt,
       temperature: 0.65,
       maxTokens: 2600,
@@ -873,7 +873,7 @@ class StorylineGenerationService {
 
   async generateStorylineOutline(context = {}) {
     const prompt = buildStorylinePrompt(context);
-    const result = await deepseekService.generate({
+    const result = await deepseekService.generate({ monitorPoint: 'storyline.outline',
       prompt,
       temperature: 0.7,
       maxTokens: 3200,
@@ -903,7 +903,7 @@ class StorylineGenerationService {
 
   async generateVolumeTimeline(context = {}) {
     const prompt = buildVolumeTimelinePrompt(context);
-    const result = await deepseekService.generate({
+    const result = await deepseekService.generate({ monitorPoint: 'storyline.timeline',
       prompt,
       temperature: 0.65,
       maxTokens: 4500,

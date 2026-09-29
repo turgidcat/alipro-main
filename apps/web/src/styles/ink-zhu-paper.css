@@ -1,0 +1,800 @@
+/* ============================================================================
+ * 墨朱纸 · ALIPRO 桌面端皮肤层
+ * ink-zhu-paper.css
+ * ----------------------------------------------------------------------------
+ * 设计语言：「墨朱纸」
+ *   墨 —— 导航与深色结构块（#1F1913 系）
+ *   朱 —— 全局唯一强调色（#C8441E），只出现在「当前 / 主操作 / 进度」三处
+ *   纸 —— 暖白纸面，四级层次（#FBF8F1 → #F3EDE1 → #EFE7D8 → #E8DFCB）+ 纯白卡片
+ *
+ * 规范来源：Ardot 设计稿「ALIPRO 桌面端前端样式 v1 · 墨朱纸」
+ *
+ * ----------------------------------------------------------------------------
+ * 本文件做且只做两件事：
+ *   1) 收敛 —— 把现有 6 套互为别名的 token 家族（paper-* / 基础名 / product-* /
+ *      wb-* / cinema-* / status-*）统一指向同一套新色值。旧 CSS 一行不改，
+ *      全站配色随之整体切换。
+ *   2) 皮肤 —— 外壳层（侧栏 / 正文 / 表单控件 / 深色模式）加一层新覆盖。
+ *
+ * 不改任何组件结构、不改任何业务代码。
+ * 回退方式：删掉本文件 + main.jsx 里对应的那一行 import，即可完全复原。
+ *
+ * ----------------------------------------------------------------------------
+ * 为什么 token 块用 html:root 而不是 :root：
+ *   历史上 styles/theme.css 曾在 main.jsx 中被导入在 styles.css 之后，并以同一批
+ *   变量名（--background / --primary / --border / --surface）硬编码了一套冷蓝
+ *   调色板（#EEF2F6 / #3157D5 / #D7DEE8），导致全站「冷色渗进纸感」。
+ *   2026-09-21 起 theme.css 已退役（备份于 alipro-desktop-skin/rollback/），
+ *   六套别名（--background / --bg / --paper-bg / --product-canvas / --wb-bg /
+ *   --cinema-bg）的 :root 级重复定义也已从旧文件中移除，本文件是唯一定义点。
+ *   html:root 特异性 (0,1,1) 仍高于任何 :root (0,1,0)，防未来回潮。
+ * ========================================================================== */
+
+/* ============================================================================
+ * 1. 墨朱纸原始色板
+ * ========================================================================== */
+
+html:root {
+  /* ---- 墨：导航与深色结构块 ---- */
+  --izp-ink: #1F1913;
+  --izp-ink-raised: #241D15;
+  --izp-ink-soft: #33291C;
+  --izp-ink-line: #3A2F22;
+  --izp-ink-fg: #F0E9DC;
+  --izp-ink-fg-soft: #B9AE9C;
+  --izp-ink-fg-mute: #8A7F6E;
+
+  /* ---- 朱：全局唯一强调色 ---- */
+  --izp-zhu: #C8441E;
+  --izp-zhu-hi: #E0562C;
+  --izp-zhu-deep: #A33413;
+  --izp-zhu-lit: #EE9E7E;          /* 墨底上的朱，提亮后才够读 */
+  --izp-zhu-rgb: 200, 68, 30;
+
+  /* ---- 纸：四级纸面 + 卡片 ---- */
+  --izp-paper: #FBF8F1;
+  --izp-paper-2: #F3EDE1;
+  --izp-paper-3: #EFE7D8;
+  --izp-paper-4: #E8DFCB;
+  --izp-card: #FFFFFF;
+
+  /* ---- 线 ---- */
+  --izp-line: #E6DDCB;
+  --izp-line-soft: #EFE8D9;
+  --izp-line-strong: #D5CAB4;
+
+  /* ---- 字 ---- */
+  --izp-text: #1E1810;
+  --izp-text-soft: #524A3E;
+  --izp-text-mute: #7A7164;
+  --izp-text-tert: #8E8474;
+
+  /* ---- 琥珀：次级强调，仅用于旁支语义（数据、连续写作）---- */
+  --izp-amber: #C4761F;
+  --izp-amber-rgb: 196, 118, 31;
+
+  /* ---- 语义色（刻意降饱和，不与朱争）---- */
+  --izp-success: #4F7355;
+  --izp-warning: #B4791F;
+  --izp-danger: #A85A4D;
+
+  /* ---- 阴影：暖褐投影，替代原来的灰蓝 ---- */
+  --izp-shadow-card: 0 6px 18px rgba(60, 44, 26, 0.07);
+  --izp-shadow-panel: 0 12px 30px rgba(60, 44, 26, 0.09);
+  --izp-shadow-nav: 0 10px 30px rgba(60, 44, 26, 0.08);
+  --izp-shadow-prose: 0 14px 40px rgba(60, 44, 26, 0.10);
+  --izp-shadow-zhu: 0 8px 20px rgba(200, 68, 30, 0.24);
+
+  /* ---- 字体：中文优先，本机已装 Noto Serif SC / Noto Sans SC ---- */
+  --font-sans: "Inter", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong",
+    "SimSun", Georgia, serif;
+  --font-display: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong",
+    "SimSun", Georgia, serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+}
+
+/* ============================================================================
+ * 2. 六套别名家族 → 统一指向墨朱纸
+ * 旧 CSS 全部读这些名字，所以换配色只需要换这一块。
+ * ========================================================================== */
+
+html:root {
+  /* ---- 家族 A：paper-*（产品语义层，覆盖面最广）---- */
+  --paper-bg: var(--izp-paper);
+  --paper-surface: var(--izp-paper-2);
+  --paper-surface-raised: var(--izp-card);
+  --paper-surface-sunken: var(--izp-paper-3);
+  --paper-surface-deep: var(--izp-paper-4);
+  --paper-tint: #FDF3EF;
+  --paper-tint-warm: rgba(200, 68, 30, 0.14);
+  --paper-overlay: rgba(31, 25, 19, 0.44);
+  --paper-glass: rgba(251, 248, 241, 0.92);
+  --paper-glass-strong: rgba(251, 248, 241, 0.97);
+
+  --paper-border: var(--izp-line);
+  --paper-border-subtle: var(--izp-line-soft);
+  --paper-border-strong: var(--izp-line-strong);
+  --paper-border-line: rgba(116, 100, 76, 0.26);
+
+  --paper-text: var(--izp-text);
+  --paper-text-soft: var(--izp-text-soft);
+  --paper-text-muted: var(--izp-text-mute);
+  --paper-text-tertiary: var(--izp-text-tert);
+
+  --paper-primary: var(--izp-zhu);
+  --paper-primary-hover: var(--izp-zhu-deep);
+  --paper-primary-soft: rgba(200, 68, 30, 0.06);
+  --paper-accent: var(--izp-zhu);
+  --paper-accent-deep: var(--izp-zhu-deep);
+  --paper-accent-soft: rgba(200, 68, 30, 0.10);
+  --paper-accent-soft-strong: rgba(200, 68, 30, 0.20);
+  --paper-accent-hover: rgba(200, 68, 30, 0.07);
+  --paper-accent-border: rgba(200, 68, 30, 0.42);
+  --paper-gold: var(--izp-amber);
+
+  --paper-danger: var(--izp-danger);
+  --paper-danger-soft: rgba(168, 90, 77, 0.08);
+  --paper-danger-line: rgba(168, 90, 77, 0.30);
+  --paper-danger-hover-line: rgba(168, 90, 77, 0.42);
+  --paper-success: var(--izp-success);
+  --paper-success-soft: rgba(79, 115, 85, 0.12);
+  --paper-success-line: rgba(79, 115, 85, 0.34);
+
+  --paper-shadow-card: var(--izp-shadow-card);
+  --paper-shadow-panel: var(--izp-shadow-panel);
+  --paper-shadow-nav: var(--izp-shadow-nav);
+  --paper-shadow-prose: var(--izp-shadow-prose);
+
+  --paper-radius-sm: 8px;
+  --paper-radius-md: 12px;
+  --paper-radius-lg: 14px;
+
+  /* ---- 家族 B：基础名（Tailwind 与早期组件读的那套）---- */
+  --background: var(--izp-paper);
+  --bg: var(--izp-paper);
+  --bg-subtle: var(--izp-paper-2);
+  --surface: var(--izp-card);
+  --surface-raised: var(--izp-card);
+  --foreground: var(--izp-text);
+  --text: var(--izp-text);
+  --text-soft: var(--izp-text-soft);
+  --text-muted: var(--izp-text-mute);
+  --muted-foreground: var(--izp-text-mute);
+  --muted: var(--izp-text-mute);
+  --muted-bg: var(--izp-paper-2);
+  --border: var(--izp-line);
+  --line: var(--izp-line);
+  --line-strong: var(--izp-line-strong);
+  --nav-surface: var(--izp-paper-2);
+  --shadow: var(--izp-shadow-panel);
+
+  --ink-100: var(--izp-card);
+  --ink-200: var(--izp-paper-3);
+  --ink-300: var(--izp-paper-4);
+  --ink-400: var(--izp-line-strong);
+  --ink-500: var(--izp-text-tert);
+  --ink-600: var(--izp-text-mute);
+  --ink-700: var(--izp-text-soft);
+
+  --panel: var(--izp-paper-2);
+  --panel-strong: var(--izp-paper-4);
+  --panel-card-bg: var(--izp-card);
+  --panel-note-bg: var(--izp-paper-3);
+
+  --primary: var(--izp-zhu);
+  --primary-foreground: #FFFFFF;
+  --secondary: var(--izp-paper-2);
+  --accent: var(--izp-zhu);
+  --accent-deep: var(--izp-zhu-deep);
+  --accent-rgb: var(--izp-zhu-rgb);
+  --accent-soft: rgba(200, 68, 30, 0.14);
+  --accent-soft-strong: rgba(200, 68, 30, 0.24);
+  --active: var(--izp-zhu);
+
+  --brand: var(--izp-zhu);
+  --brand-deep: var(--izp-zhu-deep);
+  --brand-rgb: var(--izp-zhu-rgb);
+  --brand-soft: rgba(200, 68, 30, 0.14);
+  --brand-soft-strong: rgba(200, 68, 30, 0.24);
+  --badge-bg: rgba(200, 68, 30, 0.12);
+  --badge-border: rgba(200, 68, 30, 0.24);
+  --badge-text: var(--izp-zhu-deep);
+
+  --btn-solid-bg: var(--izp-zhu);
+  --btn-solid-border: var(--izp-zhu);
+  --btn-solid-text: #FFFFFF;
+  --btn-solid-shadow: var(--izp-shadow-zhu);
+  --btn-ghost-bg: rgba(31, 25, 19, 0.04);
+  --btn-ghost-border: var(--izp-line);
+  --btn-ghost-text: var(--izp-text);
+  --btn-ghost-shadow: none;
+  --btn-action-bg: rgba(255, 255, 255, 0.82);
+  --btn-action-border: var(--izp-line);
+  --btn-action-text: var(--izp-text);
+  --btn-action-shadow: none;
+  --btn-action-solid-bg: var(--izp-zhu);
+  --btn-action-solid-border: var(--izp-zhu);
+  --btn-action-solid-text: #FFFFFF;
+  --btn-action-solid-shadow: var(--izp-shadow-zhu);
+  --btn-nav-bg: transparent;
+  --btn-nav-border: transparent;
+  --btn-nav-text: var(--izp-text);
+  --btn-nav-hover-bg: rgba(31, 25, 19, 0.05);
+  --btn-nav-hover-border: transparent;
+  --btn-nav-shadow: none;
+  --btn-nav-primary-bg: var(--izp-zhu);
+  --btn-nav-primary-hover-bg: var(--izp-zhu-deep);
+  --btn-nav-primary-text: #FFFFFF;
+  --btn-nav-primary-shadow: var(--izp-shadow-zhu);
+  --btn-danger-bg: rgba(168, 90, 77, 0.08);
+  --btn-danger-border: rgba(168, 90, 77, 0.22);
+  --btn-danger-text: var(--izp-danger);
+  --btn-danger-solid-bg: var(--izp-danger);
+  --btn-danger-solid-text: #FFFFFF;
+
+  /* ---- 家族 C：product-*（首页 / 资料库）---- */
+  --product-canvas: var(--izp-paper);
+  --product-surface: var(--izp-paper-2);
+  --product-surface-subtle: var(--izp-paper-3);
+  --product-text: var(--izp-text);
+  --product-text-soft: var(--izp-text-mute);
+  --product-muted: var(--izp-text-mute);
+  --product-line: var(--izp-line);
+  --product-line-strong: var(--izp-line-strong);
+  --product-primary: var(--izp-zhu);
+  --product-primary-hover: var(--izp-zhu-deep);
+  --product-primary-soft: rgba(200, 68, 30, 0.10);
+  --product-success: var(--izp-success);
+  --product-warning: var(--izp-warning);
+  --product-danger: var(--izp-danger);
+  --product-radius: 14px;
+  --product-shadow: var(--izp-shadow-panel);
+
+  /* ---- 家族 D：wb-*（创作台）---- */
+  --wb-bg: var(--izp-paper);
+  --wb-panel: var(--izp-paper-2);
+  --wb-panel-strong: var(--izp-paper-4);
+  --wb-line: var(--izp-line);
+  --wb-line-strong: var(--izp-line-strong);
+  --wb-text: var(--izp-text);
+  --wb-muted: var(--izp-text-mute);
+  --wb-signal: var(--izp-zhu);
+  --wb-gold: var(--izp-amber);
+  --workbench-sidebar-lift: rgba(60, 44, 26, 0.10);
+
+  /* ---- 家族 E：cinema-*（有声书 / 沉浸阅读）---- */
+  --cinema-bg: var(--izp-paper);
+  --cinema-bg-soft: var(--izp-paper-3);
+  --cinema-panel: var(--izp-paper-2);
+  --cinema-panel-strong: var(--izp-paper-4);
+  --cinema-line: rgba(116, 100, 76, 0.18);
+  --cinema-line-strong: rgba(116, 100, 76, 0.34);
+  --cinema-text: var(--izp-text);
+  --cinema-muted: var(--izp-text-mute);
+  --cinema-signal: var(--izp-zhu);
+  --cinema-signal-soft: rgba(200, 68, 30, 0.12);
+  --cinema-gold: var(--izp-amber);
+  --cinema-danger: var(--izp-danger);
+  --cinema-shadow: var(--izp-shadow-panel);
+
+  /* ---- 家族 F：status-* ---- */
+  --status-success-bg: rgba(79, 115, 85, 0.14);
+  --status-success-border: rgba(79, 115, 85, 0.32);
+  --status-warning-bg: rgba(180, 121, 31, 0.14);
+  --status-warning-border: rgba(180, 121, 31, 0.32);
+  --status-error-bg: rgba(168, 90, 77, 0.12);
+  --status-error-border: rgba(168, 90, 77, 0.30);
+  --status-error-text: var(--izp-danger);
+}
+
+/* ============================================================================
+ * 3. 墨色侧栏
+ * ide-shell.css 100% 使用 --paper-* token，所以只要在 .ide-sidebar 作用域内
+ * 重声明这一组变量，整条导航会整体转墨，无需改一条规则。
+ * ========================================================================== */
+
+.ide-sidebar {
+  --paper-surface: var(--izp-ink);
+  --paper-border: var(--izp-ink-line);
+  --paper-text: var(--izp-ink-fg);
+  --paper-text-soft: var(--izp-ink-fg-soft);
+  --paper-text-muted: var(--izp-ink-fg-mute);
+  --paper-text-tertiary: #6E6455;
+  --paper-surface-deep: var(--izp-ink-soft);
+  --paper-tint-warm: rgba(200, 68, 30, 0.16);
+  --paper-accent: var(--izp-zhu-hi);
+  --paper-accent-deep: var(--izp-zhu-lit);
+  --paper-accent-soft: rgba(200, 68, 30, 0.24);
+  --paper-accent-hover: rgba(200, 68, 30, 0.10);
+  --paper-accent-border: rgba(200, 68, 30, 0.44);
+
+  background: var(--izp-ink);
+  border-right-color: var(--izp-ink-line);
+  /* 侧栏自身没有 color 规则，否则会从 .ide-shell 继承近黑字；
+     一旦侧栏里出现未单独指定颜色的文字就会黑压墨。 */
+  color: var(--izp-ink-fg);
+}
+
+/* 品牌区：标记从暖褐改成朱 */
+.ide-sidebar .ide-sidebar-monogram {
+  border-color: rgba(200, 68, 30, 0.42);
+  color: var(--izp-zhu-lit);
+}
+.ide-sidebar .ide-sidebar-brand-name {
+  color: var(--izp-ink-fg);
+}
+.ide-sidebar .ide-sidebar-brand-code {
+  color: #7E7364;
+}
+
+/* 导航项：当前项用朱色竖轨 + 朱色底 + 提亮文字 */
+.ide-sidebar .ide-nav-item {
+  color: var(--izp-ink-fg-soft);
+}
+.ide-sidebar .ide-nav-item:hover {
+  background: rgba(200, 68, 30, 0.10);
+  color: var(--izp-ink-fg);
+}
+.ide-sidebar .ide-nav-item.is-active {
+  background: rgba(200, 68, 30, 0.24);
+  color: #FFFFFF;
+  box-shadow: inset 3px 0 0 var(--izp-zhu-hi);
+}
+.ide-sidebar .ide-nav-section-title {
+  color: #6E6455;
+}
+.ide-sidebar .ide-nav-badge {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--izp-ink-fg-mute);
+}
+.ide-sidebar .ide-sidebar-footer {
+  border-top-color: var(--izp-ink-line);
+  color: var(--izp-ink-fg-mute);
+}
+.ide-sidebar .ide-footer-title {
+  color: #6E6455;
+}
+.ide-sidebar .ide-zoom-label {
+  color: var(--izp-ink-fg);
+}
+.ide-sidebar .ide-zoom-btn {
+  color: var(--izp-ink-fg-soft);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--izp-ink-line);
+}
+.ide-sidebar .ide-zoom-btn:hover:not(:disabled) {
+  color: var(--izp-zhu-lit);
+  background: rgba(200, 68, 30, 0.14);
+  border-color: rgba(200, 68, 30, 0.40);
+}
+.ide-sidebar .ide-autofit-row {
+  color: var(--izp-ink-fg-mute);
+}
+
+/* ============================================================================
+ * 4. 正文：换回衬线，16 / 32
+ * 一个写作工具的正文本该是衬线。注意这里只动「散文容器」，不动 UI 骨架。
+ * ========================================================================== */
+
+.workbench-prose-paper,
+.workbench-prose-paper p,
+.workbench-prose-paper textarea,
+.workbench-prose-content,
+.workbench-prose-preview,
+.workbench-prose-preview p,
+.chapter-reader-prose,
+.chapter-reader-prose p,
+.chapter-reader-segment,
+.revision-mobile-prose-editor,
+.revision-mobile-prose-reader {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  line-height: 2;
+  letter-spacing: 0.012em;
+}
+
+/* 段落之间靠间距分隔，不靠首行缩进翻倍 */
+.workbench-prose-paper p,
+.workbench-prose-preview p,
+.chapter-reader-prose p {
+  margin: 0 0 1.15em;
+}
+
+.workbench-prose-paper p:last-child,
+.workbench-prose-preview p:last-child,
+.chapter-reader-prose p:last-child {
+  margin-bottom: 0;
+}
+
+/* 正文里的标题也走衬线，比正文重一档 */
+.workbench-prose-title,
+.workbench-prose-paper h1,
+.workbench-prose-paper h2,
+.workbench-prose-paper h3,
+.workbench-prose-preview h1,
+.workbench-prose-preview h2,
+.workbench-prose-preview h3,
+.chapter-reader-prose h1,
+.chapter-reader-prose h2 {
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}
+
+/* 眉标 / 数据 / 序号：等宽字体 + 拉开字距，和正文形成对比 */
+.ide-nav-section-title,
+.ide-sidebar-brand-code,
+.workbench-nav-section-head,
+.workbench-nav-volume-title,
+.books-page-stat-label,
+.books-page-stat-value,
+.changelog-page-meta {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 页面大标题走衬线 */
+.page-title,
+.books-page-title,
+.changelog-page-title,
+.me-page-title,
+.home-hero-title {
+  font-family: var(--font-display);
+  letter-spacing: 0.015em;
+}
+
+/* ============================================================================
+ * 5. 表单控件归一
+ * 原稿这里完全没管原生控件，选单/输入框还是浏览器默认长相。
+ * ========================================================================== */
+
+html:root {
+  accent-color: var(--izp-zhu);
+  color-scheme: light;
+}
+
+body select,
+body input,
+body textarea {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--izp-text);
+  background-color: var(--izp-card);
+  border: 1px solid var(--izp-line-strong);
+  border-radius: var(--paper-radius-sm);
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+body select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 7px 30px 7px 11px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.75L6 7.75L9 4.75' stroke='%237A7164' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+}
+
+body input[type="text"],
+body input[type="search"],
+body input[type="number"],
+body input[type="password"],
+body input[type="email"],
+body textarea {
+  padding: 7px 11px;
+}
+
+body textarea {
+  line-height: 1.7;
+  resize: vertical;
+}
+
+body input::placeholder,
+body textarea::placeholder {
+  color: #A79C8C;
+}
+
+body select:hover,
+body input:hover:not(:disabled),
+body textarea:hover:not(:disabled) {
+  border-color: #C3B79E;
+}
+
+body select:focus,
+body select:focus-visible,
+body input:focus,
+body input:focus-visible,
+body textarea:focus,
+body textarea:focus-visible {
+  border-color: var(--izp-zhu);
+  box-shadow: 0 0 0 3px rgba(200, 68, 30, 0.14);
+}
+
+body input:disabled,
+body select:disabled,
+body textarea:disabled {
+  background-color: var(--izp-paper-3);
+  color: var(--izp-text-tert);
+  cursor: not-allowed;
+}
+
+/* 复选框 / 单选：朱色 */
+body input[type="checkbox"],
+body input[type="radio"] {
+  accent-color: var(--izp-zhu);
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* 全局焦点可见性：原本被 reset 掉了，键盘用户摸不到位置 */
+body :focus-visible {
+  outline: 2px solid var(--izp-zhu);
+  outline-offset: 2px;
+}
+
+/* 滚动条：暖色调，不再是系统冷灰 */
+body ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+body ::-webkit-scrollbar-track {
+  background: transparent;
+}
+body ::-webkit-scrollbar-thumb {
+  background: #DCD2BE;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+body ::-webkit-scrollbar-thumb:hover {
+  background: #C3B79E;
+  background-clip: content-box;
+}
+
+/* ============================================================================
+ * 6. 选中态与浅色兜底
+ * ========================================================================== */
+
+body {
+  color: var(--izp-text);
+  background: var(--izp-paper);
+}
+
+html,
+body,
+#root {
+  background: var(--izp-paper);
+}
+
+::selection {
+  color: var(--izp-text);
+  background: rgba(200, 68, 30, 0.22);
+}
+
+/* 墨色块（工作台的深色汇报条、状态栏等）统一到墨 */
+.workbench-review-bar,
+.workbench-status-bar {
+  font-family: var(--font-mono);
+}
+
+/* ============================================================================
+ * 7. 深色模式配套（:root[data-tone='dark']）
+ * 墨朱纸本身是浅色方案，深色下把「纸」换成暖黑，朱保持。
+ * html:root[...] 特异性 (0,2,1) 高于原有 (0,2,0)。
+ * ========================================================================== */
+
+html:root[data-tone='dark'] {
+  color-scheme: dark;
+
+  --izp-paper: #17120E;
+  --izp-paper-2: #1F1913;
+  --izp-paper-3: #262019;
+  --izp-paper-4: #2E271E;
+  --izp-card: #221B15;
+  --izp-line: #362D22;
+  --izp-line-soft: #2C241B;
+  --izp-line-strong: #4A3E2E;
+  --izp-text: #F2EADD;
+  --izp-text-soft: #CFC2AE;
+  --izp-text-mute: #A2947F;
+  --izp-text-tert: #8A7E6C;
+  --izp-zhu: #E0562C;
+  --izp-zhu-deep: #F07A4E;
+  --izp-zhu-lit: #F5A585;
+  --izp-zhu-rgb: 224, 86, 44;
+  --izp-shadow-card: 0 6px 18px rgba(0, 0, 0, 0.34);
+  --izp-shadow-panel: 0 12px 30px rgba(0, 0, 0, 0.40);
+  --izp-shadow-prose: 0 14px 40px rgba(0, 0, 0, 0.44);
+
+  --paper-tint: #2A1D18;
+  --paper-glass: rgba(23, 18, 14, 0.92);
+  --paper-glass-strong: rgba(23, 18, 14, 0.97);
+  --paper-overlay: rgba(0, 0, 0, 0.60);
+  --paper-border-line: rgba(210, 190, 160, 0.22);
+  --paper-primary-soft: rgba(224, 86, 44, 0.10);
+  --paper-accent-soft: rgba(224, 86, 44, 0.16);
+  --paper-accent-soft-strong: rgba(224, 86, 44, 0.26);
+  --paper-accent-hover: rgba(224, 86, 44, 0.12);
+  --paper-accent-border: rgba(224, 86, 44, 0.50);
+
+  --accent-soft: rgba(224, 86, 44, 0.16);
+  --accent-soft-strong: rgba(224, 86, 44, 0.26);
+  --brand-soft: rgba(224, 86, 44, 0.16);
+  --brand-soft-strong: rgba(224, 86, 44, 0.26);
+  --badge-bg: rgba(224, 86, 44, 0.18);
+  --badge-border: rgba(224, 86, 44, 0.34);
+  --badge-text: var(--izp-zhu-lit);
+
+  --muted-bg: var(--izp-paper-2);
+  --surface: var(--izp-card);
+  --surface-raised: var(--izp-card);
+  --panel: var(--izp-paper-2);
+  --panel-strong: var(--izp-paper-4);
+  --panel-card-bg: var(--izp-card);
+  --panel-note-bg: var(--izp-paper-3);
+  --secondary: var(--izp-paper-3);
+  --nav-surface: var(--izp-paper-2);
+  --ink-100: var(--izp-card);
+  --ink-200: var(--izp-paper-3);
+  --ink-300: var(--izp-paper-4);
+  --product-surface: var(--izp-paper-2);
+  --product-surface-subtle: var(--izp-paper-3);
+  --wb-panel: var(--izp-paper-2);
+  --wb-panel-strong: var(--izp-paper-4);
+  --cinema-panel: var(--izp-paper-2);
+  --cinema-panel-strong: var(--izp-paper-4);
+  --cinema-line: rgba(210, 190, 160, 0.18);
+  --cinema-line-strong: rgba(210, 190, 160, 0.32);
+
+  --btn-ghost-bg: rgba(255, 255, 255, 0.04);
+  --btn-action-bg: rgba(34, 27, 21, 0.82);
+  --btn-nav-hover-bg: rgba(255, 255, 255, 0.06);
+  --btn-solid-text: #17120E;
+  --btn-nav-primary-text: #17120E;
+  --btn-action-solid-text: #17120E;
+  --primary-foreground: #17120E;
+}
+
+html:root[data-tone='dark'] body select,
+html:root[data-tone='dark'] body input,
+html:root[data-tone='dark'] body textarea {
+  background-color: var(--izp-paper-3);
+  border-color: var(--izp-line-strong);
+  color: var(--izp-text);
+}
+
+html:root[data-tone='dark'] body input::placeholder,
+html:root[data-tone='dark'] body textarea::placeholder {
+  color: #7C7160;
+}
+
+html:root[data-tone='dark'] body ::selection {
+  color: var(--izp-text);
+  background: rgba(224, 86, 44, 0.30);
+}
+
+html:root[data-tone='dark'] body ::-webkit-scrollbar-thumb {
+  background: #3E3427;
+  background-clip: content-box;
+}
+
+/* 深色下侧栏与主区同为墨，靠一条线分开即可 */
+html:root[data-tone='dark'] .ide-sidebar {
+  background: #14100C;
+  border-right-color: #2A231A;
+}
+
+/* ============================================================================
+ * 8. 残留硬编码冷色的定点清除
+ * ----------------------------------------------------------------------------
+ * 用 6 条路由做「含冷色的规则 × 选择器是否命中元素」审计后，267 条规则里只有
+ * 下面这 14 条真正渲染、共 35 处声明；其余 253 条（487 处声明）是选择器不匹配
+ * 任何元素的死 CSS（见交付说明）。所以这里不盲扫全量，只精确修这 14 条。
+ * 选择器均比原规则多一档特异性（html body …）以确保生效。
+ * ========================================================================== */
+
+/* body：原本是冷蓝径向光 + #EEF2F6 底，这是全站最底层的冷色来源。
+   注意 cinematic-theme.css 里另有一条 body { background: ...薄荷绿径向 + #071014 暗青渐变 ... !important }
+   把薄荷绿钉在 body 上（特异性压不住，必须同为 !important）。
+   该渐变目前被 .ide-shell（100vh）完全盖住所以看不见，但它是「薄荷绿渗进纸感」的源头，一并覆盖。 */
+html body {
+  background-color: var(--izp-paper) !important;
+  background-image: radial-gradient(circle at 12% 4%, rgba(200, 68, 30, 0.05), transparent 30rem) !important;
+  color: var(--izp-text);
+}
+html body::before {
+  display: none !important;
+}
+html #root {
+  background: var(--izp-paper) !important;
+}
+
+/* 资料库工具条：整条面板的线是冷灰蓝 */
+html body .books-admin-page .books-page-toolbar {
+  border-color: var(--izp-line);
+  box-shadow: var(--izp-shadow-panel);
+}
+
+/* 资料库工具条的输入框与下拉：冷灰蓝描边 */
+html body .books-admin-page .books-page-toolbar-input,
+html body .books-admin-page .books-page-toolbar-select {
+  border-color: var(--izp-line-strong);
+}
+
+/* 资料库表单控件：原本是 rgba(3,12,15,.72) 的冷黑半透明底 */
+html body .books-admin-page input,
+html body .books-admin-page textarea,
+html body .books-admin-page select {
+  background-color: var(--izp-card);
+  border-color: var(--izp-line-strong);
+  color: var(--izp-text);
+}
+
+/* 资料库主区与页头：冷灰蓝分隔线 */
+html body .books-admin-page .library-main {
+  border-color: var(--izp-line);
+}
+html body .books-admin-page .books-page-header,
+html body .books-admin-page .library-page-title {
+  border-bottom-color: var(--izp-line);
+}
+
+/* 资料库页头文字：冷黑标题 + 冷灰副标 */
+html body .books-admin-page .books-page-header h1,
+html body .books-admin-page .library-page-title h1 {
+  color: var(--izp-text);
+  font-family: var(--font-display);
+}
+html body .books-admin-page .books-page-header-sub {
+  color: var(--izp-text-mute);
+}
+
+/* 资料库提示词入口：冷灰线 + 纯蓝链接色，这里给朱（它是个入口动作） */
+html body .books-admin-page .books-page-prompt-entry {
+  border-color: var(--izp-line-strong);
+  color: var(--izp-zhu-deep);
+}
+html body .books-admin-page .books-page-prompt-entry:hover {
+  border-color: var(--paper-accent-border);
+  color: var(--izp-zhu);
+}
+
+/* 资料库「新建作品」主按钮：原本硬编码 #3157D5 纯蓝 */
+html body .books-admin-page .books-page-toolbar-btn-primary {
+  border-color: var(--izp-zhu);
+  background-color: var(--izp-zhu);
+  color: #FFFFFF;
+  box-shadow: var(--izp-shadow-zhu);
+}
+html body .books-admin-page .books-page-toolbar-btn-primary:hover:not(:disabled) {
+  border-color: var(--izp-zhu-deep);
+  background-color: var(--izp-zhu-deep);
+  color: #FFFFFF;
+}
+
+/* 移动端：落地页列表强调字是冷绿灰 */
+html body .mobile-dashboard-action-list b,
+html body .mobile-dashboard-recent-list b {
+  color: var(--izp-text-soft);
+}
+/* 移动端：蓝色小标 */
+html body .mobile-dashboard-action-list i.is-blue {
+  background-color: var(--paper-accent-soft);
+  color: var(--izp-zhu-deep);
+}
+/* 移动端底部导航当前项：原本是薄荷绿 */
+html body .ide-mobile-nav-item.is-active {
+  background-color: var(--paper-accent-soft);
+  color: var(--izp-zhu-deep);
+}
+/* 「我的」页社交/设置图标：冷灰蓝底 + 冷灰蓝字 */
+html body .me-social-row .is-qq i,
+html body .me-setting-row > i.is-qq {
+  background-color: var(--paper-accent-soft);
+  color: var(--izp-zhu-deep);
+}
+

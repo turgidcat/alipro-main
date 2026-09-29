@@ -1,6 +1,6 @@
 const path = require('path');
 
-const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash';
+const DEFAULT_DEEPSEEK_MODEL = 'deepseek-flash';
 const DEFAULT_DATABASE_PATH = path.join(__dirname, '..', 'database', 'novel.db');
 
 function resolveDeepSeekModel(value = '') {

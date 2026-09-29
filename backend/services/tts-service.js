@@ -169,7 +169,22 @@ function resolvePython() {
 /**
  * 调用 Python 助手脚本，支持 voices / synthesize 两个子命令。
  */
-function runPythonHelper(args, input) {
+async function runPythonHelper(args, input) {
+  if (args[0] !== 'synthesize') return runPythonHelperUnmonitored(args, input);
+  const monitor = require('./model-monitor');
+  let payload;
+  try { payload = JSON.parse(input); } catch { payload = { text: input }; }
+  // The temporary output filename is infrastructure, not part of the prompt.
+  delete payload.output;
+  const call = monitor.startCall({ pointId: 'audio.synthesize', provider: 'edge-tts', endpoint: 'python:synthesize', request: payload });
+  try {
+    const result = await runPythonHelperUnmonitored(args, input);
+    call.finish({ output: { text: result }, format: payload.outputFormat });
+    return result;
+  } catch (error) { call.fail(error); throw error; }
+}
+
+function runPythonHelperUnmonitored(args, input) {
   return new Promise((resolve, reject) => {
     const helper = path.join(__dirname, 'edge-tts-helper.py');
     const child = spawn(resolvePython(), [helper, ...args], {

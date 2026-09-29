@@ -54,10 +54,10 @@ function isNoisyCountFactNoun(value = '') {
 
 function formatAuditLedgerSnapshot(snapshot = {}) {
   const characterLines = (Array.isArray(snapshot.characterRows) ? snapshot.characterRows : []).slice(0, 12).map((item) =>
-    `第${item.chapter_number}章｜角色 ${item.character_name}｜${[item.state_text, item.relationship_text, item.note_text].filter(Boolean).join('；')}`
+    `第${item.chapter_number}章｜角色 ${item.character_name}｜${item.certainty === 'legacy_unverified' ? '旧记录待核实，不得替代正文｜' : ''}${[item.state_text, item.relationship_text, item.note_text].filter(Boolean).join('；')}`
   );
   const factLines = (Array.isArray(snapshot.continuityRows) ? snapshot.continuityRows : []).slice(0, 12).map((item) =>
-    `第${item.chapter_number}章｜事实｜${item.fact_text}`
+    `第${item.chapter_number}章｜${item.certainty === 'legacy_unverified' ? '旧反馈待核实' : '事实'}｜${item.fact_text}`
   );
   const hookLines = (Array.isArray(snapshot.foreshadowRows) ? snapshot.foreshadowRows : []).slice(0, 12).map((item) =>
     `第${item.chapter_number}章｜伏笔 ${item.foreshadow_key}｜${item.title}｜${item.state}`
@@ -88,6 +88,7 @@ function collectLedgerDenialConflicts(content = '', snapshot = {}) {
   const earliestContacts = new Map();
 
   rows.forEach((item) => {
+    if (item.certainty === 'legacy_unverified') return;
     const name = normalizeText(item.character_name);
     const priorState = [item.state_text, item.relationship_text, item.note_text].map(normalizeText).join('；');
     if (!name || !contactPattern.test(priorState)) return;
@@ -193,10 +194,13 @@ function shouldAcceptQualityRepair(before = {}, after = {}) {
     && normalizeText(after?.deterministic_check?.status).toLowerCase() !== 'blocked';
 }
 
-function evaluatePreviousChapterRelease({ chapterNumber = 0, previousChapter = null, previousFeedback = null } = {}) {
+function evaluatePreviousChapterRelease({ chapterNumber = 0, previousChapter = null, previousFeedback = null, feedbackFreshness = '' } = {}) {
   if (Number(chapterNumber || 0) <= 1) return { status: 'not_applicable', can_continue: true, issues: [] };
   const issues = [];
   const add = (code, message) => issues.push({ code, severity: 'block', message });
+  if (['stale', 'legacy_unverified'].includes(feedbackFreshness)) {
+    add('PREVIOUS_CHAPTER_FEEDBACK_STALE', '上一章反馈没有通过当前正文与规划版本核对，请重新审校后再继续生成。');
+  }
   if (!previousChapter || !normalizeText(previousChapter.content)) {
     add('PREVIOUS_CHAPTER_MISSING', '上一章正文不存在，不能跳章自动生成。');
   }
@@ -205,7 +209,7 @@ function evaluatePreviousChapterRelease({ chapterNumber = 0, previousChapter = n
     add('PREVIOUS_CHAPTER_AUDIT_MISSING', '上一章尚未完成质量审计。');
   } else {
     // 用户已在创作台人工确认放行：跳过上一章质量门禁
-    if (quality.human_confirmed) {
+    if (quality.human_confirmed && !['stale', 'legacy_unverified'].includes(feedbackFreshness)) {
       return {
         status: 'passed',
         can_continue: true,
